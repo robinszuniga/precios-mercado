@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { aBase64, deBase64 } from '../src/base64.ts'
-import { formatoCop } from '../src/dinero.ts'
+import { formatoCop, formatoNumero } from '../src/dinero.ts'
 import { diaBogota, diasEntre, isoBogota } from '../src/fechas.ts'
 import { escaparFormula, validarFila } from '../src/seguridad.ts'
 import { ganaRemoto, enLotes } from '../src/sync.ts'
-import { etiquetaPorUnidad, precioPorUnidad } from '../src/unidades.ts'
+import { etiquetaPorUnidad, formatoContenido, precioPorUnidad } from '../src/unidades.ts'
 import { leerConfig } from '../src/config.ts'
 
 describe('fechas', () => {
@@ -37,8 +37,15 @@ describe('base64', () => {
 
 describe('dinero y unidades', () => {
   it('formato COP', () => {
-    expect(formatoCop(1234567)).toBe('$ 1.234.567')
-    expect(formatoCop(-500)).toBe('-$ 500')
+    expect(formatoCop(1234567)).toBe('$\u00a01.234.567')
+    expect(formatoCop(-500)).toBe('-$\u00a0500')
+    expect(formatoNumero(1.1)).toBe('1,1')
+    expect(formatoNumero(2500)).toBe('2.500')
+    expect(formatoNumero(0.6)).toBe('0,6')
+    expect(formatoContenido(1100, 'ml')).toBe('1,1\u00a0L')
+    expect(formatoContenido(500, 'g')).toBe('500\u00a0g')
+    expect(formatoContenido(2500, 'g')).toBe('2,5\u00a0kg')
+    expect(formatoContenido(30, 'unidad')).toBe('30\u00a0und')
     expect(formatoCop(null)).toBe('—')
   })
   it('precio por kg, L y unidad', () => {

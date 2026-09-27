@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { contenidoCompatible, parseContenido } from '@shared/contenido.ts'
 import type { Presentacion, Producto, Region } from '@shared/esquema.ts'
 import { INFO_TIENDAS, TIENDAS_VTEX, type TiendaVtex } from '@shared/tiendas.ts'
-import { etiquetaVisible, precioPorUnidad } from '@shared/unidades.ts'
+import { etiquetaVisible, formatoContenido, precioPorUnidad } from '@shared/unidades.ts'
 import type { Candidato } from '@shared/vtex/parse.ts'
 import { llamar } from '../datos/api.ts'
 import { guardar, nuevaPresentacion, observacion, registrarObservaciones } from '../datos/escritura.ts'
@@ -12,10 +12,7 @@ import { Boton, Campo, Distintivo, NombreTienda, pesos, Selector } from './ui.ts
 type Cand = Candidato & { region: Region }
 
 function textoContenido(c: Cand['contenido']): string {
-  if (!c) return ''
-  if (c.unidad === 'g') return c.valor >= 1000 ? `${c.valor / 1000} kg` : `${c.valor} g`
-  if (c.unidad === 'ml') return c.valor >= 1000 ? `${c.valor / 1000} L` : `${c.valor} ml`
-  return `${c.valor} und`
+  return c ? formatoContenido(c.valor, c.unidad).replace('\u00a0', ' ') : ''
 }
 
 async function crearDesdeCandidato(producto: Producto, c: Cand, contenido: number | null): Promise<Presentacion> {
@@ -44,7 +41,7 @@ function FilaCandidato({ c, producto, onElegir }: { c: Cand; producto: Producto;
     <li>
       <button type="button" onClick={onElegir} className="w-full py-2 text-left">
         <div className="font-medium">{c.nombre}</div>
-        <div className="flex flex-wrap items-center gap-x-2 text-sm text-stone-500">
+        <div className="flex flex-wrap items-center gap-x-2 text-sm text-stone-700">
           <NombreTienda tienda={c.tienda} />
           <span>{c.precio != null ? pesos(c.precio) : 'sin precio'}</span>
           {c.oferta && <span className="text-ok">oferta</span>}
@@ -95,14 +92,14 @@ export function Vincular({ producto, yaVinculadas, onListo }: { producto: Produc
     return (
       <div className="space-y-3">
         <p className="text-sm text-stone-600">Listo. Con el mismo código de barras encontré esto en las otras tiendas:</p>
-        {pendientes.length === 0 && <p className="text-stone-500">No aparece en las otras tiendas online.</p>}
+        {pendientes.length === 0 && <p className="text-stone-700">No aparece en las otras tiendas online.</p>}
         <ul className="divide-y divide-stone-100">
           {pendientes.map((o) => (
             <li key={`${o.tienda}-${o.skuId}`} className="flex items-center justify-between gap-2 py-2">
               <div className="min-w-0">
                 <NombreTienda tienda={o.tienda} className="text-sm" />
                 <div className="truncate">{o.nombre}</div>
-                <div className="text-sm text-stone-500">{o.precio != null ? pesos(o.precio) : 'sin precio'}</div>
+                <div className="text-sm text-stone-700">{o.precio != null ? pesos(o.precio) : 'sin precio'}</div>
               </div>
               <Boton
                 variante="secundario"
@@ -117,7 +114,7 @@ export function Vincular({ producto, yaVinculadas, onListo }: { producto: Produc
             </li>
           ))}
         </ul>
-        {error && <p className="text-sm text-peligro">{error}</p>}
+        {error && <p role="alert" className="text-sm font-medium text-peligro">{error}</p>}
         <Boton className="w-full" onClick={onListo}>Terminar</Boton>
       </div>
     )
@@ -131,7 +128,7 @@ export function Vincular({ producto, yaVinculadas, onListo }: { producto: Produc
         <div>
           <NombreTienda tienda={elegido.tienda} className="text-sm" />
           <div className="font-medium">{elegido.nombre}</div>
-          <div className="text-sm text-stone-500">{elegido.precio != null ? pesos(elegido.precio) : 'sin precio'} · SKU {elegido.skuId}</div>
+          <div className="text-sm text-stone-700">{elegido.precio != null ? pesos(elegido.precio) : 'sin precio'} · SKU {elegido.skuId}</div>
         </div>
         <Campo
           etiqueta="Tamaño del paquete"
@@ -157,8 +154,8 @@ export function Vincular({ producto, yaVinculadas, onListo }: { producto: Produc
         <Campo etiqueta="Buscar" value={q} onChange={(e) => setQ(e.target.value)} className="flex-1" />
         <Boton type="submit" disabled={buscando || !q.trim()}>{buscando ? '…' : 'Buscar'}</Boton>
       </form>
-      {error && <p className="text-sm text-peligro">{error}</p>}
-      {cands && cands.length === 0 && <p className="text-stone-500">Nada. Prueba con marca y tamaño (ej. “arroz diana 1000”).</p>}
+      {error && <p role="alert" className="text-sm font-medium text-peligro">{error}</p>}
+      {cands && cands.length === 0 && <p className="text-stone-700">Nada. Prueba con marca y tamaño (ej. “arroz diana 1000”).</p>}
       {cands && (
         <ul className="max-h-[50vh] divide-y divide-stone-100 overflow-y-auto">
           {cands.map((c) => (

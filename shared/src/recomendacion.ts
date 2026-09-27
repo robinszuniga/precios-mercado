@@ -107,9 +107,23 @@ export interface ItemPlan {
   fijo?: Tienda
 }
 
+export interface Alternativa {
+  tienda: Tienda
+  costoReal: number
+  /** Cuánto más cuesta ahí (en equivalente por unidad, lo justo para comparar tamaños distintos). */
+  diferencia: number
+}
+
+export interface ItemAsignado {
+  id: string
+  costo: CostoEnTienda
+  /** La siguiente tienda más barata entre las de hoy, para explicar la recomendación. */
+  alternativa: Alternativa | null
+}
+
 export interface GrupoTienda {
   tienda: Tienda
-  items: { id: string; costo: CostoEnTienda }[]
+  items: ItemAsignado[]
   total: number
 }
 
@@ -118,6 +132,10 @@ export interface TodoEn {
   total: number
   items: number
   de: number
+  /** Ids de los ítems que esa tienda no tiene. */
+  faltan: string[]
+  /** Lo que cuesta el plan en esos mismos ítems, para comparar peras con peras. */
+  planMismosItems: number
 }
 
 export interface Plan {
@@ -188,19 +206,38 @@ export function planCompra(items: readonly ItemPlan[], tiendasHoy: readonly Tien
 
   const grupos: GrupoTienda[] = []
   const sinPrecio: string[] = []
+  const costoPlan = new Map<string, number>()
   for (const it of items) {
     const t = mejor?.asignacion.get(it.id)
     const c = t ? it.costos[t] : undefined
     if (!t || !c) { sinPrecio.push(it.id); continue }
     let g = grupos.find((x) => x.tienda === t)
     if (!g) { g = { tienda: t, items: [], total: 0 }; grupos.push(g) }
-    g.items.push({ id: it.id, costo: c })
+    let alternativa: Alternativa | null = null
+    for (const otra of tiendasHoy) {
+      const co = it.costos[otra]
+      if (otra === t || !co) continue
+      if (!alternativa || co.costoEquivalente - c.costoEquivalente < alternativa.diferencia) {
+        alternativa = { tienda: otra, costoReal: co.costoReal, diferencia: co.costoEquivalente - c.costoEquivalente }
+      }
+    }
+    g.items.push({ id: it.id, costo: c, alternativa })
     g.total += c.costoReal
+    costoPlan.set(it.id, c.costoReal)
   }
+  // Mismo orden de tiendas en todas las pantallas: el de las tiendas de hoy.
+  grupos.sort((a, b) => tiendasHoy.indexOf(a.tienda) - tiendasHoy.indexOf(b.tienda))
 
   const todoEn: TodoEn[] = tiendasHoy.map((t) => {
     const con = items.filter((i) => i.costos[t])
-    return { tienda: t, total: con.reduce((s, i) => s + i.costos[t]!.costoReal, 0), items: con.length, de: items.length }
+    return {
+      tienda: t,
+      total: con.reduce((s, i) => s + i.costos[t]!.costoReal, 0),
+      items: con.length,
+      de: items.length,
+      faltan: items.filter((i) => !i.costos[t]).map((i) => i.id),
+      planMismosItems: con.reduce((s, i) => s + (costoPlan.get(i.id) ?? 0), 0),
+    }
   })
   const completas = todoEn.filter((x) => x.items === x.de && x.de > 0).sort((a, b) => a.total - b.total)
   const mejorUnica = completas[0] ?? null

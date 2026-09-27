@@ -18,7 +18,8 @@ export async function cerrarCompra(compra: Compra): Promise<ResultadoCierre> {
   const obs: Observacion[] = []
   for (const d of detalles) {
     const p = d.presentacion_id ? presentaciones.get(d.presentacion_id) : undefined
-    if (d.estado !== 'en_carrito' || !p || !(d.precio_unitario && d.precio_unitario > 0)) continue
+    // Solo lo que el usuario vio en la tienda: un sugerido de internet aceptado sin mirar no se vuelve "precio de tienda".
+    if (d.estado !== 'en_carrito' || !p || !(d.precio_unitario && d.precio_unitario > 0) || !d.precio_confirmado) continue
     obs.push(observacion({ presentacion: p, precio: d.precio_unitario, origen: 'tienda', fuente: 'compra', compraId: compra.compra_id, id: `compra:${d.detalle_id}` }))
   }
 

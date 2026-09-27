@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { INFO_TIENDAS, type Tienda } from '@shared/tiendas.ts'
+import type { Tienda } from '@shared/tiendas.ts'
 import { formatoCop } from '@shared/dinero.ts'
 
 export interface Serie {
@@ -7,10 +7,33 @@ export interface Serie {
   puntos: { t: number; v: number }[]
 }
 
-const COLORES: Record<Tienda, string> = { EXITO: '#ca8a04', OLIMPICA: '#dc2626', D1: '#1d4ed8', ARA: '#ea580c' }
+/** Mismos colores que en toda la app. D1 punteado para que no se confunda con Olímpica (las dos son rojas). */
+export const ESTILO_SERIE: Record<Tienda, { color: string; guiones?: number[] }> = {
+  EXITO: { color: '#a16207' },
+  OLIMPICA: { color: '#be123c' },
+  D1: { color: '#7f1d1d', guiones: [6, 4] },
+  ARA: { color: '#c2410c', guiones: [2, 3] },
+}
 
-/** Línea escalonada por tienda. uPlot se carga solo al abrir el histórico (~22 KB). */
-export function Grafico({ series, etiqueta }: { series: Serie[]; etiqueta: string }) {
+const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+
+export function fechaCorta(ms: number): string {
+  const d = new Date(ms - 5 * 3600000) // hora de Bogotá
+  return `${d.getUTCDate()} ${MESES[d.getUTCMonth()]}`
+}
+
+/** Muestra de línea para la lista que acompaña al gráfico. */
+export function MuestraLinea({ tienda }: { tienda: Tienda }) {
+  const e = ESTILO_SERIE[tienda]
+  return (
+    <svg aria-hidden width="22" height="8" className="shrink-0">
+      <line x1="1" y1="4" x2="21" y2="4" stroke={e.color} strokeWidth="3" strokeDasharray={e.guiones?.join(' ')} strokeLinecap="round" />
+    </svg>
+  )
+}
+
+/** Línea escalonada por tienda. uPlot se carga solo al abrir el historial (~22 KB). */
+export function Grafico({ series }: { series: Serie[] }) {
   const caja = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!caja.current || !series.length) return
@@ -29,17 +52,23 @@ export function Grafico({ series, etiqueta }: { series: Serie[]; etiqueta: strin
         {
           width: caja.current.clientWidth,
           height: 220,
+          legend: { show: false },
+          cursor: { points: { size: 8 } },
           scales: { x: { time: true } },
-          axes: [{}, { values: (_u: unknown, vs: number[]) => vs.map((v) => formatoCop(v)), size: 70 }],
+          axes: [
+            { values: (_u: unknown, vs: number[]) => vs.map((v) => fechaCorta(v * 1000)), stroke: '#44403c' },
+            { values: (_u: unknown, vs: number[]) => vs.map((v) => formatoCop(v)), size: 76, stroke: '#44403c' },
+          ],
           series: [
             {},
             ...series.map((s) => ({
-              label: INFO_TIENDAS[s.tienda].nombre,
-              stroke: COLORES[s.tienda],
-              width: 2,
+              label: s.tienda,
+              stroke: ESTILO_SERIE[s.tienda].color,
+              dash: ESTILO_SERIE[s.tienda].guiones,
+              width: 2.5,
               spanGaps: true,
+              points: { show: false },
               paths: uPlot.paths.stepped!({ align: 1 }),
-              value: (_u: unknown, v: number | null) => (v == null ? '—' : `${formatoCop(v)} ${etiqueta}`),
             })),
           ],
         },
@@ -49,6 +78,6 @@ export function Grafico({ series, etiqueta }: { series: Serie[]; etiqueta: strin
       destruir = () => grafico.destroy()
     })()
     return () => { vivo = false; destruir() }
-  }, [series, etiqueta])
-  return <div ref={caja} className="w-full overflow-hidden" />
+  }, [series])
+  return <div ref={caja} className="w-full overflow-hidden" aria-hidden />
 }

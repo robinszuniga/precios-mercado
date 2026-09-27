@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { llamar } from '../datos/api.ts'
+import { useMeta } from '../datos/consultas.ts'
 import { conexion, sincronizar } from '../datos/sync.ts'
 import { Boton } from './ui.tsx'
 
@@ -14,6 +15,7 @@ interface JobPublico {
 
 /** Dispara la actualización en el servidor (tarda: corre en segundo plano) y consulta el avance cada 5 s. */
 export function ActualizarPrecios() {
+  const c = useMeta<{ url: string; token: string }>('conexion', { url: '', token: '' })
   const [job, setJob] = useState<JobPublico | null>(null)
   const [mensaje, setMensaje] = useState('')
   const [ocupado, setOcupado] = useState(false)
@@ -56,12 +58,19 @@ export function ActualizarPrecios() {
   }
 
   const avance = job && job.total ? Math.round((job.hechos / job.total) * 100) : 0
+  if (!c.url || !c.token) {
+    return (
+      <a href="#/ajustes" className="block min-h-11 rounded-xl border border-dashed border-stone-300 px-3 py-2.5 text-sm text-stone-700">
+        Para traer precios de Éxito y Olímpica, conecta la copia en Google <span className="text-marca">→ Ajustes</span>
+      </a>
+    )
+  }
   return (
     <div className="space-y-1">
       <Boton variante="secundario" className="w-full" onClick={iniciar} disabled={ocupado}>
-        {ocupado ? `Actualizando precios online… ${job?.total ? `${avance}%` : ''}` : '↻ Actualizar precios online'}
+        {ocupado ? `Actualizando precios online… ${job?.total ? `${avance} %` : ''}` : '↻ Traer precios de Éxito y Olímpica'}
       </Boton>
-      {mensaje && <p className="text-center text-sm text-stone-600" role="status">{mensaje}</p>}
+      {mensaje && <p className="text-center text-sm text-stone-700" role="status">{mensaje}</p>}
     </div>
   )
 }

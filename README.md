@@ -55,12 +55,19 @@ En iPhone la app instalada no comparte datos con Safari: por eso se configura de
 
 ## Uso
 
-1. **Lista**: crea tus productos (★ = recurrente, entra solo en cada compra). En cada producto:
-   - **Anotar precio**: lo que ves en la tienda (marca, tamaño y precio).
+1. **Productos**: crea tus productos (★ = entra solo en cada compra) o empieza con la lista típica. En cada producto:
+   - **Anotar precio**: lo que ves en la tienda (marca, tamaño y precio). Avisa si el precio parece mal escrito.
    - **Buscar online**: busca en Éxito, Olímpica o D1, eliges el producto exacto y con su código de barras la app lo busca en las demás.
-2. **Plan**: marca las tiendas que visitas hoy, toca **Actualizar precios online** y mira dónde comprar cada cosa.
-3. **Compra**: pon el presupuesto, marca lo que echas al carrito (el precio viene prellenado, ajústalo si cambió) y cierra la compra.
-4. **Histórico**: cómo cambian los precios de cada producto y el resumen de cada compra.
+2. **Plan**: marca las tiendas que visitas hoy y mira dónde comprar cada cosa y por qué. Toca un producto para cambiar
+   la cantidad de esta vez, fijar la tienda o quitarlo.
+3. **Compra**: pon el presupuesto, marca lo que echas al carrito (el círculo lo marca de una si el precio ya lo viste
+   en la tienda) y cierra la compra. Solo los precios que confirmaste quedan como precio de tienda.
+4. **Historial**: cómo cambian los precios de cada producto, el resumen de cada compra y lo gastado en el mes.
+
+Las tiendas se muestran con su logo (el ícono que publica cada una en su página; no se copia al repo). Si no carga,
+se ve su letra: É, O, D1, A.
+
+La auditoría de experiencia de uso y las capturas antes y después de las mejoras están en `docs/ux/`.
 
 ## Desarrollo
 

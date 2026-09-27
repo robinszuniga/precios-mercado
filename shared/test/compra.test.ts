@@ -123,6 +123,23 @@ describe('planCompra', () => {
     expect(p.todoEn[0]).toMatchObject({ tienda: 'EXITO', items: 1, de: 2 })
   })
 
+  it('explica cada ítem con la siguiente tienda más barata', () => {
+    const p = planCompra([item('a', { EXITO: 10000, D1: 9400, OLIMPICA: 9800 })], ['EXITO', 'D1', 'OLIMPICA'], 3000)
+    expect(p.grupos[0].items[0].alternativa).toEqual({ tienda: 'OLIMPICA', costoReal: 9800, diferencia: 400 })
+  })
+
+  it('dice qué le falta a cada tienda y cuánto cuesta el plan en esos mismos ítems', () => {
+    const p = planCompra([item('a', { EXITO: 1000, D1: 800 }), item('b', { EXITO: 500 })], ['EXITO', 'D1'], 0)
+    const d1 = p.todoEn.find((x) => x.tienda === 'D1')!
+    expect(d1.faltan).toEqual(['b'])
+    expect(d1.planMismosItems).toBe(800)
+  })
+
+  it('ordena los grupos como las tiendas de hoy', () => {
+    const p = planCompra([item('a', { EXITO: 1000 }), item('b', { D1: 500 })], ['D1', 'EXITO'], 0)
+    expect(p.grupos.map((g) => g.tienda)).toEqual(['D1', 'EXITO'])
+  })
+
   it('solo considera las tiendas de hoy', () => {
     const p = planCompra([item('a', { EXITO: 9000, ARA: 1000 })], ['EXITO'], 0)
     expect(p.tiendas).toEqual(['EXITO'])
@@ -143,6 +160,12 @@ describe('estadoPresupuesto', () => {
     expect(r.restante).toBe(9000)
     expect(r.proyectado).toBe(6000)
   })
+  it('avisa en amarillo si con lo que falta se pasaría, aunque lo gastado vaya bien', () => {
+    const r = estadoPresupuesto([d(30000)], 100000, 0.85, 80000)
+    expect(r).toMatchObject({ color: 'amarillo', motivo: 'pasaria', alTerminar: -10000 })
+    expect(estadoPresupuesto([d(30000)], 100000, 0.85, 40000)).toMatchObject({ color: 'verde', motivo: 'ok', alTerminar: 30000 })
+  })
+
   it('sin presupuesto no hay color', () => {
     expect(estadoPresupuesto([d(1000)], null, 0.85).color).toBeNull()
     expect(estadoPresupuesto([d(1000)], 0, 0.85).color).toBeNull()

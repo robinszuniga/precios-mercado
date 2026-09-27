@@ -63,3 +63,17 @@ export function itemsDelPlan(cat: Catalogo, detalles: readonly Detalle[], ahora:
 export function useMeta<T>(clave: string, porDefecto: T): T {
   return useLiveQuery(async () => ((await db.meta.get(clave))?.valor as T) ?? porDefecto, [clave]) ?? porDefecto
 }
+
+/** Para ordenar como se recorre el súper: pasillo (según Ajustes) y luego nombre. */
+export function comparadorPasillo(cat: Catalogo) {
+  const orden = new Map(cat.categorias.map((c, i) => [c.categoria_id, i]))
+  const clave = (productoId: string) => {
+    const p = cat.producto.get(productoId)
+    return { o: p ? (orden.get(p.categoria_id) ?? 999) : 1000, n: p?.nombre ?? '' }
+  }
+  return (a: string, b: string) => {
+    const x = clave(a)
+    const y = clave(b)
+    return x.o - y.o || x.n.localeCompare(y.n, 'es')
+  }
+}

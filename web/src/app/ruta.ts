@@ -28,15 +28,27 @@ export function ir(ruta: string) {
   window.location.hash = ruta.startsWith('#') ? ruta : `#/${ruta.replace(/^\//, '')}`
 }
 
+/** Posición de scroll por pantalla: al volver de un producto, la lista queda donde estaba. */
+const posiciones = new Map<string, number>()
+
 export function useRuta(): Ruta {
   const [ruta, setRuta] = useState(() => leerRuta(window.location.hash))
   useEffect(() => {
+    let actual = window.location.hash
+    const guardar = () => posiciones.set(actual, window.scrollY)
+    window.addEventListener('scroll', guardar, { passive: true })
     const cambio = () => {
-      setRuta(leerRuta(window.location.hash))
-      window.scrollTo(0, 0)
+      actual = window.location.hash
+      setRuta(leerRuta(actual))
+      const y = posiciones.get(actual) ?? 0
+      // Espera a que la pantalla se pinte con sus datos antes de restaurar.
+      requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y)))
     }
     window.addEventListener('hashchange', cambio)
-    return () => window.removeEventListener('hashchange', cambio)
+    return () => {
+      window.removeEventListener('hashchange', cambio)
+      window.removeEventListener('scroll', guardar)
+    }
   }, [])
   return ruta
 }

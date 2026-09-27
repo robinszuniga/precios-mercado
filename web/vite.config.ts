@@ -41,7 +41,20 @@ export default defineConfig({
         // Solo el shell de la app. Los datos van en IndexedDB; nunca se cachean respuestas de Google.
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         navigateFallback: 'index.html',
-        runtimeCaching: [],
+        // Solo los logos de las tiendas (imágenes estáticas), para verlos sin señal.
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) =>
+              /(^|\.)(exito\.com|olimpica\.com|vteximg\.com\.br|aratiendas\.com)$/.test(url.hostname) &&
+              /\.(ico|png|jpe?g|svg|webp)$/i.test(url.pathname),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'logos-tiendas',
+              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 60 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
       },
     }),
   ],

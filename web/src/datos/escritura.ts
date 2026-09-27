@@ -129,3 +129,45 @@ export async function agregarALaCompra(producto: Producto, tiendasHoy: Tienda[])
   const [d] = await guardar('Compras_detalle', nuevoDetalle(compra.compra_id, { producto_id: producto.producto_id, necesidad: producto.cantidad_habitual }))
   return d
 }
+
+/** Quita un producto de la compra abierta (con Deshacer en la pantalla). Devuelve el ítem quitado. */
+export async function quitarDeLaCompra(productoId: string): Promise<Detalle | undefined> {
+  const compra = await compraAbierta()
+  if (!compra) return undefined
+  const d = (await db.detalle.where('compra_id').equals(compra.compra_id).toArray()).find((x) => !x.borrado && x.producto_id === productoId)
+  if (!d) return undefined
+  await guardar('Compras_detalle', { ...d, borrado: true })
+  return d
+}
+
+export async function restaurarDetalle(d: Detalle) {
+  await guardar('Compras_detalle', { ...d, borrado: false })
+}
+
+type Base = [nombre: string, unidad: Producto['unidad_base'], cantidad: number]
+
+/** Para no empezar de cero: los productos que casi todo el mundo compra en la costa, por pasillo. */
+export const LISTA_TIPICA: [pasillo: string, productos: Base[]][] = [
+  ['Frutas y verduras', [['Tomate', 'g', 1], ['Cebolla cabezona', 'g', 1], ['Plátano verde', 'unidad', 6], ['Papa', 'g', 2], ['Limón', 'unidad', 10]]],
+  ['Granos', [['Arroz', 'g', 5], ['Fríjol', 'g', 1], ['Lentejas', 'g', 0.5]]],
+  ['Lácteos y huevos', [['Leche entera', 'ml', 6], ['Huevos AA', 'unidad', 30], ['Queso costeño', 'g', 0.5]]],
+  ['Despensa', [['Aceite', 'ml', 1], ['Azúcar', 'g', 2], ['Sal', 'g', 1], ['Café', 'g', 0.5], ['Pasta', 'g', 1]]],
+  ['Carnes', [['Pollo', 'g', 2], ['Carne molida', 'g', 1]]],
+  ['Aseo', [['Papel higiénico', 'unidad', 12], ['Jabón en barra', 'unidad', 3], ['Detergente en polvo', 'g', 1]]],
+]
+
+export async function crearListaTipica() {
+  const ahora = ahoraIso()
+  const categorias: Categoria[] = []
+  const productos: Producto[] = []
+  LISTA_TIPICA.forEach(([pasillo, items], i) => {
+    const c: Categoria = { categoria_id: nuevoId(), nombre: pasillo, orden: i + 1, borrado: false, updated_at: ahora }
+    categorias.push(c)
+    for (const [nombre, unidad_base, cantidad_habitual] of items) {
+      productos.push(nuevoProducto({ nombre, categoria_id: c.categoria_id, unidad_base, cantidad_habitual, recurrente: true }))
+    }
+  })
+  await guardar('Categorias', categorias)
+  await guardar('Productos', productos)
+  return productos.length
+}

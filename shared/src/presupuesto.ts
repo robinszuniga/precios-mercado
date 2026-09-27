@@ -8,9 +8,14 @@ export interface EstadoPresupuesto {
   proyectado: number
   presupuesto: number | null
   restante: number | null
+  /** Lo que sobraría (positivo) o faltaría (negativo) al terminar, según lo proyectado. */
+  alTerminar: number | null
   /** gastado / presupuesto. null sin presupuesto. */
   proporcion: number | null
+  proporcionProyectada: number | null
   color: ColorPresupuesto | null
+  /** Por qué el color: 'pasado' ya se pasó; 'pasaria' se pasaría con lo que falta; 'cerca' llegó a la alerta. */
+  motivo: 'ok' | 'cerca' | 'pasaria' | 'pasado' | null
 }
 
 export function subtotal(cantidad: number | null, precioUnitario: number | null): number {
@@ -19,7 +24,8 @@ export function subtotal(cantidad: number | null, precioUnitario: number | null)
 }
 
 /**
- * Verde por debajo de la alerta (85 %), amarillo desde la alerta hasta el 100 % inclusive, rojo al pasarse.
+ * Rojo si ya se pasó. Amarillo si lo gastado llegó a la alerta (85 %) o si, con lo que falta, se pasaría:
+ * así avisa antes de que sea tarde. Verde en otro caso.
  * `estimadoPendientes` es la suma estimada de los ítems que siguen pendientes.
  */
 export function estadoPresupuesto(
@@ -33,9 +39,17 @@ export function estadoPresupuesto(
     .reduce((s, d) => s + subtotal(d.cantidad, d.precio_unitario), 0)
   const proyectado = gastado + Math.round(estimadoPendientes)
   if (presupuesto == null || !(presupuesto > 0)) {
-    return { gastado, proyectado, presupuesto: null, restante: null, proporcion: null, color: null }
+    return { gastado, proyectado, presupuesto: null, restante: null, alTerminar: null, proporcion: null, proporcionProyectada: null, color: null, motivo: null }
   }
   const proporcion = gastado / presupuesto
-  const color: ColorPresupuesto = proporcion > 1 ? 'rojo' : proporcion >= alerta ? 'amarillo' : 'verde'
-  return { gastado, proyectado, presupuesto, restante: presupuesto - gastado, proporcion, color }
+  const proporcionProyectada = proyectado / presupuesto
+  let motivo: EstadoPresupuesto['motivo'] = 'ok'
+  if (proporcion > 1) motivo = 'pasado'
+  else if (proporcionProyectada > 1) motivo = 'pasaria'
+  else if (proporcion >= alerta) motivo = 'cerca'
+  const color: ColorPresupuesto = motivo === 'pasado' ? 'rojo' : motivo === 'ok' ? 'verde' : 'amarillo'
+  return {
+    gastado, proyectado, presupuesto, restante: presupuesto - gastado, alTerminar: presupuesto - proyectado,
+    proporcion, proporcionProyectada, color, motivo,
+  }
 }

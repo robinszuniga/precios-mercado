@@ -1,93 +1,116 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import type { Detalle } from '@shared/esquema.ts'
+import { useState } from 'react'
+import { diasEntre } from '@shared/fechas.ts'
 import { planCompra } from '@shared/recomendacion.ts'
-import { INFO_TIENDAS, TIENDAS, type Tienda } from '@shared/tiendas.ts'
-import { etiquetaVisible } from '@shared/unidades.ts'
+import { INFO_TIENDAS, TIENDAS } from '@shared/tiendas.ts'
+import { formatoCantidadVisible } from '@shared/unidades.ts'
 import { ActualizarPrecios } from '../componentes/ActualizarPrecios.tsx'
+import { HojaItemPlan } from '../componentes/ItemPlan.tsx'
 import { describirPresentacion } from '../componentes/RegistrarPrecio.tsx'
-import { Boton, ChipTienda, NombreTienda, pesos, Tarjeta, Titulo, Vacio } from '../componentes/ui.tsx'
-import { itemsDelPlan, useCatalogo, type Catalogo } from '../datos/consultas.ts'
+import { Boton, Campo, Cargando, ChipTienda, Distintivo, hace, Hoja, leerNumero, NombreTienda, pesos, Tarjeta, Titulo, Vacio } from '../componentes/ui.tsx'
+import { comparadorPasillo, itemsDelPlan, useCatalogo } from '../datos/consultas.ts'
 import { db } from '../datos/db.ts'
 import { asegurarCompra, compraAbierta, guardar } from '../datos/escritura.ts'
 import { ahoraIso } from '../datos/sync.ts'
 import { useTiendasHoy } from '../datos/tiendasHoy.ts'
 
-function nombreDe(cat: Catalogo, d: Detalle) {
-  return d.producto_id ? cat.producto.get(d.producto_id)?.nombre ?? '?' : d.nombre_libre
-}
-
-function FijarTienda({ d, tiendas }: { d: Detalle; tiendas: Tienda[] }) {
-  return (
-    <select
-      aria-label="Fijar tienda"
-      className="rounded-lg border border-stone-200 bg-white px-1 py-0.5 text-xs text-stone-600"
-      value={d.tienda}
-      onChange={(e) => void guardar('Compras_detalle', { ...d, tienda: e.target.value as Tienda | '' })}
-    >
-      <option value="">auto</option>
-      {tiendas.map((t) => <option key={t} value={t}>{INFO_TIENDAS[t].nombre}</option>)}
-    </select>
-  )
-}
-
 export function Plan() {
   const cat = useCatalogo()
   const [tiendasHoy, alternar] = useTiendasHoy()
+  const [abierto, setAbierto] = useState<string | null>(null)
+  const [editandoPresupuesto, setEditandoPresupuesto] = useState(false)
   const datos = useLiveQuery(async () => {
     const compra = await compraAbierta()
     const detalles = compra ? (await db.detalle.where('compra_id').equals(compra.compra_id).toArray()).filter((d) => !d.borrado) : []
     return { compra, detalles }
   }, [])
-  if (!cat || !datos) return null
+  if (!cat || !datos) return <Cargando />
   const { compra, detalles } = datos
   const ahora = ahoraIso()
   const items = itemsDelPlan(cat, detalles, ahora, tiendasHoy)
   const plan = planCompra(items, tiendasHoy, cat.cfg.ahorroMinimoTienda)
   const porId = new Map(detalles.map((d) => [d.detalle_id, d]))
+  const itemPorId = new Map(items.map((i) => [i.id, i]))
   const libres = detalles.filter((d) => d.estado === 'pendiente' && !d.producto_id)
+  const orden = comparadorPasillo(cat)
+  const nombre = (id: string) => cat.producto.get(porId.get(id)?.producto_id ?? '')?.nombre ?? '?'
+  const dAbierto = abierto ? porId.get(abierto) : undefined
+  const pAbierto = dAbierto ? cat.producto.get(dAbierto.producto_id) : undefined
+  const tiendaDe = (id: string) => plan.grupos.find((g) => g.items.some((i) => i.id === id))?.tienda
 
   return (
     <section className="space-y-3">
       <Titulo>Dónde comprar</Titulo>
       <div>
-        <p className="mb-1 text-sm text-stone-600">Tiendas que visito hoy</p>
+        <p className="mb-1 text-sm text-stone-700">Tiendas que visito hoy</p>
         <div className="flex flex-wrap gap-2">
           {TIENDAS.map((t) => <ChipTienda key={t} tienda={t} activo={tiendasHoy.includes(t)} onClick={() => alternar(t)} />)}
         </div>
       </div>
-      <ActualizarPrecios />
 
       {!compra && (
         <Vacio>
-          No hay lista abierta.
-          <Boton className="mt-3 w-full" onClick={() => void asegurarCompra(tiendasHoy)}>Armar lista con mis recurrentes</Boton>
+          <p>No hay compra armada.</p>
+          <Boton className="mt-3 w-full" onClick={() => void asegurarCompra(tiendasHoy)}>Armar compra con mis productos ★</Boton>
         </Vacio>
       )}
-      {compra && items.length === 0 && libres.length === 0 && <Vacio>La lista está vacía. Agrega productos desde la pestaña Lista (+).</Vacio>}
+      {compra && items.length === 0 && libres.length === 0 && <Vacio>La compra está vacía. Agrega productos desde la pestaña Productos.</Vacio>}
+
+      {items.length > 0 && (
+        <Tarjeta className="space-y-1">
+          <p className="text-sm text-stone-700">Total con este plan ({plan.grupos.length} {plan.grupos.length === 1 ? 'tienda' : 'tiendas'})</p>
+          <p className="text-3xl font-bold">{pesos(plan.total)}</p>
+          {plan.ahorro != null && plan.mejorUnica && (
+            <p className={`font-medium ${plan.ahorro > 0 ? 'text-ok' : 'text-stone-700'}`}>
+              {plan.ahorro > 0
+                ? `Ahorras ${pesos(plan.ahorro)} frente a comprar todo en ${INFO_TIENDAS[plan.mejorUnica.tienda].nombre}`
+                : `Lo más conveniente: todo en ${INFO_TIENDAS[plan.mejorUnica.tienda].nombre}`}
+            </p>
+          )}
+          <button type="button" className="min-h-11 text-left text-sm text-stone-700" onClick={() => setEditandoPresupuesto(true)}>
+            {compra?.presupuesto != null ? (
+              <span className={plan.total > compra.presupuesto ? 'font-medium text-peligro' : ''}>
+                Presupuesto {pesos(compra.presupuesto)}: {plan.total > compra.presupuesto ? `te faltarían ${pesos(plan.total - compra.presupuesto)}` : `te sobrarían ${pesos(compra.presupuesto - plan.total)}`}
+                <span className="ml-1 text-marca">Cambiar</span>
+              </span>
+            ) : (
+              <span className="text-marca">+ Poner presupuesto</span>
+            )}
+          </button>
+        </Tarjeta>
+      )}
+
+      <ActualizarPrecios />
 
       {plan.grupos.map((g) => (
-        <Tarjeta key={g.tienda}>
-          <div className="mb-1 flex items-center justify-between">
-            <NombreTienda tienda={g.tienda} className="font-semibold" />
+        <Tarjeta key={g.tienda} className="px-2">
+          <div className="mb-1 flex items-center justify-between px-1">
+            <NombreTienda tienda={g.tienda} className="font-semibold" tam={22} />
             <span className="font-semibold">{pesos(g.total)}</span>
           </div>
-          <ul className="divide-y divide-stone-100 text-sm">
-            {g.items.map(({ id, costo }) => {
+          <ul className="divide-y divide-stone-100">
+            {[...g.items].sort((a, b) => orden(porId.get(a.id)!.producto_id, porId.get(b.id)!.producto_id)).map(({ id, costo, alternativa }) => {
               const d = porId.get(id)!
               const p = cat.producto.get(d.producto_id)!
+              const e = costo.opcion.efectivo
               return (
-                <li key={id} className="flex items-center justify-between gap-2 py-1.5">
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">{p.nombre}</div>
-                    <div className="truncate text-xs text-stone-500">
-                      {costo.opcion.presentacion.granel ? `${costo.paquetes} ${etiquetaVisible(p.unidad_base)}` : `${costo.paquetes} ×`} {describirPresentacion(costo.opcion.presentacion, p)}
-                      {costo.opcion.efectivo.distintivo !== 'tienda' && ' · online'}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 flex-col items-end gap-0.5">
-                    <span>{pesos(costo.costoReal)}</span>
-                    <FijarTienda d={d} tiendas={tiendasHoy} />
-                  </div>
+                <li key={id}>
+                  <button type="button" onClick={() => setAbierto(id)} className="flex w-full items-start justify-between gap-2 rounded-xl px-1 py-2 text-left active:bg-stone-100">
+                    <span className="min-w-0">
+                      <span className="block font-medium">{p.nombre}{d.tienda && <span className="ml-1 text-xs text-stone-600">(fijado)</span>}</span>
+                      <span className="block truncate text-sm text-stone-700">
+                        {costo.opcion.presentacion.granel ? formatoCantidadVisible(costo.paquetes, p.unidad_base) : `${costo.paquetes} ×`} {describirPresentacion(costo.opcion.presentacion, p)}
+                      </span>
+                      <span className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-stone-700">
+                        <Distintivo tipo={e.distintivo} amarillo={e.estado === 'amarillo'} dias={e.edadDias} />
+                        {e.estado !== 'amarillo' && <span>{hace(diasEntre(e.fecha, ahora))}</span>}
+                        {alternativa && alternativa.diferencia > 0 && (
+                          <span>· {pesos(alternativa.diferencia)} menos que en {INFO_TIENDAS[alternativa.tienda].nombre}</span>
+                        )}
+                      </span>
+                    </span>
+                    <span className="shrink-0 font-semibold">{pesos(costo.costoReal)}</span>
+                  </button>
                 </li>
               )
             })}
@@ -98,41 +121,64 @@ export function Plan() {
       {(plan.sinPrecio.length > 0 || libres.length > 0) && (
         <Tarjeta>
           <h2 className="mb-1 font-semibold">Sin precio en las tiendas de hoy</h2>
-          <ul className="text-sm text-stone-600">
-            {plan.sinPrecio.map((id) => {
-              const d = porId.get(id)!
-              return <li key={id}><a className="underline" href={`#/producto/${encodeURIComponent(d.producto_id)}`}>{nombreDe(cat, d)}</a></li>
-            })}
-            {libres.map((d) => <li key={d.detalle_id}>{d.nombre_libre}</li>)}
+          <ul className="text-sm">
+            {[...plan.sinPrecio].sort((a, b) => orden(porId.get(a)!.producto_id, porId.get(b)!.producto_id)).map((id) => (
+              <li key={id}><a className="flex min-h-11 items-center text-marca underline" href={`#/producto/${encodeURIComponent(porId.get(id)!.producto_id)}`}>{nombre(id)} · anotar precio</a></li>
+            ))}
+            {libres.map((d) => <li key={d.detalle_id} className="py-1">{d.nombre_libre}</li>)}
           </ul>
         </Tarjeta>
       )}
 
-      {items.length > 0 && (
-        <Tarjeta className="space-y-1 text-sm">
-          <div className="flex justify-between text-base font-semibold"><span>Total con este plan</span><span>{pesos(plan.total)}</span></div>
+      {items.length > 0 && plan.todoEn.length > 1 && (
+        <Tarjeta className="space-y-2 text-sm">
+          <h2 className="text-base font-semibold">Si compraras todo en una sola tienda</h2>
           {plan.todoEn.map((x) => (
-            <div key={x.tienda} className="flex justify-between text-stone-600">
-              <span>Todo en <NombreTienda tienda={x.tienda} /> {x.items < x.de && <span className="text-xs">({x.items} de {x.de})</span>}</span>
-              <span>{x.items ? pesos(x.total) : '—'}</span>
+            <div key={x.tienda}>
+              <div className="flex justify-between">
+                <NombreTienda tienda={x.tienda} tam={18} />
+                <span className="font-medium">{x.items ? pesos(x.total) : '—'}</span>
+              </div>
+              {x.items < x.de && x.items > 0 && (
+                <p className="text-xs text-stone-700">
+                  Le faltan {x.faltan.map(nombre).join(', ')}. En esos mismos {x.items} productos, este plan cuesta {pesos(x.planMismosItems)}.
+                </p>
+              )}
+              {x.items === 0 && <p className="text-xs text-stone-700">No hay precios de esta tienda para tu compra.</p>}
             </div>
           ))}
-          {plan.ahorro != null && plan.mejorUnica && (
-            <p className={`pt-1 font-medium ${plan.ahorro > 0 ? 'text-ok' : 'text-stone-600'}`}>
-              {plan.ahorro > 0
-                ? `Ahorras ${pesos(plan.ahorro)} frente a comprar todo en ${INFO_TIENDAS[plan.mejorUnica.tienda].nombre}.`
-                : `Lo más conveniente es comprar todo en ${INFO_TIENDAS[plan.mejorUnica.tienda].nombre}.`}
-            </p>
-          )}
-          {compra?.presupuesto != null && (
-            <p className={plan.total > compra.presupuesto ? 'text-peligro' : 'text-stone-600'}>
-              Presupuesto {pesos(compra.presupuesto)}: {plan.total > compra.presupuesto ? `faltan ${pesos(plan.total - compra.presupuesto)}` : `sobran ${pesos(compra.presupuesto - plan.total)}`}
-            </p>
-          )}
-          <p className="text-xs text-stone-500">Cada tienda extra cuenta {pesos(cat.cfg.ahorroMinimoTienda)} por el viaje (se cambia en Ajustes).</p>
+          <p className="text-xs text-stone-600">Solo se propone ir a otra tienda si ahorras más de {pesos(cat.cfg.ahorroMinimoTienda)} por viaje (se cambia en Ajustes).</p>
         </Tarjeta>
       )}
-      {compra && <a href="#/compra" className="block text-center text-marca">Ir a la compra →</a>}
+      {compra && items.length > 0 && <a href="#/compra" className="flex min-h-11 items-center justify-center font-medium text-marca">Ir a comprar →</a>}
+
+      <Hoja abierta={!!dAbierto && !!pAbierto} titulo={pAbierto?.nombre ?? ''} onCerrar={() => setAbierto(null)}>
+        {dAbierto && pAbierto && (
+          <HojaItemPlan d={dAbierto} producto={pAbierto} item={itemPorId.get(dAbierto.detalle_id)} tiendas={tiendasHoy} elegida={tiendaDe(dAbierto.detalle_id)} onListo={() => setAbierto(null)} />
+        )}
+      </Hoja>
+      <Hoja abierta={editandoPresupuesto} titulo="Presupuesto de esta compra" onCerrar={() => setEditandoPresupuesto(false)} protegida>
+        <EditarPresupuesto
+          valor={compra?.presupuesto ?? null}
+          onGuardar={async (v) => {
+            const c = compra ?? (await asegurarCompra(tiendasHoy))
+            await guardar('Compras', { ...c, presupuesto: v })
+            setEditandoPresupuesto(false)
+          }}
+        />
+      </Hoja>
     </section>
   )
 }
+
+export function EditarPresupuesto({ valor, onGuardar }: { valor: number | null; onGuardar: (v: number | null) => void | Promise<void> }) {
+  const [texto, setTexto] = useState(valor != null ? String(valor) : '')
+  const n = leerNumero(texto)
+  return (
+    <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); void onGuardar(n && n > 0 ? Math.round(n) : null) }}>
+      <Campo etiqueta="¿Cuánto tienes para este mercado?" inputMode="numeric" placeholder="Ej: 300.000" value={texto} onChange={(e) => setTexto(e.target.value)} autoFocus ayuda={n ? pesos(n) : 'Déjalo vacío para no usar presupuesto.'} />
+      <Boton type="submit" className="w-full">Guardar</Boton>
+    </form>
+  )
+}
+

@@ -82,7 +82,7 @@ export const TABLAS = {
     cols: {
       detalle_id: 't', compra_id: 't', producto_id: 't', nombre_libre: 't', necesidad: 'n', presentacion_id: 't',
       tienda: 't', cantidad: 'n', precio_unitario: 'n', subtotal: 'n', estado: 't', orden: 'n',
-      updated_at: 't', _srv: 't', borrado: 'b',
+      precio_confirmado: 'b', updated_at: 't', _srv: 't', borrado: 'b',
     },
     cliente: true,
     sincroniza: true,
@@ -240,6 +240,11 @@ export interface Detalle extends Sincronizable {
   subtotal: number | null
   estado: EstadoDetalle
   orden: number
+  /**
+   * El precio lo vio el usuario en la tienda (lo escribió, lo cambió o el sugerido ya era de tienda).
+   * Solo estos se guardan como precio de tienda al cerrar: un sugerido online aceptado sin mirar no.
+   */
+  precio_confirmado?: boolean
   borrado: boolean
 }
 

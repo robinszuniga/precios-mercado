@@ -6,36 +6,65 @@
   --color-marca: #0f766e;
   --color-marca-suave: #ccfbf1;
   --color-ok: #15803d;
-  --color-alerta: #ca8a04;
-  --color-peligro: #dc2626;
-  --color-exito: #eab308;
-  --color-olimpica: #dc2626;
-  --color-d1: #b91c1c;
-  --color-ara: #ea580c;
+  --color-alerta: #a16207;
+  --color-peligro: #b91c1c;
+  /* Tiendas: siempre con monograma (letra), así no dependen solo del color. */
+  --color-exito: #facc15;
+  --color-olimpica: #be123c;
+  --color-d1: #7f1d1d;
+  --color-ara: #c2410c;
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --animate-subir: subir 0.18s ease-out;
+  --animate-aparecer: aparecer 0.15s ease-out;
 }
 
-html,
-body {
-  background: var(--color-fondo);
-  color: var(--color-tinta);
-  -webkit-tap-highlight-color: transparent;
+@keyframes subir {
+  from { transform: translateY(24px); opacity: 0.6; }
+  to { transform: none; opacity: 1; }
 }
 
-body {
-  overscroll-behavior-y: contain;
+@keyframes aparecer {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-input,
-select,
-textarea {
-  font-size: 16px; /* evita el zoom automático de iOS */
+/*
+  Todo en capas: en Tailwind v4 cualquier CSS fuera de capa le gana a las utilidades,
+  y eso anulaba el padding de las hojas y el tamaño del texto de los selectores.
+*/
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html,
+  body {
+    background: var(--color-fondo);
+    color: var(--color-tinta);
+    -webkit-tap-highlight-color: transparent;
+    font-variant-numeric: tabular-nums;
+  }
+
+  body {
+    overscroll-behavior-y: contain;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: max(16px, 1rem); /* evita el zoom automático de iOS sin impedir texto más grande */
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--color-marca);
+    outline-offset: 2px;
+  }
 }
 
-.pb-seguro {
-  padding-bottom: calc(env(safe-area-inset-bottom) + 4.5rem);
+@utility pb-seguro {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 5rem);
 }
 
-.abajo-seguro {
-  padding-bottom: env(safe-area-inset-bottom);
+@utility abajo-seguro {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
 }
