@@ -54,6 +54,8 @@ const E = String.raw`(?![a-zñ])`
 
 // "2 bolsas de 1 kg", "6 x 1 L", "2x500 g": paquetes por medida.
 const RE_MULTI = new RegExp(String.raw`${B}(${NUM})\s*(?:(${UNIDAD})\s*(?:de|x)|x)\s*(${NUM})\s*(${UNIDAD})${E}`)
+// "1100 ml x 6 und", "1,5 litros x 2", "1 kg por 5": medida primero y luego cuántas.
+const RE_MEDIDA_X = new RegExp(String.raw`${B}(${NUM})\s*(${UNIDAD})\s*(?:x|por)\s*(${NUM})(?:\s*(${UNIDAD}))?${E}`)
 // "5 kg", "medio kilo", "x2", "30 und", "1 docena".
 const RE_MEDIDA = new RegExp(String.raw`${B}(?:x\s*)?(${NUM})\s*(${UNIDAD})${E}`)
 // "kilo de carne", "libra de queso": unidad sin número = 1.
@@ -166,13 +168,30 @@ export function leerRenglon(linea: string): Leido | null {
   const listo = (desde: number, hasta: number, cantidad: number, unidad: UnidadBase, aviso = ''): Leido | null => {
     const nombre = bonito(nombreSin(texto, desde, hasta))
     if (!nombre || !/[a-zñáéíóú]/i.test(nombre)) return null
-    return { nombre, cantidad: Math.round(cantidad * 1000) / 1000, unidad_base: unidad, aviso, original }
+    const redondeada = Math.round(cantidad * 1000) / 1000
+    const mucho = unidad === 'unidad' ? redondeada > 200 : redondeada > 30
+    const avisoFinal = mucho ? [aviso, `¿Seguro? ${String(redondeada).replace('.', ',')} ${unidad === 'g' ? 'kg' : unidad === 'ml' ? 'L' : 'und'} parece mucho: revísalo.`].filter(Boolean).join(' ') : aviso
+    return { nombre, cantidad: redondeada, unidad_base: unidad, aviso: avisoFinal, original }
+  }
+
+  const mx = bajo.match(RE_MEDIDA_X)
+  if (mx && mx.index != null) {
+    const m1 = MAPA.get(mx[2])!
+    const m2 = mx[4] ? MAPA.get(mx[4])! : null
+    const cuantas = numero(mx[3]) * (m2 && !m2.paquete ? m2.factor : 1)
+    // Medida × cuántas (1100 ml x 6 und = 6,6 L) o conteo × cuántas (30 und x 2 = 60 und). Nunca medida × medida.
+    if ((!m2 || m2.base === 'unidad') && !m1.paquete && cuantas > 0) {
+      const n = numero(mx[1]) * m1.factor * cuantas
+      if (n > 0) return listo(mx.index, mx.index + mx[0].length, n, m1.base)
+    }
   }
 
   const multi = bajo.match(RE_MULTI)
   if (multi && multi.index != null) {
     const med = MAPA.get(multi[4])!
-    if (!med.paquete) {
+    const primera = multi[2] ? MAPA.get(multi[2])! : null
+    // "N paquetes de M kg": la primera unidad tiene que ser de conteo; "1100 ml x 6 und" ya se leyó arriba.
+    if (!med.paquete && (!primera || primera.base === 'unidad')) {
       const n = numero(multi[1]) * numero(multi[3]) * med.factor
       if (n > 0) return listo(multi.index, multi.index + multi[0].length, n, med.base)
     }

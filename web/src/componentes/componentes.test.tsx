@@ -1,9 +1,9 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { estadoPresupuesto } from '@shared/presupuesto.ts'
 import { leerRuta } from '../app/ruta.ts'
 import { BarraPresupuesto } from './BarraPresupuesto.tsx'
-import { leerNumero } from './ui.tsx'
+import { leerNumero, Pasos } from './ui.tsx'
 import { precioAtipico } from './RegistrarPrecio.tsx'
 
 const d = (precio: number) => ({ estado: 'en_carrito' as const, cantidad: 1, precio_unitario: precio, borrado: false })
@@ -50,5 +50,35 @@ describe('utilidades', () => {
     expect(leerRuta('#/historico/compra/c1')).toEqual({ vista: 'historico', compraId: 'c1' })
     expect(leerRuta('')).toEqual({ vista: 'lista' })
     expect(leerRuta('#/cualquiera')).toEqual({ vista: 'lista' })
+  })
+})
+
+describe('Pasos', () => {
+  it('se puede escribir la cantidad (con coma), además de − y +', () => {
+    const cambios: number[] = []
+    render(<Pasos valor={2} paso={0.5} minimo={0.5} etiqueta="cantidad" sufijo="kg" onCambio={(v) => cambios.push(v)} />)
+    const campo = screen.getByLabelText('Escribir cantidad')
+    fireEvent.focus(campo)
+    fireEvent.change(campo, { target: { value: '0,25' } })
+    fireEvent.blur(campo)
+    fireEvent.click(screen.getByRole('button', { name: 'Más cantidad' }))
+    expect(cambios).toEqual([0.25, 2.5])
+  })
+
+  it('vacío, cero o Escape no cambian nada', () => {
+    const cambios: number[] = []
+    render(<Pasos valor={6} paso={1} etiqueta="cantidad" onCambio={(v) => cambios.push(v)} />)
+    const campo = screen.getByLabelText('Escribir cantidad')
+    for (const v of ['', '0', 'abc']) {
+      fireEvent.focus(campo)
+      fireEvent.change(campo, { target: { value: v } })
+      fireEvent.blur(campo)
+    }
+    fireEvent.focus(campo)
+    fireEvent.change(campo, { target: { value: '9' } })
+    fireEvent.keyDown(campo, { key: 'Escape' })
+    fireEvent.blur(campo)
+    expect(cambios).toEqual([])
+    expect(campo).toHaveValue('6')
   })
 })

@@ -63,15 +63,39 @@ export function Casilla({ etiqueta, checked, onChange }: { etiqueta: string; che
   )
 }
 
-/** − 5 kg + : para ajustar cantidades con el pulgar. */
+/** − 5 kg + : para ajustar cantidades con el pulgar. El número también se puede tocar y escribir. */
 export function Pasos({ valor, paso, minimo = 0, etiqueta, sufijo, onCambio }: {
   valor: number; paso: number; minimo?: number; etiqueta: string; sufijo?: string; onCambio: (v: number) => void
 }) {
   const redondear = (v: number) => Math.round(v * 1000) / 1000
+  const [escrito, setEscrito] = useState<string | null>(null)
+  const cancelado = useRef(false)
+  const mostrado = String(valor).replace('.', ',')
+  function confirmar() {
+    const n = escrito == null || cancelado.current ? null : leerNumero(escrito)
+    cancelado.current = false
+    if (n != null && n > 0 && n !== valor) onCambio(redondear(n))
+    setEscrito(null)
+  }
   return (
     <div className="flex items-center gap-1" role="group" aria-label={etiqueta}>
       <BotonIcono etiqueta={`Menos ${etiqueta}`} className="border border-stone-300 bg-white text-xl" onClick={() => onCambio(Math.max(minimo, redondear(valor - paso)))} disabled={valor <= minimo}>−</BotonIcono>
-      <span className="min-w-20 text-center font-semibold" aria-live="polite">{String(valor).replace('.', ',')}{sufijo ? ` ${sufijo}` : ''}</span>
+      <span className="flex min-w-20 items-center justify-center gap-1 font-semibold">
+        <input
+          aria-label={`Escribir ${etiqueta}`}
+          inputMode="decimal"
+          value={escrito ?? mostrado}
+          onFocus={(e) => { setEscrito(mostrado); e.currentTarget.select() }}
+          onChange={(e) => setEscrito(e.target.value)}
+          onBlur={confirmar}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur()
+            if (e.key === 'Escape') { cancelado.current = true; e.currentTarget.blur() }
+          }}
+          className="w-14 rounded-lg border border-stone-300 bg-white py-1.5 text-center tabular-nums"
+        />
+        {sufijo && <span aria-hidden>{sufijo}</span>}
+      </span>
       <BotonIcono etiqueta={`Más ${etiqueta}`} className="border border-stone-300 bg-white text-xl" onClick={() => onCambio(redondear(valor + paso))}>+</BotonIcono>
     </div>
   )

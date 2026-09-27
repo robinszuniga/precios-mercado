@@ -2,6 +2,7 @@ import { useId, useRef, useState } from 'react'
 import type { Producto } from '@shared/esquema.ts'
 import { emparejar, leerLista } from '@shared/importarLista.ts'
 import { etiquetaVisible, type UnidadBase } from '@shared/unidades.ts'
+import { useMeta } from '../datos/consultas.ts'
 import { db } from '../datos/db.ts'
 import { crearDesdeLista } from '../datos/escritura.ts'
 import { useTiendasHoy } from '../datos/tiendasHoy.ts'
@@ -15,6 +16,7 @@ type Fila = {
   unidad_base: UnidadBase
   pasillo: string
   aviso: string
+  original: string
   existente: Producto | null
 }
 
@@ -66,6 +68,7 @@ function FilaLista({ f, onCambio, onQuitar }: { f: Fila; onCambio: (f: Fila) => 
         {f.existente && <span className="text-xs font-medium text-teal-800">Ya lo tienes: se actualiza</span>}
       </div>
       {f.aviso && <p className="text-xs font-medium text-alerta">{f.aviso}</p>}
+      {f.original && <p className="truncate text-xs text-stone-500">Decía: “{f.original}”</p>}
     </li>
   )
 }
@@ -73,6 +76,8 @@ function FilaLista({ f, onCambio, onQuitar }: { f: Fila; onCambio: (f: Fila) => 
 /** Pegar el listado (WhatsApp, Notas, Excel) → revisar → guardar como productos ★ y meterlos en la compra de hoy. */
 export function PegarLista({ onListo }: { onListo: () => void }) {
   const [tiendasHoy] = useTiendasHoy()
+  const google = useMeta<{ url: string; token: string }>('conexion', { url: '', token: '' })
+  const conGoogle = !!google.url && !!google.token
   const [crudo, setCrudo] = useState('')
   const [filas, setFilas] = useState<Fila[] | null>(null)
   const [recurrentes, setRecurrentes] = useState(true)
@@ -105,6 +110,7 @@ export function PegarLista({ onListo }: { onListo: () => void }) {
       aviso: x.existente && x.existente.unidad_base !== x.unidad_base
         ? `Tu producto se mide en ${etiquetaVisible(x.existente.unidad_base)}: revisa la cantidad.`
         : x.aviso,
+      original: x.original.trim(),
       existente: x.existente,
     })))
   }
@@ -118,9 +124,9 @@ export function PegarLista({ onListo }: { onListo: () => void }) {
     )
     setGuardando(false)
     const partes = [r.creados && `${r.creados} nuevos`, r.actualizados && `${r.actualizados} actualizados`].filter(Boolean).join(' y ')
-    avisar(`Listo: ${partes}${aLaCompra ? ', ya están en la compra' : ''}. Buscando sus precios en internet…`)
+    avisar(`Listo: ${partes}${aLaCompra ? ', ya están en la compra' : ''}.${conGoogle ? ' Buscando sus precios en internet…' : ''}`)
     onListo()
-    void buscarPreciosSolo(true)
+    if (conGoogle) void buscarPreciosSolo(true)
   }
 
   if (filas) {
