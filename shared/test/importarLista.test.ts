@@ -43,6 +43,14 @@ describe('leerRenglon', () => {
     ['Huevos 30 und x 2', 'Huevos', 60, 'unidad', false],
     ['Arroz 500 kg', 'Arroz', 500, 'g', true],
     ['Huevos 300', 'Huevos', 300, 'unidad', true],
+    ['Huevos 1 cubeta x 30', 'Huevos', 30, 'unidad', false],
+    ['1 docena x 12 huevos', 'Huevos', 12, 'unidad', false],
+    ['Queso 1 libra y media', 'Queso', 0.75, 'g', false],
+    ['2 kilos y medio de papa', 'Papa', 2.5, 'g', false],
+    ['Papa kilo y medio', 'Papa', 1.5, 'g', false],
+    ['Carne 1.250 kg', 'Carne', 1.25, 'g', false],
+    ['Queso 1,500 g', 'Queso', 0.002, 'g', true],
+    ['2 Límpido', 'Límpido', 2, 'ml', true],
     ['Plátano verde 6', 'Plátano verde', 6, 'unidad', false],
     ['Leche 1 paca', 'Leche', 1, 'unidad', true],
     ['Arroz 5', 'Arroz', 5, 'g', true],
@@ -147,5 +155,18 @@ describe('emparejar', () => {
     const xs = emparejar(leerLista('frijoles 1 kg\nLeche 6 L'), mios)
     expect(xs[0].existente?.nombre).toBe('Fríjol')
     expect(xs[1].existente).toBeNull()
+  })
+})
+
+describe('más casos de listas reales', () => {
+  it('una sola línea con comas separa aunque el siguiente empiece por número', () => {
+    expect(leerLista('arroz, fríjol, 2 kg papa').map((x) => [x.nombre, x.cantidad])).toEqual([['Arroz', 1], ['Fríjol', 1], ['Papa', 2]])
+  })
+
+  it('repetido en otra unidad no se pierde: queda el aviso con lo que decía', () => {
+    const xs = leerLista('Leche 2 L\nLeche 6 und')
+    expect(xs).toHaveLength(1)
+    expect(xs[0].aviso).toContain('Leche 6 und')
+    expect(xs[0].aviso).not.toContain('se sumó')
   })
 })

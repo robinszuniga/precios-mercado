@@ -259,3 +259,19 @@ describe('resumenCierre', () => {
     expect(r.referencia?.itemsTotal).toBe(1)
   })
 })
+
+describe('planCompra · misma cuenta en todo', () => {
+  it('dentro de las tiendas del plan cada producto va donde pagas menos (paquetes enteros)', () => {
+    const conMetricas = (id: string, c: Partial<Record<Tienda, [real: number, equivalente: number]>>): ItemPlan => ({
+      id,
+      costos: Object.fromEntries(Object.entries(c).map(([t, [r, e]]) => [t, { opcion: {} as never, paquetes: 1, costoReal: r, costoEquivalente: e }])),
+    })
+    // X: en Éxito el $/kg es mejor, pero hay que llevar un paquete grande (5.000); en D1 pagas 2.000.
+    const items = [conMetricas('x', { EXITO: [5000, 1000], D1: [2000, 1600] }), conMetricas('y', { D1: [10000, 10000] }), conMetricas('z', { EXITO: [10000, 10000] })]
+    const p = planCompra(items, ['EXITO', 'D1'], 3000)
+    const x = p.grupos.flatMap((g) => g.items.map((i) => ({ ...i, tienda: g.tienda }))).find((i) => i.id === 'x')!
+    expect(x.tienda).toBe('D1')
+    expect(p.total).toBe(22000)
+    expect(x.alternativa).toMatchObject({ tienda: 'EXITO', diferencia: 3000 })
+  })
+})

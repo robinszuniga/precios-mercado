@@ -1,11 +1,18 @@
 import { TABLAS, type NombreTabla, type Observacion, type PrecioActual } from '../../shared/src/esquema.ts'
-import { compararIso, esIso } from '../../shared/src/fechas.ts'
+import { compararIso, esIso, sumarSegundos } from '../../shared/src/fechas.ts'
 import { aplicarObservaciones } from '../../shared/src/observaciones.ts'
 import { escaparFormula, validarFila, type Fila } from '../../shared/src/seguridad.ts'
 import { esTienda } from '../../shared/src/tiendas.ts'
 import type { Servicios } from './puertos.ts'
 
-export type ResultadoFila = { id: string; r: 'aplicado' | 'igual' | 'antiguo' | 'error'; msg?: string }
+export type ResultadoFila = {
+  id: string
+  r: 'aplicado' | 'igual' | 'antiguo' | 'error'
+  msg?: string
+  /** Con 'antiguo': la fila vigente del servidor, para que el celular la tome y no queden distintos. */
+  tabla?: NombreTabla
+  fila?: Fila
+}
 
 function sinSrv(f: Fila): string {
   const { _srv, ...resto } = f
@@ -27,7 +34,7 @@ export function planUpsert(tabla: NombreTabla, existentes: readonly Fila[], entr
     if (previa) {
       const pu = String(previa.updated_at ?? '')
       const eu = String(e.updated_at ?? '')
-      if (esIso(pu) && esIso(eu) && compararIso(eu, pu) < 0) { resultados.push({ id, r: 'antiguo' }); continue }
+      if (esIso(pu) && esIso(eu) && compararIso(eu, pu) < 0) { resultados.push({ id, r: 'antiguo', tabla, fila: previa }); continue }
       if (sinSrv({ ...previa, ...e }) === sinSrv(previa)) { resultados.push({ id, r: 'igual' }); continue }
     }
     aGuardar.set(id, { ...(previa ?? {}), ...e, _srv: srv })
@@ -98,6 +105,8 @@ export function aplicarCambios(s: Servicios, cambios: readonly Cambio[], tablasP
   for (const c of cambios) {
     if (c.tabla === 'Observaciones') {
       const v = validarObservacion(c.fila)
+      // Un celular con el reloj adelantado no puede dejar un precio "del futuro" que tape los siguientes.
+      if (v.ok && compararIso(v.obs.fecha_observado, sumarSegundos(srv, 300)) > 0) v.obs.fecha_observado = srv
       if (v.ok) observaciones.push(v.obs)
       else resultados.push({ id: String((c.fila as Fila)?.obs_id ?? '?'), r: 'error', msg: v.error })
       continue

@@ -8,7 +8,12 @@ export function AvisoVersion() {
   } = useRegisterSW()
   if (!hayNueva) return null
   return (
-    <div className="flex items-center justify-between gap-3 bg-marca px-4 py-2 text-sm text-white">
+    // Flota arriba (no empuja la pantalla mientras marcas productos).
+    <div
+      role="status"
+      className="fixed inset-x-0 z-30 mx-auto flex max-w-lg items-center justify-between gap-3 rounded-b-xl bg-marca px-4 py-2 text-sm text-white shadow-lg"
+      style={{ top: 0, paddingTop: 'calc(env(safe-area-inset-top) + 0.5rem)' }}
+    >
       <span>Hay una versión nueva de la app.</span>
       <span className="flex gap-2">
         <button type="button" className="underline" onClick={() => setHayNueva(false)}>Luego</button>

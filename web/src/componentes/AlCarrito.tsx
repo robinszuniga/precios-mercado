@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { parseContenido } from '@shared/contenido.ts'
 import type { Detalle, Presentacion, Producto } from '@shared/esquema.ts'
 import { precioEfectivo, type PrecioEfectivo } from '@shared/precioEfectivo.ts'
@@ -6,6 +6,7 @@ import { subtotal } from '@shared/presupuesto.ts'
 import { INFO_TIENDAS, TIENDAS, type Tienda } from '@shared/tiendas.ts'
 import { etiquetaVisible, formatoCantidadVisible } from '@shared/unidades.ts'
 import type { Catalogo } from '../datos/consultas.ts'
+import { db } from '../datos/db.ts'
 import { guardar, nuevaPresentacion } from '../datos/escritura.ts'
 import { ahoraIso } from '../datos/sync.ts'
 import { describirPresentacion, precioAtipico } from './RegistrarPrecio.tsx'
@@ -58,6 +59,19 @@ export function AlCarrito({ d, producto, cat, sugerencia, tiendasHoy, onListo }:
   const [tamano, setTamano] = useState('')
   const [necesidad, setNecesidad] = useState(d.necesidad ?? producto.cantidad_habitual ?? 1)
   const [confirmando, setConfirmando] = useState(false)
+  const ocupado = useRef(false)
+
+  /** El ítem como está ahora en la base: la hoja se abrió con una copia y la cantidad pudo cambiar desde entonces. */
+  async function actual(): Promise<Detalle> {
+    return (await db.detalle.get(d.detalle_id)) ?? d
+  }
+
+  /** Un solo guardado a la vez: un doble toque no guarda dos veces. */
+  async function unaVez(fn: () => Promise<void>) {
+    if (ocupado.current) return
+    ocupado.current = true
+    try { await fn() } finally { ocupado.current = false }
+  }
 
   function cambiarTienda(t: Tienda) {
     setTienda(t)
@@ -86,6 +100,10 @@ export function AlCarrito({ d, producto, cat, sugerencia, tiendasHoy, onListo }:
     e.preventDefault()
     if (!nCantidad || !nPrecio) return
     if (atipico && !confirmando) { setConfirmando(true); return }
+    await unaVez(() => alCarrito(nCantidad, nPrecio))
+  }
+
+  async function alCarrito(nCantidad: number, nPrecio: number) {
     let p = pres
     if (!p) {
       const c = parseContenido(tamano)
@@ -94,10 +112,11 @@ export function AlCarrito({ d, producto, cat, sugerencia, tiendasHoy, onListo }:
         contenido: c && c.unidad === producto.unidad_base ? c.valor : null,
       }))
     }
-    const antes = { ...d }
+    const ahora = await actual()
+    const antes = { ...ahora }
     const precioFinal = Math.round(nPrecio)
     await guardar('Compras_detalle', {
-      ...d, tienda, presentacion_id: p.presentacion_id, cantidad: nCantidad, precio_unitario: precioFinal,
+      ...ahora, necesidad, tienda, presentacion_id: p.presentacion_id, cantidad: nCantidad, precio_unitario: precioFinal,
       subtotal: subtotal(nCantidad, precioFinal), estado: 'en_carrito',
       precio_confirmado: tocado || sugeridoConfiable(efectivo),
     })
@@ -107,7 +126,7 @@ export function AlCarrito({ d, producto, cat, sugerencia, tiendasHoy, onListo }:
 
   async function cambiarNecesidad(v: number) {
     setNecesidad(v)
-    await guardar('Compras_detalle', { ...d, necesidad: v })
+    await guardar('Compras_detalle', { ...(await actual()), necesidad: v })
   }
 
   const u = etiquetaVisible(producto.unidad_base)
@@ -156,8 +175,9 @@ export function AlCarrito({ d, producto, cat, sugerencia, tiendasHoy, onListo }:
       <div className="flex gap-2">
         {d.estado === 'en_carrito' && (
           <Boton variante="secundario" className="flex-1" onClick={async () => {
-            const antes = { ...d }
-            await guardar('Compras_detalle', { ...d, estado: 'pendiente', subtotal: null })
+            const ahora = await actual()
+            const antes = { ...ahora }
+            await guardar('Compras_detalle', { ...ahora, estado: 'pendiente', subtotal: null })
             avisar(`${producto.nombre} volvió a pendientes`, () => guardar('Compras_detalle', antes).then(() => undefined))
             onListo()
           }}>
@@ -165,8 +185,9 @@ export function AlCarrito({ d, producto, cat, sugerencia, tiendasHoy, onListo }:
           </Boton>
         )}
         <Boton variante="secundario" className="flex-1" onClick={async () => {
-          const antes = { ...d }
-          await guardar('Compras_detalle', { ...d, estado: 'no_encontrado', subtotal: null })
+          const ahora = await actual()
+          const antes = { ...ahora }
+          await guardar('Compras_detalle', { ...ahora, estado: 'no_encontrado', subtotal: null })
           avisar(`${producto.nombre}: no lo encontraste`, () => guardar('Compras_detalle', antes).then(() => undefined))
           onListo()
         }}>
@@ -174,8 +195,9 @@ export function AlCarrito({ d, producto, cat, sugerencia, tiendasHoy, onListo }:
         </Boton>
       </div>
       <Boton variante="fantasma" className="w-full text-peligro" onClick={async () => {
-        const antes = { ...d }
-        await guardar('Compras_detalle', { ...d, borrado: true })
+        const ahora = await actual()
+        const antes = { ...ahora }
+        await guardar('Compras_detalle', { ...ahora, borrado: true })
         avisar(`${producto.nombre} quitado de esta compra`, () => guardar('Compras_detalle', antes).then(() => undefined))
         onListo()
       }}>
@@ -197,12 +219,14 @@ export function ItemLibre({ compraId, onListo, crear, existente }: {
   const [cantidad, setCantidad] = useState(String(existente?.cantidad ?? 1).replace('.', ','))
   const nP = leerNumero(precio)
   const nC = leerNumero(cantidad)
+  const ocupado = useRef(false)
   return (
     <form
       className="space-y-3"
       onSubmit={async (e) => {
         e.preventDefault()
-        if (!nombre.trim() || !nP || !nC) return
+        if (!nombre.trim() || !nP || !nC || ocupado.current) return
+        ocupado.current = true
         const datos = { nombre_libre: nombre.trim(), cantidad: nC, precio_unitario: Math.round(nP), subtotal: subtotal(nC, Math.round(nP)), estado: 'en_carrito' as const, precio_confirmado: true }
         await guardar('Compras_detalle', existente ? { ...existente, ...datos } : crear(compraId, datos))
         avisar(`${nombre.trim()} al carrito · ${pesos(datos.subtotal)}`)

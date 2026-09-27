@@ -36,6 +36,9 @@ export const REFERENCIA = { lon: -74.0721, lat: 4.711 } // Bogotá
  */
 export function esLocal(ciudad: RegionVtex | null, referencia: RegionVtex | null): boolean {
   if (!estaLocalizada(ciudad)) return false
+  // Sin la referencia (falló la consulta) no se puede saber si los sellers son genéricos: mejor precio nacional
+  // que marcar como "de Riohacha" un precio que no lo es (y guardarlo así 7 días).
+  if (!referencia) return false
   const ajenos = new Set(referencia?.sellers ?? [])
   return ciudad!.sellers.some((s) => !ajenos.has(s))
 }

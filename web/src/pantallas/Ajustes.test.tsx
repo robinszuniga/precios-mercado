@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { db, guardarMeta } from '../datos/db.ts'
 import { Ajustes } from './Ajustes.tsx'
@@ -41,5 +41,21 @@ describe('Ajustes · copia en Google', () => {
     await probar()
     expect(await screen.findByText('✔ Conectado al proyecto …abc123. Copiando tus datos…', {}, { timeout: 4000 })).toBeInTheDocument()
     expect(await screen.findByText(/Copia activa \(proyecto …abc123\)/, {}, { timeout: 4000 })).toBeInTheDocument()
+  })
+})
+
+describe('Ajustes · reglas', () => {
+  it('borrar un número para reescribirlo no guarda 0', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}')))
+    render(<Ajustes />)
+    const campo = await screen.findByLabelText('Precio de tienda vencido (días)', {}, { timeout: 4000 })
+    fireEvent.change(campo, { target: { value: '' } })
+    fireEvent.blur(campo)
+    fireEvent.change(campo, { target: { value: '0' } })
+    fireEvent.blur(campo)
+    expect(await db.config.get('vigencia_tienda_max_dias')).toBeUndefined()
+    fireEvent.change(campo, { target: { value: '45' } })
+    fireEvent.blur(campo)
+    await waitFor(async () => expect((await db.config.get('vigencia_tienda_max_dias'))?.valor).toBe('45'))
   })
 })

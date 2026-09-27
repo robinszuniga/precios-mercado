@@ -186,7 +186,9 @@ export function planCompra(items: readonly ItemPlan[], tiendasHoy: readonly Tien
       for (const t of tiendas) {
         const c = it.costos[t]
         if (!c) continue
-        if (!elegida || c.costoEquivalente < it.costos[elegida]!.costoEquivalente) elegida = t
+        // Dentro de las tiendas del plan gana lo que de verdad pagas (paquetes enteros); a igual precio, el mejor $/kg.
+        const e = elegida && it.costos[elegida]!
+        if (!e || c.costoReal < e.costoReal || (c.costoReal === e.costoReal && c.costoEquivalente < e.costoEquivalente)) elegida = t
       }
       if (elegida) {
         asignacion.set(it.id, elegida)
@@ -217,8 +219,8 @@ export function planCompra(items: readonly ItemPlan[], tiendasHoy: readonly Tien
     for (const otra of tiendasHoy) {
       const co = it.costos[otra]
       if (otra === t || !co) continue
-      if (!alternativa || co.costoEquivalente - c.costoEquivalente < alternativa.diferencia) {
-        alternativa = { tienda: otra, costoReal: co.costoReal, diferencia: co.costoEquivalente - c.costoEquivalente }
+      if (!alternativa || co.costoReal - c.costoReal < alternativa.diferencia) {
+        alternativa = { tienda: otra, costoReal: co.costoReal, diferencia: co.costoReal - c.costoReal }
       }
     }
     g.items.push({ id: it.id, costo: c, alternativa })

@@ -1,4 +1,5 @@
 import { claveActual, type Categoria, type Compra, type Detalle, type NombreTabla, type Observacion, type Presentacion, type Producto } from '@shared/esquema.ts'
+import { aMs, compararIso, esIso, isoBogota } from '@shared/fechas.ts'
 import { aplicarObservaciones } from '@shared/observaciones.ts'
 import type { Tienda } from '@shared/tiendas.ts'
 import { nuevoId } from './api.ts'
@@ -10,10 +11,17 @@ export async function guardar<T extends object>(tabla: NombreTabla, filas: T | T
   const local = TABLA_LOCAL[tabla]
   if (!local) throw new Error(`Tabla ${tabla} no se escribe desde la app`)
   const ahora = ahoraIso()
-  const lista = (Array.isArray(filas) ? filas : [filas]).map((f) => ({ ...f, updated_at: ahora }))
+  // La fecha nueva siempre es posterior a la que traía la fila: si el reloj del celular va atrasado respecto a
+  // quien la escribió antes, la edición igual gana (si no, el servidor la descartaría por "vieja").
+  const despuesDe = (previa: unknown) =>
+    esIso(previa) && compararIso(previa, ahora) >= 0 ? isoBogota(aMs(previa) + 1) : ahora
+  const lista = (Array.isArray(filas) ? filas : [filas]).map((f) => ({ ...f, updated_at: despuesDe((f as { updated_at?: unknown }).updated_at) }))
   await db.transaction('rw', db.table(local), db.outbox, async () => {
     await db.table(local).bulkPut(lista)
-    await encolar('upsert', { cambios: lista.map((fila) => ({ tabla, fila })) })
+    // En tandas de 100: una lista de 300 renglones en un solo envío la rechazaría el servidor entera.
+    for (let i = 0; i < lista.length; i += 100) {
+      await encolar('upsert', { cambios: lista.slice(i, i + 100).map((fila) => ({ tabla, fila })) })
+    }
   })
   sincronizarPronto()
   return lista

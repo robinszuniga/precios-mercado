@@ -31,7 +31,11 @@ export interface Job {
 }
 
 const PROP = 'JOB'
-const LIMITE_MS = 270_000 // 4,5 min: Apps Script corta a los 6
+// 3 min de trabajo: Apps Script corta a los 6, y una tienda lenta (hasta 60 s por consulta) más la escritura final
+// bajo el lock (hasta 30 s de espera) tienen que caber en el margen.
+const LIMITE_MS = 180_000
+/** Red de seguridad: si Google corta esta ejecución, la continuación arranca sola desde lo último guardado. */
+const RESCATE_MS = 7 * 60_000
 const MAX_INTENTOS = 2
 const TAM_LOTE = 3
 
@@ -62,6 +66,7 @@ export function ejecutarJob(s: Servicios, limiteMs = LIMITE_MS): Job | null {
   const t0 = s.reloj.ms()
   job.estado = 'corriendo'
   guardarJob(s, job)
+  s.triggers.unaVez(RESCATE_MS)
 
   try {
     const cfg = leerConfig(s.repo.leer('Config') as { clave: string; valor: string }[])
@@ -158,6 +163,7 @@ export function ejecutarJob(s: Servicios, limiteMs = LIMITE_MS): Job | null {
     job.fin = s.reloj.ahora()
     job.errores.push(String(e))
     guardarJob(s, job)
+    s.triggers.borrarUnaVez()
     registrar(s, 'precios', 'error', `Falló la actualización: ${e}`)
     return job
   }

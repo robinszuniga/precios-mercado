@@ -70,6 +70,8 @@ describe('regiones', () => {
   it('el código postal da la misma región genérica en cualquier ciudad: no cuenta como local', () => {
     const generica = reg('v2.68492AFE', ['d1nacional'])
     expect(esLocal(generica, generica)).toBe(false)
+    // Si falló la consulta de Bogotá no se puede saber: precio nacional, nunca "Riohacha" por error.
+    expect(esLocal(reg('v2.x', ['d1generico']), null)).toBe(false)
   })
 
   it('respuestas inválidas', () => {

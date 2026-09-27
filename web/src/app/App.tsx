@@ -63,16 +63,27 @@ function EstadoConexion() {
       </div>
     )
   }
-  let texto: string | null = null
-  let color = 'bg-stone-200 text-stone-800'
-  if (!enLinea) texto = `Sin señal${pendientes ? ` · ${pendientes} cambios guardados, se envían solos` : ''}`
-  else if (sync.error && ERROR_DE_RED.test(sync.error)) texto = `Sin conexión estable · tus cambios están guardados y se enviarán solos`
-  else if (sync.error) { texto = `No se pudo sincronizar: ${sync.error}`; color = 'bg-red-100 text-red-900' }
-  else if (sync.enCurso && pendientes) texto = 'Guardando en Google…'
-  if (!texto) return null
+  // La señal va y viene en el súper: ese aviso flota arriba a la derecha y no empuja la lista (si la moviera,
+  // un toque caería en el producto de al lado). Solo un error de verdad, que no parpadea, ocupa su franja.
+  let pastilla: string | null = null
+  if (!enLinea) pastilla = `Sin señal${pendientes ? ` · ${pendientes} por enviar` : ''}`
+  else if (sync.error && ERROR_DE_RED.test(sync.error)) pastilla = 'Señal inestable · se envía solo'
+  if (pastilla) {
+    return (
+      <a
+        href="#/ajustes"
+        role="status"
+        className="fixed right-3 z-30 rounded-full bg-stone-800/90 px-3 py-1.5 text-xs font-medium text-white shadow"
+        style={{ top: 'calc(env(safe-area-inset-top) + 0.5rem)' }}
+      >
+        {pastilla}
+      </a>
+    )
+  }
+  if (!sync.error) return null
   return (
     <div role="status">
-      <a href="#/ajustes" className={`block min-h-11 px-4 py-3 text-center text-sm ${color}`}>{texto}</a>
+      <a href="#/ajustes" className="block min-h-11 bg-red-100 px-4 py-3 text-center text-sm text-red-900">No se pudo sincronizar: {sync.error}</a>
     </div>
   )
 }

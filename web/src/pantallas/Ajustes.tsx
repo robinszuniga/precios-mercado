@@ -4,7 +4,7 @@ import type { RegionGuardada } from '@shared/config.ts'
 import { formatoNumero } from '@shared/dinero.ts'
 import { INFO_TIENDAS, TIENDAS_VTEX, type TiendaVtex } from '@shared/tiendas.ts'
 import { BotonPegarLista } from '../componentes/PegarLista.tsx'
-import { avisar, Boton, Campo, Cargando, ErrorTexto, NombreTienda, Tarjeta, Titulo } from '../componentes/ui.tsx'
+import { avisar, Boton, Campo, Cargando, ErrorTexto, leerNumero, NombreTienda, Tarjeta, Titulo } from '../componentes/ui.tsx'
 import { llamar, ping, type Conexion } from '../datos/api.ts'
 import { useCatalogo, useMeta } from '../datos/consultas.ts'
 import { db, guardarMeta } from '../datos/db.ts'
@@ -30,7 +30,7 @@ function Reglas() {
   const cat = useCatalogo()
   if (!cat) return null
   const c = cat.cfg
-  const campo = (clave: string, etiqueta: string, valor: number, opciones: { ayuda?: string; escala?: number; sufijo?: string } = {}) => {
+  const campo = (clave: string, etiqueta: string, valor: number, opciones: { ayuda?: string; escala?: number; sufijo?: string; cero?: boolean } = {}) => {
     const escala = opciones.escala ?? 1
     const mostrado = valor * escala
     return (
@@ -41,8 +41,13 @@ function Reglas() {
         inputMode="decimal"
         ayuda={opciones.ayuda}
         onBlur={(e) => {
-          const n = Number(e.target.value.replace(/\./g, '').replace(',', '.'))
-          if (Number.isFinite(n) && n !== mostrado) {
+          // Borrar el campo para reescribirlo no guarda 0 (vencería todos los precios); "1.5" es uno y medio.
+          const n = leerNumero(e.target.value)
+          if (n == null || n < 0 || (n === 0 && !opciones.cero)) {
+            e.target.value = formatoNumero(mostrado)
+            return
+          }
+          if (n !== mostrado) {
             void guardarConfig(clave, String(n / escala))
             avisar('Guardado ✓')
           }
@@ -52,7 +57,7 @@ function Reglas() {
   }
   return (
     <Tarjeta className="space-y-3">
-      {campo('ahorro_minimo_tienda', 'Cuánto te cuesta ir a otra tienda ($)', c.ahorroMinimoTienda, { ayuda: 'El plan solo te manda a otra tienda si ahorras más que esto (pasaje, tiempo).' })}
+      {campo('ahorro_minimo_tienda', 'Cuánto te cuesta ir a otra tienda ($)', c.ahorroMinimoTienda, { ayuda: 'El plan solo te manda a otra tienda si ahorras más que esto (pasaje, tiempo).', cero: true })}
       {campo('alerta_presupuesto', 'Avisarme al llegar al … % del presupuesto', c.alertaPresupuesto, { escala: 100 })}
       <details>
         <summary className="min-h-11 cursor-pointer py-2 text-sm text-marca">Cuándo un precio se considera viejo</summary>

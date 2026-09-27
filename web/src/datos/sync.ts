@@ -49,7 +49,7 @@ async function rechazar(entradas: EntradaOutbox[], mensaje: string) {
   })
 }
 
-type ResultadoFila = { id: string; r: string; msg?: string }
+type ResultadoFila = { id: string; r: string; msg?: string; tabla?: NombreTabla; fila?: Record<string, unknown> }
 
 /** Envía la cola en orden. Devuelve false si hay un problema de configuración que no se arregla reintentando. */
 async function vaciarOutbox(c: Conexion): Promise<boolean> {
@@ -81,8 +81,16 @@ async function vaciarOutbox(c: Conexion): Promise<boolean> {
     const seqs = lote.map((e) => e.seq!)
     if (r.tipo === 'ok') {
       const errores = r.data.resultados.filter((x) => x.r === 'error')
-      await db.transaction('rw', db.outbox, db.rechazados, async () => {
+      // El servidor tenía una versión más nueva (otro celular, o este con el reloj atrasado): se toma esa, si no
+      // el celular se quedaría con la suya para siempre (el cursor de "traer" ya pasó esa fila).
+      const vigentes = r.data.resultados.filter((x) => x.r === 'antiguo' && x.tabla && x.fila && TABLA_LOCAL[x.tabla])
+      await db.transaction('rw', [db.outbox, db.rechazados, ...vigentes.map((x) => db.table(TABLA_LOCAL[x.tabla!]!))], async () => {
         for (const x of errores) await db.rechazados.add({ tabla: accion, filaId: x.id, mensaje: x.msg ?? 'error', fecha: Date.now() })
+        for (const x of vigentes) {
+          const tabla = db.table(TABLA_LOCAL[x.tabla!]!)
+          const local = await tabla.get(x.id)
+          if (ganaRemoto(local as { updated_at: string } | undefined, x.fila as { updated_at: string })) await tabla.put(x.fila)
+        }
         await db.outbox.bulkDelete(seqs)
       })
       continue

@@ -84,12 +84,29 @@ describe('upsert y pull', () => {
       obs_id: id, presentacion_id: 'pr1', tienda: 'D1', origen: 'tienda', fuente: 'manual', precio, precio_lista: null,
       disponible: true, region: '', fecha_observado: fecha, compra_id: '' } })
     post(f.s, { a: 'upsert', cambios: [obs('o1', 4000, AHORA)] })
+    f.avanzar(3600_000)
     post(f.s, { a: 'upsert', cambios: [obs('o2', 4000, '2026-09-27T11:00:00.000-05:00')] })
+    f.avanzar(3600_000)
     post(f.s, { a: 'upsert', cambios: [obs('o3', 4200, '2026-09-27T12:00:00.000-05:00')] })
     post(f.s, { a: 'upsert', cambios: [obs('o3', 4200, '2026-09-27T12:00:00.000-05:00')] })
     expect(f.repo.leer('Precios').map((p) => p.precio_id)).toEqual(['o1', 'o3'])
     expect(f.repo.leer('Precios_actuales')).toHaveLength(1)
     expect(f.repo.leer('Precios_actuales')[0]).toMatchObject({ precio: 4200, fecha_verificado: '2026-09-27T12:00:00.000-05:00' })
+  })
+
+  it('un precio "del futuro" (reloj del celular adelantado) se guarda con la hora del servidor', () => {
+    const f = crearServicios()
+    post(f.s, { a: 'upsert', cambios: [{ tabla: 'Observaciones', fila: {
+      obs_id: 'o1', presentacion_id: 'pr1', tienda: 'D1', origen: 'tienda', fuente: 'manual', precio: 4000, precio_lista: null,
+      disponible: true, region: '', fecha_observado: '2026-12-31T10:00:00.000-05:00', compra_id: '' } }] })
+    expect(f.repo.leer('Precios_actuales')[0].fecha_verificado).toBe(AHORA)
+  })
+
+  it('si la fila del celular es más vieja, el servidor le devuelve la vigente', () => {
+    const f = crearServicios()
+    post(f.s, { a: 'upsert', cambios: [{ tabla: 'Productos', fila: producto('p1', '2026-09-27T10:00:05.000-05:00', { nombre: 'Arroz Diana' }) }] })
+    const r = post(f.s, { a: 'upsert', cambios: [{ tabla: 'Productos', fila: producto('p1', '2026-09-27T10:00:01.000-05:00', { nombre: 'Arroz' }) }] })
+    expect((r.data as { resultados: unknown[] }).resultados[0]).toMatchObject({ r: 'antiguo', tabla: 'Productos', fila: { nombre: 'Arroz Diana' } })
   })
 
   it('pull incremental devuelve solo lo nuevo desde el cursor', () => {
@@ -187,6 +204,15 @@ describe('actualización de precios', () => {
     f.avanzar(2 * 3600_000)
     tareaDiaria(f.s)
     expect(f.repo.leer('Precios')).toHaveLength(2)
+  })
+
+  it('deja programado un rescate por si Google corta la ejecución, y lo quita al terminar', () => {
+    const f = crearServicios({ responder: () => ({ status: 200, cuerpo: vtexProducto('55', 5000), setCookie: [] }) })
+    prepararRegion(f)
+    f.repo.guardar('Presentaciones', [presentacion('pe', 'EXITO', '55')])
+    tareaDiaria(f.s)
+    expect(f.triggers[0]).toBe('unaVez:420000')
+    expect(f.triggers.at(-1)).toBe('borrar')
   })
 
   it('no pisa lo que el usuario cambió en la presentación mientras corría el trabajo', () => {

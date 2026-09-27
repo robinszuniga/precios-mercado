@@ -68,6 +68,7 @@ export function RegistrarPrecio({
 
   // La última tienda llega un instante después (base local): si el usuario no ha elegido otra, se usa esa.
   const eligio = useRef(false)
+  const guardando = useRef(false)
   useEffect(() => {
     if (tiendaInicial || eligio.current || !ultima || ultima === tienda) return
     setTienda(ultima)
@@ -85,6 +86,9 @@ export function RegistrarPrecio({
     e.preventDefault()
     if (!valor || valor <= 0) return
     if (pideConfirmar && !confirmando) { setConfirmando(true); return }
+    // Un doble toque no crea dos veces la misma marca/tamaño ni anota dos veces el precio.
+    if (guardando.current) return
+    guardando.current = true
     let p = pres
     if (!p) {
       ;[p] = await guardar<Presentacion>('Presentaciones', nuevaPresentacion({

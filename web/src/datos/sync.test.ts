@@ -129,3 +129,26 @@ describe('precios locales', () => {
     expect(cola.at(-1)?.payload.cambios).toEqual([expect.objectContaining({ tabla: 'Observaciones' })])
   })
 })
+
+describe('celular y servidor siempre terminan iguales', () => {
+  it('si el servidor tenía una versión más nueva, el celular la toma', async () => {
+    const [p] = await guardar('Productos', nuevoProducto({ nombre: 'Arroz' }))
+    const vigente = { ...p, nombre: 'Arroz Diana', updated_at: '2099-01-01T00:00:00.000-05:00' }
+    servidor((c) => (c.a === 'upsert' ? respuesta({ resultados: [{ id: p.producto_id, r: 'antiguo', tabla: 'Productos', fila: vigente }] }) : pullVacio()))
+    await sincronizar()
+    expect((await db.productos.get(p.producto_id))?.nombre).toBe('Arroz Diana')
+  })
+
+  it('una edición siempre queda con fecha posterior a la que traía la fila (reloj atrasado)', async () => {
+    const futuro = '2099-01-01T00:00:00.000-05:00'
+    const [p] = await guardar('Productos', { ...nuevoProducto({ nombre: 'Arroz' }), updated_at: futuro })
+    const [editado] = await guardar('Productos', { ...(await db.productos.get(p.producto_id))!, updated_at: futuro, nombre: 'Arroz 2' })
+    expect(editado.updated_at > futuro).toBe(true)
+  })
+
+  it('una lista enorme se envía en tandas de 100 (el servidor no rechaza todo)', async () => {
+    await guardar('Productos', Array.from({ length: 250 }, (_, i) => nuevoProducto({ nombre: `P${i}` })))
+    const entradas = await db.outbox.toArray()
+    expect(entradas.map((e) => (e.payload.cambios as unknown[]).length)).toEqual([100, 100, 50])
+  })
+})
