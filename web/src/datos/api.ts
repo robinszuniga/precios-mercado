@@ -19,6 +19,7 @@ export function nuevoId(): string {
 /** Los errores de configuración dicen qué hacer, no solo qué pasó. */
 const QUE_HACER: Record<string, string> = {
   sin_configurar: 'La dirección /exec es de un proyecto de Apps Script sin configurar. En Ajustes toca “Guardar y probar” para ver cuál es.',
+  accion_desconocida: 'Tu script de Google está desactualizado: pega el Code.js nuevo y en Implementar → Gestionar implementaciones elige “Nueva versión”.',
   token_invalido: 'La clave (token) no coincide con la del script. Cópiala de Apps Script → Configuración del proyecto → Propiedades → TOKEN y pégala en Ajustes.',
 }
 

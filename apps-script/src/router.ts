@@ -22,6 +22,7 @@ const ACCIONES: Record<string, Accion> = {
   cerrarCompra: A.cerrarCompra,
   historialPrecios: A.historialPrecios,
   buscarEnTienda: A.buscarEnTienda,
+  buscarVarios: A.buscarVarios,
   probarRegion: A.probarRegion,
   actualizarPrecios: A.actualizarPrecios,
   estadoJob: (s) => A.estadoJob(s),

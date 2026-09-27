@@ -5,6 +5,7 @@ import { planCompra } from '@shared/recomendacion.ts'
 import { INFO_TIENDAS, TIENDAS } from '@shared/tiendas.ts'
 import { formatoCantidadVisible } from '@shared/unidades.ts'
 import { ActualizarPrecios } from '../componentes/ActualizarPrecios.tsx'
+import { AvisoSinVincular } from '../componentes/VincularTodos.tsx'
 import { HojaItemPlan } from '../componentes/ItemPlan.tsx'
 import { describirPresentacion } from '../componentes/RegistrarPrecio.tsx'
 import { Boton, Campo, Cargando, ChipTienda, Distintivo, hace, Hoja, leerNumero, NombreTienda, pesos, Tarjeta, Titulo, Vacio } from '../componentes/ui.tsx'
@@ -80,6 +81,7 @@ export function Plan() {
         </Tarjeta>
       )}
 
+      <AvisoSinVincular />
       <ActualizarPrecios />
 
       {plan.grupos.map((g) => (

@@ -6,6 +6,7 @@ import { db } from '../datos/db.ts'
 import { crearDesdeLista } from '../datos/escritura.ts'
 import { useTiendasHoy } from '../datos/tiendasHoy.ts'
 import { avisar, Boton, BotonIcono, Casilla, Hoja, leerNumero } from './ui.tsx'
+import { buscarPreciosSolo } from './VincularTodos.tsx'
 
 type Fila = {
   clave: number
@@ -117,8 +118,9 @@ export function PegarLista({ onListo }: { onListo: () => void }) {
     )
     setGuardando(false)
     const partes = [r.creados && `${r.creados} nuevos`, r.actualizados && `${r.actualizados} actualizados`].filter(Boolean).join(' y ')
-    avisar(`Listo: ${partes}${aLaCompra ? ', ya están en la compra' : ''}.`)
+    avisar(`Listo: ${partes}${aLaCompra ? ', ya están en la compra' : ''}. Buscando sus precios en internet…`)
     onListo()
+    void buscarPreciosSolo(true)
   }
 
   if (filas) {

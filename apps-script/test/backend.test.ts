@@ -258,3 +258,54 @@ describe('región de Riohacha', () => {
     expect((r.data as { contexto: { segmento: string } }).contexto.segmento).toBeTruthy()
   })
 })
+
+describe('buscarVarios', () => {
+  function catalogo(nombres: [string, number, string][]) {
+    return JSON.stringify(nombres.map(([nombre, precio, ean], i) => ({
+      productId: `p${i}`, productName: nombre, brand: 'Diana', link: 'l', linkText: 'x',
+      items: [{ itemId: `${nombre.length}${i}`, ean, name: nombre, measurementUnit: 'un', unitMultiplier: 1,
+        sellers: [{ sellerId: '1', sellerDefault: true, commertialOffer: { Price: precio, ListPrice: precio, AvailableQuantity: 10, IsAvailable: true } }] }],
+    })))
+  }
+
+  it('una sola ronda de peticiones para todos; ordena y marca la opción segura', () => {
+    const f = crearServicios({
+      responder: (p) => {
+        if (p.url.includes('ft=arroz')) return { status: 206, cuerpo: catalogo([['Arroz con pollo 250 g', 8900, '1'], ['Arroz Diana 1000 g', 5200, '770']]), setCookie: [] }
+        if (p.url.includes('olimpica') && p.url.includes('ft=leche')) return { status: 500, cuerpo: '', setCookie: [] }
+        return { status: 200, cuerpo: catalogo([['Leche entera 1100 ml', 4300, '771']]), setCookie: [] }
+      },
+    })
+    prepararRegion(f)
+    const r = post(f.s, { a: 'buscarVarios', items: [{ id: 'a', q: 'arroz', unidad: 'g' }, { id: 'l', q: 'leche', unidad: 'ml' }] })
+    expect(r.ok).toBe(true)
+    expect(f.pedidas).toHaveLength(4) // 2 productos × Olímpica y Éxito, juntas
+    const data = r.data as { resultados: { id: string; porTienda: Record<string, { nombre: string; seguro: boolean }[]> }[]; errores: string[] }
+    const arroz = data.resultados[0].porTienda.OLIMPICA
+    expect(arroz[0]).toMatchObject({ nombre: 'Arroz Diana 1000 g', seguro: true })
+    expect(data.resultados[1].porTienda.OLIMPICA).toEqual([])
+    expect(data.resultados[1].porTienda.EXITO[0]).toMatchObject({ nombre: 'Leche entera 1100 ml', seguro: true })
+    expect(data.errores).toEqual(['OLIMPICA: HTTP 500'])
+
+    // Lo encontrado queda en caché: repetir no vuelve a pedir lo que salió bien.
+    post(f.s, { a: 'buscarVarios', items: [{ id: 'a', q: 'arroz', unidad: 'g' }] })
+    expect(f.pedidas).toHaveLength(4)
+  })
+
+  it('por código de barras devuelve ese producto en cada tienda', () => {
+    const f = crearServicios({ responder: () => ({ status: 200, cuerpo: catalogo([['Arroz Diana 1000 g', 5000, '770'], ['Otro 1000 g', 1, '999']]), setCookie: [] }) })
+    prepararRegion(f)
+    const r = post(f.s, { a: 'buscarVarios', tiendas: ['EXITO'], items: [{ id: 'a', ean: '770', unidad: 'g' }] })
+    const data = r.data as { resultados: { porTienda: Record<string, { ean: string; precioUnidad: number; seguro: boolean }[]> }[] }
+    expect(data.resultados[0].porTienda.EXITO).toEqual([expect.objectContaining({ ean: '770', precioUnidad: 5000, seguro: true })])
+    expect(f.pedidas[0].url).toContain('alternateIds_Ean')
+  })
+
+  it('valida la entrada y limita a 8 productos por llamada', () => {
+    const { s } = crearServicios()
+    expect(post(s, { a: 'buscarVarios', items: [] }).error?.codigo).toBe('validacion')
+    expect(post(s, { a: 'buscarVarios', items: [{ id: 'a', q: 'x', unidad: 'kg' }] }).error?.codigo).toBe('validacion')
+    const muchos = Array.from({ length: 9 }, (_, i) => ({ id: `i${i}`, q: 'arroz', unidad: 'g' }))
+    expect(post(s, { a: 'buscarVarios', items: muchos }).error?.codigo).toBe('validacion')
+  })
+})

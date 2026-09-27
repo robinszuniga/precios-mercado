@@ -1,37 +1,16 @@
 import { useState } from 'react'
 import { contenidoCompatible, parseContenido } from '@shared/contenido.ts'
-import type { Presentacion, Producto, Region } from '@shared/esquema.ts'
+import type { Presentacion, Producto } from '@shared/esquema.ts'
 import { INFO_TIENDAS, TIENDAS_VTEX, type TiendaVtex } from '@shared/tiendas.ts'
 import { etiquetaVisible, formatoContenido, precioPorUnidad } from '@shared/unidades.ts'
-import type { Candidato } from '@shared/vtex/parse.ts'
 import { llamar } from '../datos/api.ts'
-import { guardar, nuevaPresentacion, observacion, registrarObservaciones } from '../datos/escritura.ts'
+import { crearDesdeCandidato, type Cand } from '../datos/vincularLote.ts'
 import { conexion } from '../datos/sync.ts'
 import { Boton, Campo, Distintivo, NombreTienda, pesos, Selector } from './ui.tsx'
 
-type Cand = Candidato & { region: Region }
 
 function textoContenido(c: Cand['contenido']): string {
   return c ? formatoContenido(c.valor, c.unidad).replace('\u00a0', ' ') : ''
-}
-
-async function crearDesdeCandidato(producto: Producto, c: Cand, contenido: number | null): Promise<Presentacion> {
-  const [p] = await guardar<Presentacion>('Presentaciones', nuevaPresentacion({
-    producto_id: producto.producto_id,
-    tienda: c.tienda,
-    nombre_en_tienda: c.nombre,
-    marca: c.marca,
-    contenido,
-    sku_id: c.skuId,
-    ean: c.ean,
-    vtex_product_id: c.productId,
-    url: c.url,
-    auto: true,
-  }))
-  if (c.precio != null) {
-    await registrarObservaciones([observacion({ presentacion: p, precio: c.precio, precioLista: c.precioLista, origen: 'online', fuente: 'auto', disponible: c.disponible, region: c.region })])
-  }
-  return p
 }
 
 function FilaCandidato({ c, producto, onElegir }: { c: Cand; producto: Producto; onElegir: () => void }) {

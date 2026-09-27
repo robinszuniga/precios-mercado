@@ -1,0 +1,71 @@
+import { describe, expect, it } from 'vitest'
+import { parseContenido } from '../src/contenido.ts'
+import type { Candidato } from '../src/vtex/parse.ts'
+import { ordenarCandidatos } from '../src/vtex/ordenar.ts'
+
+let n = 0
+function cand(nombre: string, precio: number | null, extra: Partial<Candidato> = {}): Candidato {
+  const c = parseContenido(nombre)
+  return {
+    tienda: 'OLIMPICA', productId: `p${++n}`, skuId: `s${n}`, ean: `77${n}`, nombre, marca: '', url: '', sellerId: '1',
+    precio, precioLista: precio, disponible: true, oferta: false,
+    contenido: c ? { valor: c.valor, unidad: c.unidad, fuente: 'nombre', confianza: c.confianza } : null,
+    ...extra,
+  }
+}
+
+describe('ordenarCandidatos', () => {
+  it('arroz: el arroz simple es seguro; integral y arroz con pollo quedan como alternativas', () => {
+    const xs = ordenarCandidatos('Arroz', 'g', [
+      cand('Arroz con pollo listo 250 g', 8900),
+      cand('Arroz integral Diana 1000 g', 7200, { marca: 'Diana' }),
+      cand('Arroz Diana 1000 g', 5200, { marca: 'Diana' }),
+      cand('Arroz Roa 500 g', 2900, { marca: 'Roa' }),
+    ])
+    expect(xs[0].nombre).toBe('Arroz Diana 1000 g')
+    expect(xs[0].seguro).toBe(true)
+    expect(xs[0].precioUnidad).toBe(5200)
+    expect(xs.filter((x) => x.seguro)).toHaveLength(1)
+    expect(xs.find((x) => x.nombre.startsWith('Arroz con pollo'))?.seguro).toBe(false)
+    expect(xs.find((x) => x.nombre.includes('integral'))?.seguro).toBe(false)
+  })
+
+  it('leche (ml): descarta la leche en polvo (g) y el arequipe', () => {
+    const xs = ordenarCandidatos('Leche entera', 'ml', [
+      cand('Leche en polvo entera 380 g', 18000),
+      cand('Arequipe 250 g', 6000),
+      cand('Leche entera Alquería bolsa 1100 ml', 4300, { marca: 'Alquería' }),
+    ])
+    expect(xs.map((x) => x.nombre)).toEqual(['Leche entera Alquería bolsa 1100 ml'])
+    expect(xs[0].seguro).toBe(true)
+  })
+
+  it('variantes inofensivas no quitan lo seguro; las que cambian el producto sí', () => {
+    expect(ordenarCandidatos('Leche', 'ml', [cand('Leche entera larga vida 1000 ml', 4000)])[0].seguro).toBe(true)
+    expect(ordenarCandidatos('Huevos', 'unidad', [cand('Huevo rojo AA x 30 und', 16000)])[0].seguro).toBe(true)
+    expect(ordenarCandidatos('Leche', 'ml', [cand('Leche deslactosada 1000 ml', 4500)])[0].seguro).toBe(false)
+  })
+
+  it('sin precio, agotado o sin tamaño no es seguro', () => {
+    expect(ordenarCandidatos('Arroz', 'g', [cand('Arroz Diana 1000 g', null)])[0].seguro).toBe(false)
+    expect(ordenarCandidatos('Arroz', 'g', [cand('Arroz Diana 1000 g', 5000, { disponible: false })])[0].seguro).toBe(false)
+    expect(ordenarCandidatos('Arroz', 'g', [cand('Arroz Diana', 5000)])).toHaveLength(0)
+  })
+
+  it('si falta una palabra del producto no es seguro', () => {
+    const xs = ordenarCandidatos('Queso costeño', 'g', [cand('Queso mozzarella 400 g', 12000)])
+    expect(xs[0].seguro).toBe(false)
+  })
+
+  it('reconoce plurales y tildes', () => {
+    const xs = ordenarCandidatos('Lentejas', 'g', [cand('Lenteja La Muñeca 500 g', 3900, { marca: 'La Muñeca' })])
+    expect(xs[0].seguro).toBe(true)
+  })
+
+  it('máximo 4 opciones y sin repetir SKU', () => {
+    const base = cand('Arroz Diana 1000 g', 5200)
+    const xs = ordenarCandidatos('Arroz', 'g', [base, base, ...[1, 2, 3, 4, 5].map((i) => cand(`Arroz marca${i} 500 g`, 3000 + i))])
+    expect(xs).toHaveLength(4)
+    expect(new Set(xs.map((x) => x.skuId)).size).toBe(4)
+  })
+})

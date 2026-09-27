@@ -3,7 +3,10 @@ import { NOMBRES_TABLAS, TABLAS_SYNC, VERSION_API, VERSION_ESQUEMA, type Present
 import { aMs, compararIso, esIso, sumarSegundos } from '../../shared/src/fechas.ts'
 import type { Fila } from '../../shared/src/seguridad.ts'
 import { esTiendaVtex, TIENDAS_VTEX, type TiendaVtex } from '../../shared/src/tiendas.ts'
+import { esUnidadBase, precioPorUnidad, type UnidadBase } from '../../shared/src/unidades.ts'
 import { catalogoLegacy } from '../../shared/src/vtex/adaptador.ts'
+import { ordenarCandidatos, type Opcion } from '../../shared/src/vtex/ordenar.ts'
+import { urlBusqueda } from '../../shared/src/vtex/urls.ts'
 import type { Candidato } from '../../shared/src/vtex/parse.ts'
 import { aplicarCambios, registrar, type Cambio } from './datos.ts'
 import { ejecutarJob, guardarJob, leerJob, nuevoJob, type Job } from './job.ts'
@@ -154,6 +157,75 @@ export function buscarEnTienda(s: Servicios, p: Params) {
   const salida = { candidatos, errores }
   if (!errores.length) s.cache.put(clave, JSON.stringify(salida).slice(0, 95_000), 600)
   return salida
+}
+
+type ItemLote = { id: string; q: string; ean: string; unidad: UnidadBase }
+type CandidatoConRegion = Candidato & { region: string }
+const MAX_LOTE = 8
+
+function leerItems(p: Params): ItemLote[] {
+  const crudos = Array.isArray(p.items) ? p.items : []
+  if (crudos.length > MAX_LOTE) throw new ErrorApi('validacion', `máximo ${MAX_LOTE} productos por llamada`)
+  const items: ItemLote[] = []
+  for (const x of crudos) {
+    const o = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>
+    const id = typeof o.id === 'string' ? o.id.slice(0, 64) : ''
+    const q = typeof o.q === 'string' ? o.q.trim().slice(0, 80) : ''
+    const ean = typeof o.ean === 'string' ? o.ean.replace(/\D/g, '') : ''
+    if (!id || (!q && !ean) || !esUnidadBase(o.unidad)) throw new ErrorApi('validacion', 'cada producto necesita id, q o ean, y unidad')
+    items.push({ id, q, ean, unidad: o.unidad })
+  }
+  if (!items.length) throw new ErrorApi('validacion', 'faltan productos')
+  return items
+}
+
+/**
+ * Busca varios productos en varias tiendas con una sola ronda de peticiones en paralelo.
+ * Por texto (q) devuelve las mejores opciones ordenadas, con la segura marcada; por código de barras (ean)
+ * devuelve ese mismo producto en cada tienda (seguro si tiene tamaño comparable y precio).
+ */
+export function buscarVarios(s: Servicios, p: Params) {
+  const items = leerItems(p)
+  const pedidas = Array.isArray(p.tiendas) ? p.tiendas.filter(esTiendaVtex) : []
+  const tiendas: TiendaVtex[] = pedidas.length ? pedidas : ['OLIMPICA', 'EXITO']
+  const cfg = config(s)
+  const ctx = obtenerContextos(s, cfg)
+  guardarCambiosConfig(s, ctx.cambiosConfig)
+
+  const trabajos = items.flatMap((it) => tiendas.map((t) => ({ it, t, clave: `lote:${t}:${it.ean || it.q}` })))
+  const encontrados = new Map<string, CandidatoConRegion[]>()
+  const faltan = trabajos.filter((w) => {
+    const g = s.cache.get(w.clave)
+    if (g) encontrados.set(w.clave, JSON.parse(g))
+    return !g
+  })
+  const resps = s.http.todas(faltan.map(({ it, t }) => {
+    const sc = ctx.contextos[t]?.sc
+    const url = it.ean ? catalogoLegacy.urlEan(t, it.ean, sc) : urlBusqueda(t, { ft: it.q, hasta: 19, sc })
+    const seg = ctx.contextos[t]?.segmento
+    return { url, cabeceras: { Accept: 'application/json', ...(seg ? { Cookie: `vtex_segment=${seg}` } : {}) } }
+  }))
+  const errores = new Set<string>()
+  faltan.forEach((w, i) => {
+    const r = catalogoLegacy.interpretar(w.t, resps[i].status, resps[i].cuerpo, ctx.contextos[w.t]?.sellers ?? [])
+    if (r.tipo !== 'ok') { errores.add(`${w.t}: ${r.motivo}`); return }
+    const cands = r.candidatos.slice(0, 20).map((c) => ({ ...c, region: ctx.contextos[w.t]?.region ?? 'DEFAULT' }))
+    encontrados.set(w.clave, cands)
+    s.cache.put(w.clave, JSON.stringify(cands).slice(0, 95_000), 600)
+  })
+
+  const resultados = items.map((it) => {
+    const porTienda: Partial<Record<TiendaVtex, Opcion<CandidatoConRegion>[]>> = {}
+    for (const t of tiendas) {
+      const cands = encontrados.get(`lote:${t}:${it.ean || it.q}`) ?? []
+      porTienda[t] = it.ean
+        ? cands.filter((c) => c.ean === it.ean && c.contenido?.unidad === it.unidad).slice(0, 1)
+          .map((c) => ({ ...c, puntaje: 100, precioUnidad: precioPorUnidad(c.precio, c.contenido!.valor, it.unidad) ?? 0, seguro: c.precio != null && c.disponible }))
+        : ordenarCandidatos(it.q, it.unidad, cands)
+    }
+    return { id: it.id, porTienda }
+  })
+  return { resultados, errores: [...errores] }
 }
 
 export function probarRegion(s: Servicios, p: Params) {

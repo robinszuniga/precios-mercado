@@ -71,6 +71,19 @@ Los productos quedan con ★ y entran a la compra de hoy con esa cantidad (las d
 Si un producto ya existe, se actualiza su cantidad en vez de duplicarlo. Si tu lista es una foto, sácale el texto con
 Google Lens (*Copiar texto*) o, en iPhone, manteniendo el dedo sobre el texto de la foto, y pégalo igual.
 
+## Precios de internet, solos
+
+Con la copia en Google activa, la app busca sola en Olímpica y Éxito los productos que todavía no tienen precio de
+internet: al abrir la app (una vez al día) y justo después de pegar tu lista.
+
+- Si la coincidencia es **segura** (tiene todas las palabras de tu producto, ninguna que lo cambie —"integral",
+  "en polvo", "con pollo"—, tamaño comparable, precio y disponible), lo vincula sin preguntar. Si en la otra tienda
+  está el mismo código de barras, lo agrega también.
+- Los **dudosos** quedan en *Productos → "N productos sin precio de internet" → Buscar precios*, con la opción más
+  parecida ya elegida: confirmas, cambias o marcas "Ninguno".
+- Si tu producto lleva la marca en el nombre ("Arroz Diana"), solo se acepta esa marca como segura.
+- Después, los precios se actualizan solos cada día a las 6 a. m. D1 y Ara se anotan en la tienda.
+
 ## Uso
 
 1. **Productos**: pega tu lista, crea tus productos (★ = entra solo en cada compra) o empieza con la lista típica. En cada producto:

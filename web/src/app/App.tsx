@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Avisos } from '../componentes/ui.tsx'
+import { buscarPreciosSolo } from '../componentes/VincularTodos.tsx'
 import { useMeta } from '../datos/consultas.ts'
 import { db, guardarMeta } from '../datos/db.ts'
 import { compraAbierta } from '../datos/escritura.ts'
@@ -84,9 +85,20 @@ function usePendientesCompra(): number {
   }, []) ?? 0
 }
 
+/** Una vez al día, al abrir la app o al volver la señal: vincula solos los productos sin precio de internet. */
+function useVinculoAutomatico() {
+  useEffect(() => {
+    const t = setTimeout(() => void buscarPreciosSolo(), 4000) // después de la primera sincronización
+    const alVolver = () => void buscarPreciosSolo()
+    window.addEventListener('online', alVolver)
+    return () => { clearTimeout(t); window.removeEventListener('online', alVolver) }
+  }, [])
+}
+
 export function App() {
   const ruta = useRuta()
   const pendientes = usePendientesCompra()
+  useVinculoAutomatico()
   return (
     <div className="mx-auto min-h-dvh max-w-lg">
       <EstadoConexion />
