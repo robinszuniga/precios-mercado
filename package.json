@@ -1,0 +1,47 @@
+{
+  "name": "precios-mercado",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "dev": "vite --config web/vite.config.ts",
+    "build:web": "vite build --config web/vite.config.ts",
+    "preview": "vite preview --config web/vite.config.ts",
+    "build:gas": "node apps-script/build.mjs",
+    "build": "npm run build:web && npm run build:gas",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.shared.json && tsc -p tsconfig.gas.json && tsc -p tsconfig.web.json",
+    "smoke": "node tools/smoke-vtex.mjs",
+    "gas:push": "npm run build:gas && cd apps-script && npx -y @google/clasp@3 push -f",
+    "gas:deploy": "npm run gas:push && cd apps-script && npx -y @google/clasp@3 deploy -i \"$GAS_DEPLOYMENT_ID\""
+  },
+  "dependencies": {
+    "dexie": "4.4.6",
+    "dexie-react-hooks": "4.4.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "uplot": "1.6.32"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/user-event": "14.6.7",
+    "@types/google-apps-script": "2.0.13",
+    "@types/node": "^22.18.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "esbuild": "0.28.2",
+    "fake-indexeddb": "6.2.5",
+    "jsdom": "30.1.1",
+    "tailwindcss": "4.3.3",
+    "typescript": "~6.0.3",
+    "vite": "8.3.1",
+    "vite-plugin-pwa": "1.3.0",
+    "vitest": "5.0.2"
+  }
+}

@@ -1,0 +1,9 @@
+node_modules/
+web/dist/
+apps-script/dist/
+apps-script/.clasp.json
+.clasprc.json
+coverage/
+*.log
+.env
+tools/salida/
