@@ -15,7 +15,7 @@ type Accion = (s: Servicios, p: Record<string, unknown>) => unknown
 
 /** Lista cerrada de acciones que requieren token. */
 const ACCIONES: Record<string, Accion> = {
-  ping: () => A.ping(),
+  ping: (s) => A.ping(s),
   diag: (s) => A.diag(s),
   pull: A.pull,
   upsert: A.upsert,
@@ -71,5 +71,5 @@ export function manejarPost(s: Servicios, cuerpo: string): Respuesta {
 
 /** doGet: solo ping, sin token. Sin parámetros responde lo mismo (hay rebotes /exec → /echo que llegan como GET vacío). */
 export function manejarGet(s: Servicios): Respuesta {
-  return responder(s, A.ping())
+  return responder(s, A.ping(s))
 }

@@ -53,6 +53,7 @@ export function crearServicios(opciones: { responder?: Responder; inicio?: numbe
     },
     uuid: () => `uuid-${++n}`,
     log: () => {},
+    proyecto: () => 'abc123',
   }
   return {
     s, repo, props, pedidas, triggers,

@@ -27,6 +27,14 @@ export function doPost(e: GoogleAppsScript.Events.DoPost) {
   try { return json(manejarPost(serviciosGas(), e?.postData?.contents ?? '')) } catch (err) { return json(fallaGrave(err)) }
 }
 
+/** Qué proyecto es este y su URL /exec, para compararlos con lo que muestra la app en Ajustes. */
+function identidad(): string {
+  let url = ''
+  try { url = ScriptApp.getService().getUrl() ?? '' } catch { url = '' }
+  const exec = url.endsWith('/exec') ? url : ''
+  return `Proyecto: …${ScriptApp.getScriptId().slice(-6)} · URL de la app web: ${exec || 'todavía no está implementada (Implementar → Nueva implementación)'}`
+}
+
 /** Ejecutar una vez desde el editor: crea las pestañas, la configuración, el token y el trigger diario. */
 export function inicializarHoja() {
   const ss = SpreadsheetApp.getActiveSpreadsheet() ?? abrirHoja()
@@ -58,6 +66,7 @@ export function inicializarHoja() {
 
   console.log(hechos.length ? `Hecho: ${hechos.join(' · ')}` : 'Todo estaba al día.')
   console.log(`TOKEN (pégalo en Ajustes de la app): ${token}`)
+  console.log(identidad())
   console.log('Siguiente paso: ejecuta probarTiendas y luego Implementar → Nueva implementación → Aplicación web.')
   return { hechos, token }
 }
@@ -88,6 +97,7 @@ export function probarTiendas() {
     console.log(`${t}: región Riohacha ${g?.localizada ? `SÍ (regionId ${g.regionId}, sellers ${g.sellers.join(', ')})` : 'NO: se usará el precio nacional'}`)
   }
   console.log(`D1 automático: ${ctx.autoD1 ? 'sí' : 'no (queda manual)'}`)
+  console.log(identidad())
   registrar(s, 'probarTiendas', 'info', 'Prueba de tiendas', { salida, regiones: ctx.regiones })
   return { salida, regiones: ctx.regiones, autoD1: ctx.autoD1 }
 }

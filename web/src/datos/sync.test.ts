@@ -77,7 +77,7 @@ describe('cola de envíos', () => {
     await guardar('Productos', nuevoProducto({ nombre: 'Arroz' }))
     await sincronizar()
     expect(await db.outbox.count()).toBe(1)
-    expect((await db.meta.get('estadoSync'))?.valor).toMatchObject({ error: 'Token inválido' })
+    expect((await db.meta.get('estadoSync'))?.valor).toMatchObject({ error: expect.stringMatching(/clave \(token\) no coincide/) })
   })
 
   it('junta varias escrituras en un solo envío', async () => {

@@ -79,4 +79,6 @@ export interface Servicios {
   triggers: Triggers
   uuid(): string
   log(mensaje: string): void
+  /** Últimos caracteres del id del proyecto de Apps Script: para saber a qué proyecto responde la URL /exec. */
+  proyecto(): string
 }

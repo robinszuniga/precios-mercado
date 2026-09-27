@@ -69,8 +69,13 @@ export function abrirHoja(): GoogleAppsScript.Spreadsheet.Spreadsheet {
 export function serviciosGas(): Servicios {
   const props = PropertiesService.getScriptProperties()
   const cache = CacheService.getScriptCache()
+  let repo: HojaRepo | null = null
   return {
-    repo: new HojaRepo(abrirHoja()),
+    // Se abre al primer uso: así el ping (GET) responde aunque el proyecto todavía no tenga Sheet.
+    get repo() {
+      repo ??= new HojaRepo(abrirHoja())
+      return repo
+    },
     http: httpGas,
     lock: {
       con<T>(ms: number, fn: () => T): T {
@@ -106,5 +111,6 @@ export function serviciosGas(): Servicios {
     triggers: triggersGas,
     uuid: () => Utilities.getUuid(),
     log: (m) => console.log(m),
+    proyecto: () => ScriptApp.getScriptId().slice(-6),
   }
 }

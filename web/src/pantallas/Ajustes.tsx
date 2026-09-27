@@ -119,6 +119,7 @@ function CopiaGoogle() {
   const guardada = useMeta<Conexion>('conexion', { url: '', token: '' })
   const sync = useMeta<EstadoSync>('estadoSync', { enCurso: false, ultimoOk: null, error: null })
   const pendientes = useLiveQuery(() => db.outbox.count(), []) ?? 0
+  const proyectoConectado = useMeta<string>('proyectoConectado', '')
   const [url, setUrl] = useState('')
   const [token, setToken] = useState('')
   const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null)
@@ -131,14 +132,21 @@ function CopiaGoogle() {
     const c = { url: url.trim(), token: token.trim() }
     await guardarMeta('conexion', c)
     const p = await ping(c.url)
+    const proyecto = p.tipo === 'ok' && p.data.proyecto ? ` …${p.data.proyecto}` : ''
+    await guardarMeta('proyectoConectado', proyecto.trim())
     if (p.tipo !== 'ok' || p.data.app !== 'precios-mercado') {
       setResultado({ ok: false, texto: p.tipo === 'desconocido' ? 'No responde. Revisa que la dirección termine en /exec y que el acceso sea “Cualquier persona”.' : 'Esa dirección no es la de tu copia en Google.' })
+    } else if (p.data.configurado === false) {
+      setResultado({
+        ok: false,
+        texto: `Esa dirección es de un proyecto de Apps Script sin configurar (proyecto${proyecto}). Copia la URL del proyecto donde ejecutaste “inicializarHoja”: Implementar → Gestionar implementaciones. El registro de “inicializarHoja” dice el proyecto y su URL.`,
+      })
     } else {
       const d = await llamar<{ pestanasFaltantes: string[] }>(c, 'diag')
       if (d.tipo === 'ok') {
         setResultado(d.data.pestanasFaltantes.length
           ? { ok: false, texto: `Conectado, pero al Sheet le faltan pestañas. En Apps Script ejecuta “inicializarHoja”.` }
-          : { ok: true, texto: '✔ Conectado. Copiando tus datos…' })
+          : { ok: true, texto: `✔ Conectado${proyecto ? ` al proyecto${proyecto}` : ''}. Copiando tus datos…` })
         await guardarMeta('estadoSync', { enCurso: false, ultimoOk: null, error: null })
         await sincronizar({ completo: true })
       } else setResultado({ ok: false, texto: d.tipo === 'error' && d.codigo === 'token_invalido' ? 'La clave no coincide. Cópiala otra vez del registro de “inicializarHoja”.' : d.tipo === 'error' ? d.mensaje : 'Sin respuesta. ¿Hay señal?' })
@@ -149,10 +157,16 @@ function CopiaGoogle() {
   return (
     <Tarjeta className="space-y-3">
       {conectada ? (
-        <p className="text-sm">
-          <span className="font-semibold text-ok">✔ Copia activa.</span> Última vez: {hora(sync.ultimoOk)}
-          {pendientes > 0 && ` · ${pendientes} cambios por enviar`}
-        </p>
+        sync.error ? (
+          <p className="text-sm font-medium text-peligro">✘ No se está guardando en Google: {sync.error}</p>
+        ) : sync.ultimoOk ? (
+          <p className="text-sm">
+            <span className="font-semibold text-ok">✔ Copia activa{proyectoConectado ? ` (proyecto ${proyectoConectado})` : ''}.</span> Última vez: {hora(sync.ultimoOk)}
+            {pendientes > 0 && ` · ${pendientes} cambios por enviar`}
+          </p>
+        ) : (
+          <p className="text-sm text-stone-700">Todavía no se ha guardado nada en Google. Toca “Guardar y probar”.</p>
+        )
       ) : (
         <p className="text-sm text-stone-700">
           Opcional. Guarda tus datos en un Google Sheet tuyo (por si pierdes el celular) y trae los precios de Éxito y Olímpica.

@@ -16,13 +16,20 @@ export function nuevoId(): string {
   return 'id-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
 }
 
+/** Los errores de configuración dicen qué hacer, no solo qué pasó. */
+const QUE_HACER: Record<string, string> = {
+  sin_configurar: 'La dirección /exec es de un proyecto de Apps Script sin configurar. En Ajustes toca “Guardar y probar” para ver cuál es.',
+  token_invalido: 'La clave (token) no coincide con la del script. Cópiala de Apps Script → Configuración del proyecto → Propiedades → TOKEN y pégala en Ajustes.',
+}
+
 function interpretar<T>(texto: string): ResultadoApi<T> {
   const t = texto.trimStart()
   if (!t.startsWith('{')) return { tipo: 'desconocido', motivo: `respuesta no es JSON: ${t.slice(0, 60)}` }
   try {
     const r = JSON.parse(t) as { ok: boolean; data: T; error: { codigo: string; mensaje: string; datos?: unknown } | null }
     if (r.ok) return { tipo: 'ok', data: r.data }
-    return { tipo: 'error', codigo: r.error?.codigo ?? 'interno', mensaje: r.error?.mensaje ?? 'Error', datos: r.error?.datos }
+    const codigo = r.error?.codigo ?? 'interno'
+    return { tipo: 'error', codigo, mensaje: QUE_HACER[codigo] ?? r.error?.mensaje ?? 'Error', datos: r.error?.datos }
   } catch {
     return { tipo: 'desconocido', motivo: 'JSON inválido' }
   }
@@ -52,8 +59,19 @@ export async function llamar<T>(c: Conexion, accion: string, params: Record<stri
   }
 }
 
-/** GET sin token: solo dice si la URL es la de este backend. */
-export async function ping(url: string): Promise<ResultadoApi<{ app: string; v: number }>> {
+/** Lo que responde el GET público. Los tres últimos campos no existen en backends anteriores. */
+export interface InfoPing {
+  app: string
+  v: number
+  /** Últimos 6 caracteres del id del proyecto de Apps Script. */
+  proyecto?: string
+  /** El proyecto tiene TOKEN (se ejecutó inicializarHoja). */
+  configurado?: boolean
+  hoja?: boolean
+}
+
+/** GET sin token: dice si la URL es la de este backend, de qué proyecto y si está configurado. */
+export async function ping(url: string): Promise<ResultadoApi<InfoPing>> {
   try {
     const res = await fetch(url, { redirect: 'follow' })
     return interpretar(await res.text())

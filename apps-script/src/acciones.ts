@@ -37,8 +37,15 @@ function guardarCambiosConfig(s: Servicios, cambios: { clave: string; valor: str
   )
 }
 
-export function ping() {
-  return { app: 'precios-mercado', v: VERSION_API }
+/** Público (sin token): dice qué proyecto responde y si está configurado, para detectar una URL /exec equivocada. */
+export function ping(s: Servicios) {
+  return {
+    app: 'precios-mercado',
+    v: VERSION_API,
+    proyecto: s.proyecto(),
+    configurado: !!s.props.get('TOKEN'),
+    hoja: !!s.props.get('SHEET_ID'),
+  }
 }
 
 export function diag(s: Servicios) {

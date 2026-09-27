@@ -31,7 +31,14 @@ describe('router', () => {
   it('GET responde ping sin token y sin datos', () => {
     const { s } = crearServicios()
     const r = manejarGet(s)
-    expect(r).toMatchObject({ ok: true, data: { app: 'precios-mercado' }, v: 1 })
+    expect(r).toMatchObject({ ok: true, data: { app: 'precios-mercado', proyecto: 'abc123', configurado: true, hoja: false }, v: 1 })
+    expect(JSON.stringify(r)).not.toContain('secreto')
+  })
+
+  it('GET avisa cuando el proyecto no tiene token (URL /exec de otro proyecto)', () => {
+    const f = crearServicios()
+    f.props.delete('TOKEN')
+    expect(manejarGet(f.s).data).toMatchObject({ configurado: false })
   })
 
   it('el lock ocupado se informa como ocupado', () => {
