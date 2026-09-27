@@ -4,6 +4,8 @@ import { db, guardarMeta } from '../datos/db.ts'
 import { Ajustes } from './Ajustes.tsx'
 
 const URL_EXEC = 'https://script.google.com/macros/s/OTRO/exec'
+/** Los servidores de GitHub Actions son más lentos que un celular con jsdom arrancando: margen amplio. */
+const ESPERA = 10_000
 
 function backend(ping: Record<string, unknown>) {
   vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
@@ -24,14 +26,17 @@ async function probar() {
   render(<Ajustes />)
   fireEvent.change(await screen.findByLabelText('Dirección de la aplicación web (termina en /exec)'), { target: { value: URL_EXEC } })
   fireEvent.change(screen.getByLabelText('Clave (token)'), { target: { value: 'clave' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Guardar y probar' }))
+  // En una máquina lenta la base local responde tarde: se toca el botón cuando ya está habilitado.
+  const boton = screen.getByRole('button', { name: 'Guardar y probar' })
+  await waitFor(() => expect(boton).toBeEnabled(), { timeout: ESPERA })
+  fireEvent.click(boton)
 }
 
 describe('Ajustes · copia en Google', () => {
   it('si la URL es de un proyecto sin configurar lo dice, con el proyecto, y no muestra "Copia activa"', async () => {
     backend({ proyecto: 'zzz999', configurado: false })
     await probar()
-    expect(await screen.findByRole('alert', {}, { timeout: 4000 })).toHaveTextContent('proyecto de Apps Script sin configurar (proyecto …zzz999)')
+    expect(await screen.findByRole('alert', {}, { timeout: ESPERA })).toHaveTextContent('proyecto de Apps Script sin configurar (proyecto …zzz999)')
     expect(screen.queryByText(/Copia activa/)).toBeNull()
     expect(screen.getByText(/Todavía no se ha guardado nada en Google/)).toBeInTheDocument()
   })
@@ -39,8 +44,8 @@ describe('Ajustes · copia en Google', () => {
   it('conectado: dice a qué proyecto y la copia queda activa tras sincronizar', async () => {
     backend({ proyecto: 'abc123', configurado: true, hoja: true })
     await probar()
-    expect(await screen.findByText('✔ Conectado al proyecto …abc123. Copiando tus datos…', {}, { timeout: 4000 })).toBeInTheDocument()
-    expect(await screen.findByText(/Copia activa \(proyecto …abc123\)/, {}, { timeout: 4000 })).toBeInTheDocument()
+    expect(await screen.findByText('✔ Conectado al proyecto …abc123. Copiando tus datos…', {}, { timeout: ESPERA })).toBeInTheDocument()
+    expect(await screen.findByText(/Copia activa \(proyecto …abc123\)/, {}, { timeout: ESPERA })).toBeInTheDocument()
   })
 })
 
@@ -48,7 +53,7 @@ describe('Ajustes · reglas', () => {
   it('borrar un número para reescribirlo no guarda 0', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{}')))
     render(<Ajustes />)
-    const campo = await screen.findByLabelText('Precio de tienda vencido (días)', {}, { timeout: 4000 })
+    const campo = await screen.findByLabelText('Precio de tienda vencido (días)', {}, { timeout: ESPERA })
     fireEvent.change(campo, { target: { value: '' } })
     fireEvent.blur(campo)
     fireEvent.change(campo, { target: { value: '0' } })
@@ -74,11 +79,11 @@ describe('Ajustes · script de Google', () => {
       return new Response(JSON.stringify({ ok: true, data, error: null, v: 1 }))
     }))
     await probar()
-    expect(await screen.findByText(/Versión gas-v1/, {}, { timeout: 4000 })).toBeInTheDocument()
+    expect(await screen.findByText(/Versión gas-v1/, {}, { timeout: ESPERA })).toBeInTheDocument()
     expect(screen.getByText(/Falta activar la "API de Google Apps Script"/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Actualizar ahora' }))
-    expect(await screen.findByText('Actualizado de gas-v1 a gas-v2 (versión 7).', {}, { timeout: 4000 })).toBeInTheDocument()
+    expect(await screen.findByText('Actualizado de gas-v1 a gas-v2 (versión 7).', {}, { timeout: ESPERA })).toBeInTheDocument()
     expect(acciones).toContain('actualizarScript')
-    expect(await screen.findByText(/Versión gas-v2/, {}, { timeout: 4000 })).toBeInTheDocument()
+    expect(await screen.findByText(/Versión gas-v2/, {}, { timeout: ESPERA })).toBeInTheDocument()
   })
 })

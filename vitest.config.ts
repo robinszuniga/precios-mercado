@@ -20,6 +20,8 @@ export default defineConfig({
           environment: 'jsdom',
           include: ['web/src/**/*.test.{ts,tsx}'],
           setupFiles: ['web/src/test-setup.ts'],
+          // jsdom + IndexedDB falso tardan en los servidores del CI: las esperas largas no deben cortar la prueba.
+          testTimeout: 20_000,
         },
       },
     ],

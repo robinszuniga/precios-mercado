@@ -4,7 +4,7 @@ import { emparejar, leerLista } from '@shared/importarLista.ts'
 import { etiquetaVisible, type UnidadBase } from '@shared/unidades.ts'
 import { useMeta } from '../datos/consultas.ts'
 import { db } from '../datos/db.ts'
-import { crearDesdeLista } from '../datos/escritura.ts'
+import { crearDesdeLista, deshacerReemplazo } from '../datos/escritura.ts'
 import { useTiendasHoy } from '../datos/tiendasHoy.ts'
 import { avisar, Boton, BotonIcono, Casilla, Hoja, leerNumero } from './ui.tsx'
 import { buscarPreciosSolo } from './VincularTodos.tsx'
@@ -83,6 +83,9 @@ export function PegarLista({ onListo }: { onListo: () => void }) {
   const [recurrentes, setRecurrentes] = useState(true)
   const [aLaCompra, setALaCompra] = useState(true)
   const [guardando, setGuardando] = useState(false)
+  const [reemplazar, setReemplazar] = useState(false)
+  /** Tus productos activos, para saber cuáles quedarían fuera si se reemplaza la lista. */
+  const [mios, setMios] = useState<Producto[]>([])
   const archivo = useRef<HTMLInputElement>(null)
   const idTexto = useId()
   const puedePegar = typeof navigator !== 'undefined' && !!navigator.clipboard?.readText
@@ -99,6 +102,7 @@ export function PegarLista({ onListo }: { onListo: () => void }) {
 
   async function revisar() {
     const productos = await db.productos.toArray()
+    setMios(productos.filter((p) => p.activo))
     const xs = emparejar(leerLista(crudo), productos)
     setFilas(xs.map((x, i) => ({
       clave: i,
@@ -120,17 +124,23 @@ export function PegarLista({ onListo }: { onListo: () => void }) {
     setGuardando(true)
     const r = await crearDesdeLista(
       filas.map((f) => ({ nombre: f.nombre, cantidad: leerNumero(f.cantidad)!, unidad_base: f.unidad_base, pasillo: f.pasillo, existente: f.existente })),
-      { recurrentes, aLaCompra, tiendasHoy },
+      { recurrentes, aLaCompra, tiendasHoy, reemplazar },
     )
     setGuardando(false)
-    const partes = [r.creados && `${r.creados} nuevos`, r.actualizados && `${r.actualizados} actualizados`].filter(Boolean).join(' y ')
-    avisar(`Listo: ${partes}${aLaCompra ? ', ya están en la compra' : ''}.${conGoogle ? ' Buscando sus precios en internet…' : ''}`)
+    const partes = [r.creados && `${r.creados} nuevos`, r.actualizados && `${r.actualizados} actualizados`, r.archivados.length && `${r.archivados.length} archivados`]
+      .filter(Boolean).join(', ')
+    avisar(
+      `Listo: ${partes}${aLaCompra ? '; ya están en la compra' : ''}.${conGoogle ? ' Buscando sus precios en internet…' : ''}`,
+      r.archivados.length ? () => deshacerReemplazo(r.archivados, r.quitados) : undefined,
+    )
     onListo()
     if (conGoogle) void buscarPreciosSolo(true)
   }
 
   if (filas) {
     const validas = filas.every((f) => f.nombre.trim() && (leerNumero(f.cantidad) ?? 0) > 0)
+    const enLista = new Set(filas.map((f) => f.existente?.producto_id).filter(Boolean))
+    const sobran = mios.filter((p) => !enLista.has(p.producto_id))
     const grupos = [...new Set(filas.map((f) => f.pasillo))]
     const porRevisar = filas.filter((f) => f.aviso).length
     const cambiar = (f: Fila) => setFilas(filas.map((x) => (x.clave === f.clave ? f : x)))
@@ -156,6 +166,15 @@ export function PegarLista({ onListo }: { onListo: () => void }) {
         <div className="rounded-xl bg-stone-100 px-3 py-1">
           <Casilla etiqueta="Marcarlos con ★ (entran solos en cada compra)" checked={recurrentes} onChange={setRecurrentes} />
           <Casilla etiqueta="Agregarlos también a la compra de hoy" checked={aLaCompra} onChange={setALaCompra} />
+          {sobran.length > 0 && (
+            <Casilla etiqueta={`Reemplazar mi lista: archivar los ${sobran.length} productos que no están en esta`} checked={reemplazar} onChange={setReemplazar} />
+          )}
+          {reemplazar && sobran.length > 0 && (
+            <p className="pb-2 text-xs font-medium text-alerta">
+              Se archivan: {sobran.slice(0, 8).map((p) => p.nombre).join(', ')}{sobran.length > 8 ? ` y ${sobran.length - 8} más` : ''}.
+              No se borran: guardan sus precios y los recuperas en Ajustes → Productos archivados.
+            </p>
+          )}
         </div>
         <div className="flex gap-2 pb-2">
           <Boton variante="secundario" className="flex-1" onClick={() => setFilas(null)}>Atrás</Boton>

@@ -22,7 +22,7 @@ describe('crearDesdeLista', () => {
       { nombre: 'Pollo', cantidad: 2, unidad_base: 'g', pasillo: 'carnes', existente: null },
       { nombre: 'Leche', cantidad: 6, unidad_base: 'ml', pasillo: 'Lácteos', existente: null },
     ], { recurrentes: true, aLaCompra: true, tiendasHoy: ['D1'] })
-    expect(r).toEqual({ creados: 3, actualizados: 0, pasillos: 2 })
+    expect(r).toMatchObject({ creados: 3, actualizados: 0, pasillos: 2, archivados: [] })
 
     const cats = (await db.categorias.toArray()).sort((a, b) => a.orden - b.orden).map((c) => c.nombre)
     expect(cats).toEqual(['Carnes', 'Granos', 'Lácteos'])
@@ -84,5 +84,50 @@ describe('PegarLista', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Revisar' }))
     fireEvent.change(await screen.findByLabelText('Cantidad de Arroz'), { target: { value: '' } })
     expect(screen.getByRole('button', { name: 'Guardar 1 producto' })).toBeDisabled()
+  })
+})
+
+describe('Reemplazar mi lista', () => {
+  it('archiva lo que no está en la lista nueva, lo saca de la compra (salvo lo ya en el carrito) y se puede deshacer', async () => {
+    const { agregarALaCompra, deshacerReemplazo } = await import('../datos/escritura.ts')
+    const [arroz, sal, cafe] = await guardar('Productos', [nuevoProducto({ nombre: 'Arroz' }), nuevoProducto({ nombre: 'Sal' }), nuevoProducto({ nombre: 'Café' })])
+    await agregarALaCompra(sal, [])
+    const dCafe = await agregarALaCompra(cafe, [])
+    await guardar('Compras_detalle', { ...dCafe, estado: 'en_carrito' })
+
+    const r = await crearDesdeLista([
+      { nombre: 'Arroz', cantidad: 5, unidad_base: 'g', pasillo: '', existente: arroz },
+      { nombre: 'Leche', cantidad: 6, unidad_base: 'ml', pasillo: '', existente: null },
+    ], { recurrentes: true, aLaCompra: true, tiendasHoy: [], reemplazar: true })
+
+    expect(r.archivados.map((p) => p.nombre).sort()).toEqual(['Café', 'Sal'])
+    const activos = (await db.productos.toArray()).filter((p) => p.activo).map((p) => p.nombre).sort()
+    expect(activos).toEqual(['Arroz', 'Leche'])
+    const enCompra = (await detallesAbiertos()).map((d) => d.producto_id)
+    expect(enCompra).not.toContain(sal.producto_id) // pendiente: sale
+    expect(enCompra).toContain(cafe.producto_id) // ya en el carrito: se queda
+
+    await deshacerReemplazo(r.archivados, r.quitados)
+    expect((await db.productos.toArray()).filter((p) => p.activo)).toHaveLength(4)
+    expect((await detallesAbiertos()).map((d) => d.producto_id)).toContain(sal.producto_id)
+  })
+
+  it('un producto archivado revive si vuelve en una lista (con sus precios)', async () => {
+    const [sal] = await guardar('Productos', nuevoProducto({ nombre: 'Sal', activo: false }))
+    render(<PegarLista onListo={() => {}} />)
+    fireEvent.change(screen.getByLabelText('Tu lista'), { target: { value: 'Sal 1 kg' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Revisar' }))
+    expect(await screen.findByText('Ya lo tienes: se actualiza')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar 1 producto' }))
+    await waitFor(async () => expect((await db.productos.get(sal.producto_id))?.activo).toBe(true))
+  })
+
+  it('la casilla dice cuántos y cuáles se archivarían', async () => {
+    await guardar('Productos', [nuevoProducto({ nombre: 'Arroz' }), nuevoProducto({ nombre: 'Sal' })])
+    render(<PegarLista onListo={() => {}} />)
+    fireEvent.change(screen.getByLabelText('Tu lista'), { target: { value: 'Arroz 5 kg' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Revisar' }))
+    fireEvent.click(await screen.findByLabelText('Reemplazar mi lista: archivar los 1 productos que no están en esta'))
+    expect(screen.getByText(/Se archivan: Sal\./)).toBeInTheDocument()
   })
 })

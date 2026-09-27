@@ -218,7 +218,15 @@ export interface ElegidoDeLista {
  * Crea los pasillos y productos de la lista pegada (marcados con ★) y, si se pide, los mete en la compra de hoy
  * con la cantidad de la lista. Los que ya existían se actualizan, no se duplican.
  */
-export async function crearDesdeLista(xs: ElegidoDeLista[], opciones: { recurrentes: boolean; aLaCompra: boolean; tiendasHoy: Tienda[] }) {
+/**
+ * Con `reemplazar`, la lista pegada pasa a ser toda tu lista: los productos que no están en ella se archivan (no se
+ * borran: conservan su historial de precios y sus vínculos, y reviven si vuelven a aparecer en una lista) y salen
+ * de la compra abierta, salvo lo que ya está en el carrito.
+ */
+export async function crearDesdeLista(
+  xs: ElegidoDeLista[],
+  opciones: { recurrentes: boolean; aLaCompra: boolean; tiendasHoy: Tienda[]; reemplazar?: boolean },
+) {
   const categorias = (await db.categorias.toArray()).filter((c) => !c.borrado)
   const porNombre = new Map(categorias.map((c) => [c.nombre.trim().toLowerCase(), c]))
   let orden = categorias.reduce((m, c) => Math.max(m, c.orden), 0)
@@ -251,6 +259,24 @@ export async function crearDesdeLista(xs: ElegidoDeLista[], opciones: { recurren
   if (nuevas.length) await guardar('Categorias', nuevas)
   await guardar('Productos', productos)
 
+  // Antes de armar la compra: así una compra nueva no arranca con los productos que se van a archivar.
+  let archivados: Producto[] = []
+  let quitados: Detalle[] = []
+  if (opciones.reemplazar) {
+    const quedan = new Set(productos.map((p) => p.producto_id))
+    archivados = (await db.productos.toArray()).filter((p) => p.activo && !quedan.has(p.producto_id))
+    if (archivados.length) {
+      await guardar('Productos', archivados.map((p) => ({ ...p, activo: false })))
+      const compra = await compraAbierta()
+      if (compra) {
+        const fuera = new Set(archivados.map((p) => p.producto_id))
+        quitados = (await db.detalle.where('compra_id').equals(compra.compra_id).toArray())
+          .filter((d) => !d.borrado && !!d.producto_id && fuera.has(d.producto_id) && d.estado !== 'en_carrito')
+        if (quitados.length) await guardar('Compras_detalle', quitados.map((d) => ({ ...d, borrado: true })))
+      }
+    }
+  }
+
   if (opciones.aLaCompra && productos.length) {
     const compra = await asegurarCompra(opciones.tiendasHoy)
     const ya = new Map((await db.detalle.where('compra_id').equals(compra.compra_id).toArray()).filter((d) => !d.borrado).map((d) => [d.producto_id, d]))
@@ -260,5 +286,11 @@ export async function crearDesdeLista(xs: ElegidoDeLista[], opciones: { recurren
       return d ? { ...d, necesidad: p.cantidad_habitual } : nuevoDetalle(compra.compra_id, { producto_id: p.producto_id, necesidad: p.cantidad_habitual, orden: base + i })
     }))
   }
-  return { creados: xs.filter((x) => !x.existente).length, actualizados: xs.filter((x) => x.existente).length, pasillos: nuevas.length }
+  return { creados: xs.filter((x) => !x.existente).length, actualizados: xs.filter((x) => x.existente).length, pasillos: nuevas.length, archivados, quitados }
+}
+
+/** Deshacer de "Reemplazar mi lista": vuelve a activar lo archivado y a poner en la compra lo que se quitó. */
+export async function deshacerReemplazo(archivados: Producto[], quitados: Detalle[]) {
+  if (archivados.length) await guardar('Productos', archivados.map((p) => ({ ...p, activo: true })))
+  for (const d of quitados) await restaurarDetalle(d)
 }
