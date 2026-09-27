@@ -1,0 +1,26 @@
+name: Smoke test VTEX
+
+# Prueba real de Éxito, Olímpica y D1 desde una IP de datacenter (la misma clase de IP que usaría el plan B).
+on:
+  workflow_dispatch:
+    inputs:
+      tienda:
+        description: 'EXITO, OLIMPICA o D1 (vacío = todas)'
+        required: false
+        default: ''
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Probar tiendas
+        run: node tools/smoke-vtex.ts --fixtures ${{ inputs.tienda && format('--tienda {0}', inputs.tienda) || '' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fixtures-vtex
+          path: shared/test/fixtures/vtex/
+          if-no-files-found: ignore

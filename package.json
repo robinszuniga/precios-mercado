@@ -13,7 +13,7 @@
     "build": "npm run build:web && npm run build:gas",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.shared.json && tsc -p tsconfig.gas.json && tsc -p tsconfig.web.json",
-    "smoke": "node tools/smoke-vtex.mjs",
+    "smoke": "node tools/smoke-vtex.ts",
     "gas:push": "npm run build:gas && cd apps-script && npx -y @google/clasp@3 push -f",
     "gas:deploy": "npm run gas:push && cd apps-script && npx -y @google/clasp@3 deploy -i \"$GAS_DEPLOYMENT_ID\""
   },
