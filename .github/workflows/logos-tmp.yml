@@ -1,0 +1,14 @@
+name: Revisar logos (temporal)
+on: workflow_dispatch
+jobs:
+  logos:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Íconos de las tiendas
+        run: |
+          for d in exito.com olimpica.com d1.com.co aratiendas.com; do
+            curl -sSL -m 20 -o "$d.png" -w "$d google %{http_code} %{content_type} %{size_download}\n" "https://www.google.com/s2/favicons?domain=$d&sz=64"
+            echo "B64 $d $(base64 -w0 "$d.png")"
+            html=$(curl -sSL -m 20 -A "Mozilla/5.0" "https://www.$d/" | tr '\n' ' ')
+            echo "LINKS $d $(echo "$html" | grep -oiE '<link[^>]+rel="[^"]*icon[^"]*"[^>]*>' | head -5)"
+          done
