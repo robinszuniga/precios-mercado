@@ -27,9 +27,9 @@ presupuesto en vivo mientras compras y saber dónde conviene cada producto.
 1. Crea un Google Sheet nuevo (por ejemplo “Precios Mercado”).
 2. En el Sheet: **Extensiones → Apps Script**.
 3. En el editor, **Configuración del proyecto** (engranaje) → marca **“Mostrar el archivo de manifiesto appsscript.json”**.
-4. Copia el contenido de `apps-script/dist/Code.js` en `Código.gs` (borra lo que traía) y el de
-   `apps-script/dist/appsscript.json` en `appsscript.json`. Para generarlos: `npm ci && npm run build:gas`
-   (también están en los artefactos del CI).
+4. Copia el contenido de `Cargador.js` en `Código.gs` (borra lo que traía) y el de `appsscript.json` en
+   `appsscript.json`. Los dos están en el [último release](https://github.com/robinszuniga/precios-mercado/releases/latest)
+   (o en `apps-script/dist/` tras `npm ci && npm run build:gas`). El cargador baja solo el resto del código.
 5. Arriba, elige la función **`inicializarHoja`** y dale **Ejecutar**. Autoriza los permisos
    (si dice “Google no ha verificado esta app”: *Configuración avanzada → Ir a … (no seguro)*: es tu propio script).
    Crea las pestañas, la configuración, el trigger diario y el **token**, que aparece en el *Registro de ejecución*. Cópialo.
@@ -42,24 +42,25 @@ presupuesto en vivo mientras compras y saber dónde conviene cada producto.
 
 ### Actualizaciones del script (automáticas)
 
-El script se actualiza solo con las **versiones publicadas** en
-[Releases](https://github.com/robinszuniga/precios-mercado/releases) (etiquetas `gas-vN`; nunca un cambio a medias):
-después del trabajo diario de las 6 a. m. baja el `Code.js` nuevo, reemplaza su código, crea una versión y mueve tu
-implementación a esa versión. La URL `/exec` y el token no cambian.
+En Apps Script solo va el **cargador** (`Cargador.js`, unas 170 líneas). Él baja el `Code.js` de la última versión
+publicada en [Releases](https://github.com/robinszuniga/precios-mercado/releases) (etiquetas `gas-vN`; nunca un cambio
+a medias), lo guarda en las propiedades del script y lo ejecuta. Revisa si hay versión nueva cada mañana, cada 6 horas
+al usar la app y con **Ajustes → Script de Google → Actualizar ahora**. No hace falta la API de Apps Script ni volver a
+implementar: la URL `/exec` y el token no cambian. Si GitHub no responde, sigue con la versión guardada.
 
-Para que pueda hacerlo, **una sola vez**:
+**Si pegaste antes el `Code.js` completo**, cámbialo por el cargador una sola vez:
 
-1. Activa la **API de Google Apps Script** en <https://script.google.com/home/usersettings>.
-2. Pega el `Code.js` del último release (y su `appsscript.json`), ejecuta **`actualizarme`** y acepta los permisos
-   nuevos (modificar y publicar su propio proyecto).
+1. En Apps Script abre `Código.gs`, borra todo y pega el `Cargador.js` del
+   [último release](https://github.com/robinszuniga/precios-mercado/releases/latest). Guarda (💾).
+2. Pega también su `appsscript.json` (ya no pide permisos para modificar el proyecto).
+3. Arriba elige **`actualizarme`** → **Ejecutar**. Acepta los permisos si los pide. El registro dice
+   “✔ Instalada la versión gas-vN”.
+4. **Implementar → Gestionar implementaciones → ✏️ → Versión: Nueva versión → Implementar** (la URL no cambia).
 
-Si una versión pide permisos nuevos no se instala sola: *Ajustes → Script de Google* lo avisa y la instalas tú
-ejecutando `actualizarme` (o con **Actualizar ahora**). Ahí también ves la versión instalada.
+Una versión que pida permisos nuevos no se instala sola: *Ajustes → Script de Google* lo avisa.
 
-> Con esos permisos el script puede reemplazarse con lo que se publique en este repositorio: quien pueda publicar
-> releases aquí puede cambiar el código que corre con tu cuenta de Google. Protege tu cuenta de GitHub (2FA).
-> Sin la API activada todo sigue funcionando; solo toca actualizar a mano: pega el `Code.js` y en **Implementar →
-> Gestionar implementaciones → ✏️ → Versión: Nueva versión** (así la URL `/exec` no cambia).
+> El cargador ejecuta lo que se publique en los releases de este repositorio: quien pueda publicar aquí puede cambiar
+> el código que corre con tu cuenta de Google. Protege tu cuenta de GitHub (2FA).
 
 ### 2. La app en el celular
 

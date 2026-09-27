@@ -3,6 +3,7 @@
 import { build } from 'esbuild'
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 
+// Deben ser las mismas funciones que declara el cargador (cargador/Cargador.js).
 const GLOBALES = ['doGet', 'doPost', 'inicializarHoja', 'probarTiendas', 'autoprueba', 'tareaDiaria', 'continuarPrecios', 'onEdit', 'actualizarme']
 const dir = new URL('.', import.meta.url).pathname
 
@@ -20,11 +21,13 @@ await build({
   platform: 'neutral',
   charset: 'utf8',
   legalComments: 'none',
-  define: { __VERSION_GAS__: JSON.stringify(version), __PERMISOS_GAS__: JSON.stringify(permisos) },
+  define: { __VERSION_GAS__: JSON.stringify(version) },
   banner: { js: '// Generado por apps-script/build.mjs: no editar a mano. Código fuente en github.com/robinszuniga/precios-mercado' },
   footer: { js: GLOBALES.map((f) => `function ${f}(e) { return __app.${f}(e) }`).join('\n') },
 })
 copyFileSync(`${dir}appsscript.json`, `${dir}dist/appsscript.json`)
-// Lo que lee el actualizador del script para saber si hay algo nuevo y si pide permisos nuevos.
+// Lo único que se pega en Apps Script: baja y ejecuta el Code.js del último release.
+copyFileSync(`${dir}cargador/Cargador.js`, `${dir}dist/Cargador.js`)
+// Lo que lee el cargador para saber si hay algo nuevo y si pide permisos nuevos.
 writeFileSync(`${dir}dist/version.json`, JSON.stringify({ version, permisos }, null, 2))
 console.log(`apps-script/dist/Code.js listo (${version})`)

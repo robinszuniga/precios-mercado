@@ -71,6 +71,8 @@ export interface InfoPing {
   hoja?: boolean
   /** Versión del código del script (gas-vN). */
   version?: string
+  /** Versión del cargador; null si se pegó el código completo. */
+  cargador?: number | null
 }
 
 /** GET sin token: dice si la URL es la de este backend, de qué proyecto y si está configurado. */

@@ -84,6 +84,8 @@ export interface Servicios {
   log(mensaje: string): void
   /** Últimos caracteres del id del proyecto de Apps Script: para saber a qué proyecto responde la URL /exec. */
   proyecto(): string
-  /** Busca en GitHub una versión nueva del código y la instala (ver actualizar.ts). */
-  actualizar(opciones: { desdeEditor?: boolean }): ResultadoActualizacion
+  /** Le pide al cargador que baje la última versión publicada del código (ver actualizar.ts). */
+  actualizar(): ResultadoActualizacion
+  /** Versión del cargador pegado en Apps Script; null si se pegó el código completo. */
+  cargador(): number | null
 }

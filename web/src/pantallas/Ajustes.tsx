@@ -147,9 +147,9 @@ function CopiaGoogle() {
         texto: `Esa dirección es de un proyecto de Apps Script sin configurar (proyecto${proyecto}). Copia la URL del proyecto donde ejecutaste “inicializarHoja”: Implementar → Gestionar implementaciones. El registro de “inicializarHoja” dice el proyecto y su URL.`,
       })
     } else {
-      const d = await llamar<{ pestanasFaltantes: string[]; version?: string; actualizacion?: InfoActualizacion | null }>(c, 'diag')
+      const d = await llamar<{ pestanasFaltantes: string[]; version?: string; cargador?: number | null; actualizacion?: InfoActualizacion | null }>(c, 'diag')
       if (d.tipo === 'ok') {
-        await guardarMeta('scriptInfo', { version: d.data.version ?? null, actualizacion: d.data.actualizacion ?? null })
+        await guardarMeta('scriptInfo', { version: d.data.version ?? null, cargador: d.data.cargador ?? null, actualizacion: d.data.actualizacion ?? null })
         setResultado(d.data.pestanasFaltantes.length
           ? { ok: false, texto: `Conectado, pero al Sheet le faltan pestañas. En Apps Script ejecuta “inicializarHoja”.` }
           : { ok: true, texto: `✔ Conectado${proyecto ? ` al proyecto${proyecto}` : ''}. Copiando tus datos…` })
@@ -189,16 +189,26 @@ function CopiaGoogle() {
 }
 
 interface InfoActualizacion {
-  estado: 'al_dia' | 'actualizado' | 'necesita_permiso' | 'api_apagada' | 'error'
+  estado: 'al_dia' | 'actualizado' | 'necesita_permiso' | 'sin_cargador' | 'error'
   nueva: string | null
   mensaje: string
   fecha: string
+  cargador?: number | null
 }
+
+interface InfoScript {
+  version: string | null
+  /** Versión del cargador pegado en Apps Script; null = se pegó el código completo (no se actualiza solo). */
+  cargador?: number | null
+  actualizacion: InfoActualizacion | null
+}
+
+const GUIA_CARGADOR = 'https://github.com/robinszuniga/precios-mercado#actualizaciones-del-script-autom%C3%A1ticas'
 
 /** Versión del script de Google y su actualización automática (desde las versiones publicadas en GitHub). */
 function ScriptGoogle() {
   const guardada = useMeta<Conexion>('conexion', { url: '', token: '' })
-  const info = useMeta<{ version: string | null; actualizacion: InfoActualizacion | null } | null>('scriptInfo', null)
+  const info = useMeta<InfoScript | null>('scriptInfo', null)
   const [mensaje, setMensaje] = useState('')
   const [ocupado, setOcupado] = useState(false)
   if (!guardada.url || !guardada.token) return null
@@ -210,22 +220,37 @@ function ScriptGoogle() {
     setOcupado(false)
     if (r.tipo === 'ok') {
       setMensaje(r.data.mensaje)
-      await guardarMeta('scriptInfo', { version: r.data.estado === 'actualizado' ? r.data.nueva : info?.version ?? null, actualizacion: r.data })
+      await guardarMeta('scriptInfo', {
+        version: r.data.estado === 'actualizado' ? r.data.nueva : info?.version ?? null,
+        cargador: r.data.cargador ?? info?.cargador ?? null,
+        actualizacion: r.data,
+      })
     } else setMensaje(r.tipo === 'error' ? r.mensaje : 'Sin respuesta. ¿Hay señal?')
   }
 
   const a = info?.actualizacion
-  const problema = a && (a.estado === 'api_apagada' || a.estado === 'necesita_permiso' || a.estado === 'error')
+  // Sin cargador (se pegó el código completo) no hay nada que actualizar desde aquí: se explica cómo dejarlo solo.
+  const sinCargador = !!info?.version && info.cargador == null
+  const problema = !sinCargador && a && (a.estado === 'necesita_permiso' || a.estado === 'error')
   return (
     <Tarjeta className="space-y-2 text-sm">
       <h3 className="text-base font-semibold">Script de Google</h3>
       <p className="text-stone-700">
-        Versión {info?.version ?? '— (toca “Guardar y probar”)'}. Se actualiza solo cada mañana con las versiones publicadas.
+        Versión {info?.version ?? '— (toca “Guardar y probar”)'}.
+        {!sinCargador && info?.version && ' Se actualiza solo: cada mañana y al usar la app.'}
       </p>
+      {sinCargador && (
+        <p className="font-medium text-alerta">
+          Para que se actualice solo, pega el cargador en Apps Script (una sola vez).{' '}
+          <a className="text-marca underline" href={GUIA_CARGADOR} target="_blank" rel="noreferrer">Cómo hacerlo</a>
+        </p>
+      )}
       {problema && <p className="font-medium text-alerta">{a.mensaje}</p>}
-      <Boton variante="secundario" className="w-full" onClick={() => void actualizar()} disabled={ocupado}>
-        {ocupado ? 'Actualizando…' : 'Actualizar ahora'}
-      </Boton>
+      {!sinCargador && (
+        <Boton variante="secundario" className="w-full" onClick={() => void actualizar()} disabled={ocupado}>
+          {ocupado ? 'Actualizando…' : 'Actualizar ahora'}
+        </Boton>
+      )}
       {mensaje && <p role="status" className="text-stone-700">{mensaje}</p>}
     </Tarjeta>
   )

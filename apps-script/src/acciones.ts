@@ -51,12 +51,13 @@ export function ping(s: Servicios) {
     configurado: !!s.props.get('TOKEN'),
     hoja: !!s.props.get('SHEET_ID'),
     version: VERSION_CODIGO,
+    cargador: s.cargador(),
   }
 }
 
-/** Desde la app (Ajustes → "Actualizar ahora"): cuenta como pedido del usuario. */
+/** Desde la app (Ajustes → "Actualizar ahora"). */
 export function actualizarScript(s: Servicios) {
-  return s.actualizar({ desdeEditor: true })
+  return s.actualizar()
 }
 
 export function diag(s: Servicios) {
@@ -69,6 +70,7 @@ export function diag(s: Servicios) {
     v: VERSION_API,
     esquema: VERSION_ESQUEMA,
     version: VERSION_CODIGO,
+    cargador: s.cargador(),
     actualizacion: ultimaActualizacion(s.props),
     pestanasFaltantes: faltantes,
     triggers: s.triggers.listar(),

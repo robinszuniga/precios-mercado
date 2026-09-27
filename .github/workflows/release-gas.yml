@@ -34,12 +34,12 @@ jobs:
       - run: npm run build:gas
         env:
           GAS_VERSION: ${{ env.VERSION }}
-      - name: Crear el release con Code.js, appsscript.json y version.json
+      - name: Crear el release con Cargador.js, Code.js, appsscript.json y version.json
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$VERSION" --target "$GITHUB_SHA" \
-            apps-script/dist/Code.js apps-script/dist/appsscript.json apps-script/dist/version.json \
+            apps-script/dist/Cargador.js apps-script/dist/Code.js apps-script/dist/appsscript.json apps-script/dist/version.json \
             --title "Script $VERSION" \
-            --notes "Código del script de Google. Se instala solo después del trabajo diario (6 a. m.), o ya con \"actualizarme\" en Apps Script o \"Actualizar ahora\" en Ajustes." \
+            --notes "Código del script de Google. En Apps Script se pega solo Cargador.js (una vez); él baja este Code.js solo: cada mañana, cada 6 horas al usar la app o con \"Actualizar ahora\" en Ajustes." \
             --latest

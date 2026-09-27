@@ -66,24 +66,39 @@ describe('Ajustes · reglas', () => {
 })
 
 describe('Ajustes · script de Google', () => {
-  it('muestra la versión, avisa si falta activar la API y "Actualizar ahora" pide la actualización', async () => {
+  it('con cargador: dice que se actualiza solo y "Actualizar ahora" pide la actualización', async () => {
     const acciones: string[] = []
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
       if (!init?.method) return new Response(JSON.stringify({ ok: true, data: { app: 'precios-mercado', v: 1, proyecto: 'abc123', configurado: true, hoja: true, version: 'gas-v1' }, error: null, v: 1 }))
       const a = JSON.parse(String(init.body)).a
       acciones.push(a)
       const data = a === 'diag'
-        ? { pestanasFaltantes: [], version: 'gas-v1', actualizacion: { estado: 'api_apagada', nueva: 'gas-v2', mensaje: 'Falta activar la "API de Google Apps Script" en script.google.com/home/usersettings.', fecha: '' } }
-        : a === 'actualizarScript' ? { estado: 'actualizado', nueva: 'gas-v2', mensaje: 'Actualizado de gas-v1 a gas-v2 (versión 7).', fecha: '' }
+        ? { pestanasFaltantes: [], version: 'gas-v3', cargador: 1, actualizacion: { estado: 'error', nueva: 'gas-v4', mensaje: 'No se pudo actualizar: Code.js: HTTP 502', fecha: '' } }
+        : a === 'actualizarScript' ? { estado: 'actualizado', nueva: 'gas-v4', mensaje: 'Actualizado de gas-v3 a gas-v4.', fecha: '', cargador: 1 }
           : a === 'pull' ? { tablas: {}, cursor: 'c' } : { resultados: [] }
       return new Response(JSON.stringify({ ok: true, data, error: null, v: 1 }))
     }))
     await probar()
-    expect(await screen.findByText(/Versión gas-v1/, {}, { timeout: ESPERA })).toBeInTheDocument()
-    expect(screen.getByText(/Falta activar la "API de Google Apps Script"/)).toBeInTheDocument()
+    expect(await screen.findByText(/Versión gas-v3\. Se actualiza solo/, {}, { timeout: ESPERA })).toBeInTheDocument()
+    expect(screen.getByText('No se pudo actualizar: Code.js: HTTP 502')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Actualizar ahora' }))
-    expect(await screen.findByText('Actualizado de gas-v1 a gas-v2 (versión 7).', {}, { timeout: ESPERA })).toBeInTheDocument()
+    expect(await screen.findByText('Actualizado de gas-v3 a gas-v4.', {}, { timeout: ESPERA })).toBeInTheDocument()
     expect(acciones).toContain('actualizarScript')
-    expect(await screen.findByText(/Versión gas-v2/, {}, { timeout: ESPERA })).toBeInTheDocument()
+    expect(await screen.findByText(/Versión gas-v4/, {}, { timeout: ESPERA })).toBeInTheDocument()
+  })
+
+  it('sin cargador (código pegado completo): explica cómo dejarlo automático y no ofrece "Actualizar ahora"', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      if (!init?.method) return new Response(JSON.stringify({ ok: true, data: { app: 'precios-mercado', v: 1, proyecto: 'abc123', configurado: true, hoja: true, version: 'gas-v1' }, error: null, v: 1 }))
+      const a = JSON.parse(String(init.body)).a
+      const data = a === 'diag'
+        ? { pestanasFaltantes: [], version: 'gas-v1', actualizacion: { estado: 'api_apagada', nueva: 'gas-v2', mensaje: 'Falta activar la API', fecha: '' } }
+        : a === 'pull' ? { tablas: {}, cursor: 'c' } : { resultados: [] }
+      return new Response(JSON.stringify({ ok: true, data, error: null, v: 1 }))
+    }))
+    await probar()
+    expect(await screen.findByText(/pega el cargador en Apps Script/, {}, { timeout: ESPERA })).toBeInTheDocument()
+    expect(screen.queryByText(/Falta activar la API/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Actualizar ahora' })).toBeNull()
   })
 })
