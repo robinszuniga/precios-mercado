@@ -1,10 +1,16 @@
 name: Publicar versión del script
 
-# Una etiqueta gas-vN marca una versión del script como lista. Se arma el Code.js con esa versión y se publica
-# como release; el script de Google la toma de ahí (releases/latest) al actualizarse.
+# Una versión gas-vN marca el script como listo. Se arma el Code.js con esa versión y se publica como release; el
+# script de Google la toma de ahí (releases/latest) al actualizarse. Se lanza empujando la etiqueta o a mano
+# (Actions → Publicar versión del script → Run workflow), y entonces el propio workflow crea la etiqueta.
 on:
   push:
     tags: ['gas-v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versión a publicar (gas-vN)'
+        required: true
 
 permissions:
   contents: write
@@ -12,7 +18,11 @@ permissions:
 jobs:
   publicar:
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version || github.ref_name }}
     steps:
+      - name: La versión tiene la forma gas-vN
+        run: '[[ "$VERSION" =~ ^gas-v[0-9]+$ ]] || { echo "Versión inválida: $VERSION"; exit 1; }'
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -23,13 +33,13 @@ jobs:
       - run: npm test
       - run: npm run build:gas
         env:
-          GAS_VERSION: ${{ github.ref_name }}
+          GAS_VERSION: ${{ env.VERSION }}
       - name: Crear el release con Code.js, appsscript.json y version.json
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
+          gh release create "$VERSION" --target "$GITHUB_SHA" \
             apps-script/dist/Code.js apps-script/dist/appsscript.json apps-script/dist/version.json \
-            --title "Script ${GITHUB_REF_NAME}" \
+            --title "Script $VERSION" \
             --notes "Código del script de Google. Se instala solo después del trabajo diario (6 a. m.), o ya con \"actualizarme\" en Apps Script o \"Actualizar ahora\" en Ajustes." \
             --latest
