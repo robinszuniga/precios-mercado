@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import type { RegionGuardada } from '@shared/config.ts'
 import { formatoNumero } from '@shared/dinero.ts'
 import { INFO_TIENDAS, TIENDAS_VTEX, type TiendaVtex } from '@shared/tiendas.ts'
+import { BotonPegarLista } from '../componentes/PegarLista.tsx'
 import { avisar, Boton, Campo, Cargando, ErrorTexto, NombreTienda, Tarjeta, Titulo } from '../componentes/ui.tsx'
 import { llamar, ping, type Conexion } from '../datos/api.ts'
 import { useCatalogo, useMeta } from '../datos/consultas.ts'
@@ -280,6 +281,11 @@ export function Ajustes() {
     <section className="space-y-5">
       <Titulo>Ajustes</Titulo>
       <Seccion titulo="Mi mercado">
+        <Tarjeta>
+          <h3 className="font-semibold">Pasar mi lista</h3>
+          <p className="mb-2 text-sm text-stone-600">Pega tu listado de WhatsApp, Notas o Excel y se crean los productos con su cantidad y pasillo.</p>
+          <BotonPegarLista className="w-full" />
+        </Tarjeta>
         <Reglas />
         <Pasillos />
         <Archivados />

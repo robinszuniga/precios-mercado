@@ -5,6 +5,7 @@ import type { Producto } from '@shared/esquema.ts'
 import { etiquetaVisible } from '@shared/unidades.ts'
 import { ir } from '../app/ruta.ts'
 import { FormProducto } from '../componentes/FormProducto.tsx'
+import { BotonPegarLista } from '../componentes/PegarLista.tsx'
 import { avisar, Boton, Cargando, Distintivo, Hoja, NombreTienda, pesos, Tarjeta, Titulo, Vacio } from '../componentes/ui.tsx'
 import { opcionesDe, useCatalogo, type Catalogo } from '../datos/consultas.ts'
 import { db } from '../datos/db.ts'
@@ -62,11 +63,13 @@ function PrimerUso({ onCrear }: { onCrear: () => void }) {
     <Tarjeta className="space-y-3">
       <h2 className="text-lg font-semibold">Empieza en 3 pasos</h2>
       <ol className="list-decimal space-y-2 pl-5 text-stone-700">
-        <li><strong>Crea tus productos de siempre</strong> y marca con ★ los que compras en cada mercado.</li>
+        <li><strong>Pasa tu lista</strong> (cópiala de WhatsApp o Notas y pégala) o crea tus productos. Los marcados con ★ entran solos en cada compra.</li>
         <li><strong>Anota precios</strong> cuando vayas a D1 o Ara (Olímpica y Éxito se pueden traer de internet).</li>
         <li><strong>Antes de salir, mira el Plan</strong>: te dice dónde comprar cada cosa.</li>
       </ol>
+      <BotonPegarLista variante="primario" className="w-full" texto="Pegar mi lista (WhatsApp, Notas…)" />
       <Boton
+        variante="secundario"
         className="w-full"
         disabled={creando}
         onClick={async () => {
@@ -122,7 +125,12 @@ export function Lista() {
 
   return (
     <section>
-      <Titulo sub={hayProductos ? '★ = entra solo en cada compra' : undefined}>Mis productos</Titulo>
+      <Titulo
+        sub={hayProductos ? '★ = entra solo en cada compra' : undefined}
+        accion={hayProductos ? <BotonPegarLista variante="fantasma" className="shrink-0 text-sm" texto="Pegar lista" /> : undefined}
+      >
+        Mis productos
+      </Titulo>
       {!hayProductos ? (
         <PrimerUso onCrear={() => setCreando(true)} />
       ) : (

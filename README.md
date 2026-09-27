@@ -53,9 +53,27 @@ presupuesto en vivo mientras compras y saber dónde conviene cada producto.
 
 En iPhone la app instalada no comparte datos con Safari: por eso se configura desde la app instalada.
 
+## Pasar tu lista
+
+Si ya tienes tu listado en WhatsApp o Notas, no hace falta crear producto por producto:
+
+1. En WhatsApp o Notas, mantén presionada la lista y toca **Copiar**.
+2. En la app: **Productos → Pegar mi lista** (o *Pegar lista* arriba a la derecha, o *Ajustes → Pasar mi lista*).
+3. Toca **Pegar lo que copiaste** (o mantén presionado el cuadro → Pegar) y luego **Revisar**.
+4. Revisa cantidades y unidades (lo marcado en naranja es lo que la app tuvo que adivinar) y toca **Guardar**.
+
+Entiende renglones como `Arroz 5 kg`, `5 kg de arroz`, `Leche x6 L`, `Huevos 30`, `½ libra de queso`,
+`1 cubeta de huevos`, `Pasta 4 x 250 g`, con viñetas, numeración, emojis o la hora de WhatsApp. Los títulos
+(`Lácteos:`, `*Aseo*`, `CARNES`) se vuelven pasillos. También sirve copiar columnas de Excel o Google Sheets
+(producto, cantidad, unidad, pasillo) o abrir un `.txt`/`.csv`. Una libra = 500 g.
+
+Los productos quedan con ★ y entran a la compra de hoy con esa cantidad (las dos casillas se pueden desmarcar).
+Si un producto ya existe, se actualiza su cantidad en vez de duplicarlo. Si tu lista es una foto, sácale el texto con
+Google Lens (*Copiar texto*) o, en iPhone, manteniendo el dedo sobre el texto de la foto, y pégalo igual.
+
 ## Uso
 
-1. **Productos**: crea tus productos (★ = entra solo en cada compra) o empieza con la lista típica. En cada producto:
+1. **Productos**: pega tu lista, crea tus productos (★ = entra solo en cada compra) o empieza con la lista típica. En cada producto:
    - **Anotar precio**: lo que ves en la tienda (marca, tamaño y precio). Avisa si el precio parece mal escrito.
    - **Buscar online**: busca en Éxito, Olímpica o D1, eliges el producto exacto y con su código de barras la app lo busca en las demás.
 2. **Plan**: marca las tiendas que visitas hoy y mira dónde comprar cada cosa y por qué. Toca un producto para cambiar

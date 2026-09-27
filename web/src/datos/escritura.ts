@@ -171,3 +171,61 @@ export async function crearListaTipica() {
   await guardar('Productos', productos)
   return productos.length
 }
+
+/** Lo que el usuario confirmó en "Pegar mi lista". `existente` = producto suyo que se actualiza en vez de duplicarlo. */
+export interface ElegidoDeLista {
+  nombre: string
+  cantidad: number
+  unidad_base: Producto['unidad_base']
+  pasillo: string
+  existente: Producto | null
+}
+
+/**
+ * Crea los pasillos y productos de la lista pegada (marcados con ★) y, si se pide, los mete en la compra de hoy
+ * con la cantidad de la lista. Los que ya existían se actualizan, no se duplican.
+ */
+export async function crearDesdeLista(xs: ElegidoDeLista[], opciones: { recurrentes: boolean; aLaCompra: boolean; tiendasHoy: Tienda[] }) {
+  const categorias = (await db.categorias.toArray()).filter((c) => !c.borrado)
+  const porNombre = new Map(categorias.map((c) => [c.nombre.trim().toLowerCase(), c]))
+  let orden = categorias.reduce((m, c) => Math.max(m, c.orden), 0)
+  const nuevas: Categoria[] = []
+  const pasilloDe = (nombre: string): string => {
+    const k = nombre.trim().toLowerCase()
+    if (!k) return ''
+    let c = porNombre.get(k)
+    if (!c) {
+      c = { categoria_id: nuevoId(), nombre: nombre.trim(), orden: ++orden, borrado: false, updated_at: '' }
+      porNombre.set(k, c)
+      nuevas.push(c)
+    }
+    return c.categoria_id
+  }
+
+  const productos = xs.map((x) => {
+    const categoria_id = pasilloDe(x.pasillo)
+    if (x.existente) {
+      return {
+        ...x.existente,
+        activo: true,
+        cantidad_habitual: x.cantidad,
+        recurrente: x.existente.recurrente || opciones.recurrentes,
+        categoria_id: x.existente.categoria_id || categoria_id,
+      }
+    }
+    return nuevoProducto({ nombre: x.nombre.trim(), categoria_id, unidad_base: x.unidad_base, cantidad_habitual: x.cantidad, recurrente: opciones.recurrentes })
+  })
+  if (nuevas.length) await guardar('Categorias', nuevas)
+  await guardar('Productos', productos)
+
+  if (opciones.aLaCompra && productos.length) {
+    const compra = await asegurarCompra(opciones.tiendasHoy)
+    const ya = new Map((await db.detalle.where('compra_id').equals(compra.compra_id).toArray()).filter((d) => !d.borrado).map((d) => [d.producto_id, d]))
+    const base = Date.now()
+    await guardar('Compras_detalle', productos.map((p, i) => {
+      const d = ya.get(p.producto_id)
+      return d ? { ...d, necesidad: p.cantidad_habitual } : nuevoDetalle(compra.compra_id, { producto_id: p.producto_id, necesidad: p.cantidad_habitual, orden: base + i })
+    }))
+  }
+  return { creados: xs.filter((x) => !x.existente).length, actualizados: xs.filter((x) => x.existente).length, pasillos: nuevas.length }
+}
