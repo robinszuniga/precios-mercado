@@ -19,3 +19,7 @@ jobs:
       - run: npm run build:gas
       - run: npm test
       - run: npm run build:web
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apps-script
+          path: apps-script/dist/
