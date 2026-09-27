@@ -6,7 +6,7 @@
 //   node tools/smoke-vtex.ts --tienda EXITO --q "arroz diana"
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { candidatosDeProductos, clasificarRespuesta, type Candidato } from '../shared/src/vtex/parse.ts'
-import { estaLocalizada, parseRegiones, type RegionVtex } from '../shared/src/vtex/region.ts'
+import { esLocal, estaLocalizada, parseRegiones, type RegionVtex } from '../shared/src/vtex/region.ts'
 import { armarSegmento, cabeceraCookie, segmentoDeSetCookie, type Segmento } from '../shared/src/vtex/segmento.ts'
 import { urlBusqueda, urlPorEan, urlPorProducto, urlPorSku, urlRegiones, type Lugar } from '../shared/src/vtex/urls.ts'
 import { INFO_TIENDAS, TIENDAS_VTEX, type TiendaVtex } from '../shared/src/tiendas.ts'
@@ -59,14 +59,10 @@ function linea(ok: boolean | null, texto: string) {
   console.log(`  ${ok === null ? '·' : ok ? '✔' : '✘'} ${texto}`)
 }
 
+// Misma regla que la app: por coordenadas (el código postal devuelve regiones genéricas).
 async function region(tienda: TiendaVtex, lugar: { cp: Lugar; geo: Lugar }, sc?: string): Promise<{ r: RegionVtex | null; via: string; resp: Resp }> {
-  const porCp = await pedir(urlRegiones(tienda, lugar.cp, sc))
-  const r1 = parseRegiones(porCp.status, porCp.cuerpo)
-  if (estaLocalizada(r1)) return { r: r1, via: 'cp', resp: porCp }
-  await espera(800)
   const porGeo = await pedir(urlRegiones(tienda, lugar.geo, sc))
-  const r2 = parseRegiones(porGeo.status, porGeo.cuerpo)
-  return { r: estaLocalizada(r2) ? r2 : (r2 ?? r1), via: estaLocalizada(r2) ? 'geo' : 'ninguna', resp: porGeo }
+  return { r: parseRegiones(porGeo.status, porGeo.cuerpo), via: 'geo', resp: porGeo }
 }
 
 function legible(regionId: string | null): string {
@@ -159,10 +155,9 @@ async function probar(tienda: TiendaVtex) {
 
   const rio = await region(tienda, RIOHACHA)
   guardar(`${tienda.toLowerCase()}-regiones-riohacha`, rio.resp)
-  const localizada = estaLocalizada(rio.r)
-  linea(localizada, `región Riohacha: ${localizada ? `regionId=${rio.r!.regionId} sellers=${rio.r!.sellers.join(',')} (vía ${rio.via})` : `sin sellers (HTTP ${rio.resp.status}: ${rio.resp.cuerpo.slice(0, 120)})`}`)
   const bog = await region(tienda, BOGOTA)
-  linea(estaLocalizada(bog.r), `región Bogotá: ${estaLocalizada(bog.r) ? `regionId=${bog.r!.regionId} sellers=${bog.r!.sellers.join(',')}` : 'sin sellers'}`)
+  const localizada = esLocal(rio.r, bog.r)
+  linea(localizada, `región Riohacha: sellers=${rio.r?.sellers.join(',') || '—'} · Bogotá: ${bog.r?.sellers.join(',') || '—'} → ${localizada ? 'Riohacha tiene seller propio' : 'sin seller propio en Riohacha (precio nacional)'}`)
 
   const precioCon = async (reg: RegionVtex | null) => {
     const cookie = reg?.regionId ? cabeceraCookie(armarSegmento(reg.regionId, channel, segBase)) : undefined
@@ -170,7 +165,7 @@ async function probar(tienda: TiendaVtex) {
     return candidatos(tienda, r, reg?.sellers ?? []).find((x) => x.skuId === c.skuId)
   }
   const sin = await precioCon(null)
-  const conRio = localizada ? await precioCon(rio.r) : undefined
+  const conRio = estaLocalizada(rio.r) ? await precioCon(rio.r) : undefined
   const conBog = estaLocalizada(bog.r) ? await precioCon(bog.r) : undefined
   linea(null, `precio del SKU ${c.skuId}: sin cookie=${sin?.precio ?? '—'} · Riohacha=${conRio?.precio ?? '—'} (seller ${conRio?.sellerId ?? '—'}) · Bogotá=${conBog?.precio ?? '—'} (seller ${conBog?.sellerId ?? '—'})`)
 

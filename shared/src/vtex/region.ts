@@ -18,7 +18,24 @@ export function parseRegiones(status: number, cuerpo: string): RegionVtex | null
   return { regionId: typeof r.id === 'string' && r.id ? r.id : null, sellers }
 }
 
-/** La tienda atiende la ubicación cuando la región trae al menos un seller. */
+/** La región trae al menos un seller. No basta para decir que la tienda atiende la ciudad: ver esLocal. */
 export function estaLocalizada(r: RegionVtex | null): boolean {
   return !!r && !!r.regionId && r.sellers.length > 0
+}
+
+/**
+ * Ciudad de referencia para descartar sellers genéricos. Medido el 27-sep-2026: por código postal Éxito y D1
+ * devuelven la misma región genérica para cualquier ciudad y Olímpica ninguna; por coordenadas sí se distinguen.
+ * D1 le asigna a Riohacha solo un seller que también aparece en Bogotá, Medellín y Barranquilla.
+ */
+export const REFERENCIA = { lon: -74.0721, lat: 4.711 } // Bogotá
+
+/**
+ * La tienda atiende la ciudad si su región (por coordenadas) trae algún seller propio, que no aparezca también
+ * en la ciudad de referencia. Si solo trae sellers genéricos, el precio es el nacional.
+ */
+export function esLocal(ciudad: RegionVtex | null, referencia: RegionVtex | null): boolean {
+  if (!estaLocalizada(ciudad)) return false
+  const ajenos = new Set(referencia?.sellers ?? [])
+  return ciudad!.sellers.some((s) => !ajenos.has(s))
 }

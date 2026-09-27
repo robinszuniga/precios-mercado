@@ -224,3 +224,30 @@ describe('buscarEnTienda', () => {
     expect(f.pedidas[1].cabeceras?.Cookie).toBeUndefined()
   })
 })
+
+describe('región de Riohacha', () => {
+  function servidorRegiones(riohacha: string[], bogota: string[]) {
+    return crearServicios({
+      responder: (p) => {
+        if (!p.url.includes('/regions')) return { status: 200, cuerpo: '<html></html>', setCookie: [] }
+        const s = p.url.includes('-72.907') ? riohacha : bogota
+        return { status: 200, cuerpo: JSON.stringify([{ id: `R${s.join('')}`, sellers: s.map((id) => ({ id })) }]), setCookie: [] }
+      },
+    })
+  }
+
+  it('se consulta por coordenadas y compara con Bogotá; D1 con seller genérico queda manual', () => {
+    const f = servidorRegiones(['d1ats12109cc'], ['d1ats12109cc', 'd1bon11808cc'])
+    const r = post(f.s, { a: 'probarRegion', tienda: 'D1' })
+    expect(r.data).toMatchObject({ region: { localizada: false }, autoD1: false, contexto: { region: 'DEFAULT', segmento: null } })
+    expect(f.pedidas.some((p) => p.url.includes('postalCode'))).toBe(false)
+    expect(f.repo.leer('Config').find((c) => c.clave === 'tienda_auto.D1')?.valor).toBe('no')
+  })
+
+  it('Olímpica con seller propio en Riohacha usa la cookie de la región', () => {
+    const f = servidorRegiones(['olimpicaswl1212'], ['olimpicaswl1402'])
+    const r = post(f.s, { a: 'probarRegion', tienda: 'OLIMPICA' })
+    expect(r.data).toMatchObject({ region: { localizada: true, sellers: ['olimpicaswl1212'] }, contexto: { region: 'RIOHACHA' } })
+    expect((r.data as { contexto: { segmento: string } }).contexto.segmento).toBeTruthy()
+  })
+})

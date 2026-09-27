@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { candidatosDeProductos, clasificarRespuesta } from '../src/vtex/parse.ts'
 import { planificarPeticiones, presentacionesAuto, procesarRespuesta } from '../src/vtex/plan.ts'
-import { estaLocalizada, parseRegiones } from '../src/vtex/region.ts'
+import { esLocal, estaLocalizada, parseRegiones } from '../src/vtex/region.ts'
 import { armarSegmento, decodificarSegmento, segmentoDeSetCookie } from '../src/vtex/segmento.ts'
 import { urlBusqueda, urlPorEan, urlPorSku, urlRegiones } from '../src/vtex/urls.ts'
 import { AHORA, pres, productoVtex } from './ayudas.ts'
@@ -56,6 +56,22 @@ describe('regiones', () => {
     expect(estaLocalizada(r)).toBe(false)
     expect(estaLocalizada(parseRegiones(200, '[]'))).toBe(false)
   })
+  // Respuestas reales medidas el 27-sep-2026 (smoke test desde GitHub Actions).
+  const reg = (id: string, sellers: string[]) => parseRegiones(200, JSON.stringify([{ id, sellers: sellers.map((s) => ({ id: s })) }]))
+  it('Olímpica atiende Riohacha: seller propio, distinto al de Bogotá', () => {
+    expect(esLocal(reg('U1cjb2xpbXBpY2Fzd2wxMjEy', ['olimpicaswl1212']), reg('U1cjb2xpbXBpY2Fzd2wxNDAy', ['olimpicaswl1402']))).toBe(true)
+  })
+  it('Éxito no atiende Riohacha: la región por coordenadas viene vacía', () => {
+    expect(esLocal(reg('U1cj', []), reg('U1cjZXhpdG9jb2wwODg=', ['exitocol088']))).toBe(false)
+  })
+  it('D1 no atiende Riohacha: su único seller también aparece en Bogotá', () => {
+    expect(esLocal(reg('v2.C3EB', ['d1ats12109cc']), reg('v2.B33F', ['d1ats12109cc', 'd1bon11808cc']))).toBe(false)
+  })
+  it('el código postal da la misma región genérica en cualquier ciudad: no cuenta como local', () => {
+    const generica = reg('v2.68492AFE', ['d1nacional'])
+    expect(esLocal(generica, generica)).toBe(false)
+  })
+
   it('respuestas inválidas', () => {
     expect(parseRegiones(500, '')).toBeNull()
     expect(parseRegiones(200, '<html>')).toBeNull()

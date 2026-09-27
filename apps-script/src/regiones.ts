@@ -2,7 +2,7 @@ import type { Config, RegionGuardada } from '../../shared/src/config.ts'
 import { diasEntre } from '../../shared/src/fechas.ts'
 import { INFO_TIENDAS, TIENDAS_VTEX, type TiendaVtex } from '../../shared/src/tiendas.ts'
 import type { ContextoTienda, Contextos } from '../../shared/src/vtex/plan.ts'
-import { estaLocalizada, parseRegiones } from '../../shared/src/vtex/region.ts'
+import { esLocal, parseRegiones, REFERENCIA } from '../../shared/src/vtex/region.ts'
 import { armarSegmento, segmentoDeSetCookie } from '../../shared/src/vtex/segmento.ts'
 import { urlRegiones } from '../../shared/src/vtex/urls.ts'
 import type { Servicios } from './puertos.ts'
@@ -10,27 +10,24 @@ import type { Servicios } from './puertos.ts'
 const DIAS_REGION = 7
 
 /**
- * Resuelve la región de Riohacha de una tienda: primero por código postal, si no trae sellers por coordenadas.
- * El channel sale de la cookie vtex_segment que manda la home. El regionId nunca se escribe a mano.
+ * Resuelve la región de Riohacha de una tienda por coordenadas (el código postal devuelve regiones genéricas) y la
+ * compara con Bogotá: solo cuenta como local si trae un seller propio. El regionId nunca se escribe a mano.
  */
 export function resolverRegion(s: Servicios, tienda: TiendaVtex, cfg: Config): RegionGuardada {
-  const [home, porCp] = s.http.todas([
+  const [home, ciudad, ref] = s.http.todas([
     { url: INFO_TIENDAS[tienda].home! },
-    { url: urlRegiones(tienda, { cp: cfg.ubicacion.cp }) },
+    { url: urlRegiones(tienda, { lon: cfg.ubicacion.lon, lat: cfg.ubicacion.lat }) },
+    { url: urlRegiones(tienda, REFERENCIA) },
   ])
   const seg = segmentoDeSetCookie(home.setCookie)
-  const channel = String(seg?.channel ?? '1')
-  let r = parseRegiones(porCp.status, porCp.cuerpo)
-  if (!estaLocalizada(r)) {
-    const [porGeo] = s.http.todas([{ url: urlRegiones(tienda, { lon: cfg.ubicacion.lon, lat: cfg.ubicacion.lat }) }])
-    const r2 = parseRegiones(porGeo.status, porGeo.cuerpo)
-    if (estaLocalizada(r2) || !r) r = r2
-  }
+  const r = parseRegiones(ciudad.status, ciudad.cuerpo)
+  const referencia = parseRegiones(ref.status, ref.cuerpo)
+  if (!r) throw new Error(`regiones de ${tienda} respondió HTTP ${ciudad.status}`)
   return {
-    regionId: r?.regionId ?? null,
-    channel,
-    sellers: r?.sellers ?? [],
-    localizada: estaLocalizada(r),
+    regionId: r.regionId,
+    channel: String(seg?.channel ?? '1'),
+    sellers: r.sellers,
+    localizada: esLocal(r, referencia),
     fecha: s.reloj.ahora(),
   }
 }
