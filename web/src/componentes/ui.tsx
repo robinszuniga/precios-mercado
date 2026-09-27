@@ -102,6 +102,13 @@ export function Pasos({ valor, paso, minimo = 0, etiqueta, sufijo, onCambio }: {
 }
 
 let contadorHojas = 0
+// Cuántas hojas hay abiertas: con una abierta, los avisos se muestran arriba (abajo tapan sus botones).
+let hojasAbiertas = 0
+const oyentesHoja = new Set<() => void>()
+function contarHoja(delta: number) {
+  hojasAbiertas += delta
+  oyentesHoja.forEach((f) => f())
+}
 
 /**
  * Hoja que sube desde abajo, cómoda con una mano. El botón Atrás de Android la cierra (en vez de salir de la
@@ -118,6 +125,7 @@ export function Hoja({ abierta, titulo, onCerrar, children, protegida = false }:
   useEffect(() => {
     if (!abierta) return
     const id = ++contadorHojas
+    contarHoja(1)
     const previo = document.activeElement as HTMLElement | null
     history.pushState({ ...(history.state ?? {}), hoja: id }, '')
     const atras = () => { if (history.state?.hoja !== id) cerrarRef.current() }
@@ -128,6 +136,7 @@ export function Hoja({ abierta, titulo, onCerrar, children, protegida = false }:
     const primero = caja.current?.querySelector<HTMLElement>('input:not([type=hidden]), select, textarea, button:not([data-cerrar])')
     primero?.focus({ preventScroll: true })
     return () => {
+      contarHoja(-1)
       window.removeEventListener('popstate', atras)
       window.removeEventListener('keydown', esc)
       document.body.style.overflow = ''
@@ -144,7 +153,7 @@ export function Hoja({ abierta, titulo, onCerrar, children, protegida = false }:
         role="dialog"
         aria-modal="true"
         aria-labelledby={idTitulo}
-        className="abajo-seguro max-h-[90dvh] w-full max-w-lg animate-subir overflow-y-auto rounded-t-3xl bg-fondo px-4 pt-2 motion-reduce:animate-none"
+        className="abajo-seguro max-h-[calc(100dvh-5.5rem)] w-full max-w-lg animate-subir overflow-y-auto rounded-t-3xl bg-fondo px-4 pt-2 motion-reduce:animate-none"
         onClick={(e) => e.stopPropagation()}
       >
         <div aria-hidden className="mx-auto mb-2 h-1.5 w-10 rounded-full bg-stone-300" />
@@ -323,8 +332,12 @@ export function avisar(texto: string, deshacer?: () => void | Promise<void>) {
 
 export function Avisos() {
   const lista = useSyncExternalStore((f) => { oyentes.add(f); return () => oyentes.delete(f) }, () => avisos)
+  const hayHoja = useSyncExternalStore((f) => { oyentesHoja.add(f); return () => oyentesHoja.delete(f) }, () => hojasAbiertas > 0)
+  // Con una hoja abierta van arriba, en el espacio libre sobre la hoja: abajo taparían sus botones y un toque del
+  // pulgar desharía lo anterior sin querer.
+  const lugar = hayHoja ? { top: 'calc(env(safe-area-inset-top) + 0.75rem)' } : { bottom: 'calc(env(safe-area-inset-bottom) + 4.75rem)' }
   return (
-    <div className="pointer-events-none fixed inset-x-0 z-50 mx-auto flex max-w-lg flex-col gap-2 px-4" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 4.75rem)' }} role="status" aria-live="polite">
+    <div className="pointer-events-none fixed inset-x-0 z-50 mx-auto flex max-w-lg flex-col gap-2 px-4" style={lugar} data-lugar={hayHoja ? 'arriba' : 'abajo'} role="status" aria-live="polite">
       {lista.map((a) => (
         <div key={a.id} className="pointer-events-auto flex animate-subir items-center justify-between gap-3 rounded-xl bg-tinta px-4 py-2 text-sm text-white shadow-lg motion-reduce:animate-none">
           <span>{a.texto}</span>
@@ -347,10 +360,17 @@ export function hace(dias: number): string {
   return dias === 0 ? 'hoy' : dias === 1 ? 'ayer' : `hace ${dias} d`
 }
 
-/** Número desde un input: acepta "4.500", "4500" y "1,5". */
+/**
+ * Número desde un input: "4.500" y "1.234,5" al estilo colombiano; "1,5" y también "1.5" (teclados con punto)
+ * son uno y medio. Solo los grupos de tres cifras tras el punto son miles.
+ */
 export function leerNumero(v: string): number | null {
   const t = v.trim()
   if (!t) return null
-  const n = Number(/^\d{1,3}(\.\d{3})+$/.test(t) ? t.replace(/\./g, '') : t.replace(/\./g, '').replace(',', '.'))
+  const n = /^\d{1,3}(\.\d{3})+$/.test(t)
+    ? Number(t.replace(/\./g, ''))
+    : t.includes(',')
+      ? Number(t.replace(/\./g, '').replace(',', '.'))
+      : Number(t)
   return Number.isFinite(n) ? n : null
 }

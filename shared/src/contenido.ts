@@ -63,7 +63,8 @@ const RE_MEDIDA = new RegExp(String.raw`(${NUM})\s*(${ALT})(?![a-z])`, 'g')
 const RE_MULTI = new RegExp(String.raw`(?:^|[^\d.,])(\d{1,3})\s*(?:und|unds|unidades|u|uds)?\s*x\s*(${NUM})\s*(${ALT})(?![a-z])`)
 // "x6", "x 6", "pack x 6" que no van seguidos de una unidad de medida.
 const RE_POR_N = new RegExp(String.raw`(?:^|[^a-z])(?:pack\s*)?x\s*(\d{1,3})(?![\d.,])(?!\s*(?:${ALT})(?![a-z]))`)
-const RE_PACK = /(?:pack|paquete|six\s*pack)\s*(?:de|x)?\s*(\d{1,3})(?![\d.,])/
+// "pack de 6", "paquete x 12"; no "paquete 500 g" (ese número es el tamaño, no cuántos).
+const RE_PACK = new RegExp(String.raw`(?:pack|paquete)\s*(?:de|x)?\s*(\d{1,3})(?![\d.,])(?!\s*(?:${ALT})(?![a-z]))`)
 
 export function normalizar(texto: string): string {
   return texto
@@ -130,6 +131,7 @@ export function parseContenido(texto: string): Contenido | null {
   }
   const porN = t.match(RE_POR_N) ?? t.match(RE_PACK)
   if (porN) conteos.push(Number(porN[1]))
+  else if (/six\s*pack/.test(t)) conteos.push(6)
 
   if (medidas.length > 0) {
     const m = medidas[0]

@@ -39,15 +39,17 @@ export function ordenarCandidatos<C extends Candidato>(nombre: string, unidad: U
     if (!c.contenido || c.contenido.unidad !== unidad || !(c.contenido.valor > 0)) return
     const ws = palabras(c.nombre)
     const marca = new Set(palabras(c.marca))
-    const tiene = buscadas.filter((b) => ws.some((w) => w === b || (b.length >= 4 && w.startsWith(b))))
-    if (!tiene.length) return
-    const cobertura = tiene.length / buscadas.length
-    const deMas = ws.filter((w) => !buscadas.some((b) => w === b || w.startsWith(b)) && !marca.has(w) && !NEUTRAS.test(w) && !INOFENSIVAS.has(w) && w.length > 2).length
+    // Solo la palabra exacta cuenta completa: "Papaya" empieza por "papa" pero es otro producto.
+    const exactas = buscadas.filter((b) => ws.includes(b))
+    const parecidas = buscadas.filter((b) => !ws.includes(b) && b.length >= 4 && ws.some((w) => w.startsWith(b)))
+    if (!exactas.length && !parecidas.length) return
+    const cobertura = (exactas.length + parecidas.length * 0.5) / buscadas.length
+    const deMas = ws.filter((w) => !buscadas.includes(w) && !marca.has(w) && !NEUTRAS.test(w) && !INOFENSIVAS.has(w) && w.length > 2).length
     const precioUnidad = precioPorUnidad(c.precio, c.contenido.valor, unidad)
     const conPrecio = precioUnidad != null && c.disponible
     const empiezaIgual = ws[0] === buscadas[0] || (marca.has(ws[0]) && ws[1] === buscadas[0])
     const puntaje = cobertura * 100 - deMas * 12 + (empiezaIgual ? 15 : 0) + (conPrecio ? 10 : -40) + Math.max(0, 20 - i) / 2
-    out.push({ ...c, puntaje, precioUnidad: precioUnidad ?? 0, seguro: cobertura === 1 && deMas === 0 && conPrecio && c.contenido.confianza !== 'baja' })
+    out.push({ ...c, puntaje, precioUnidad: precioUnidad ?? 0, seguro: exactas.length === buscadas.length && deMas === 0 && conPrecio && c.contenido.confianza !== 'baja' })
   })
   out.sort((a, b) => b.puntaje - a.puntaje)
   // Solo una opción puede ser la segura: la primera de las seguras.

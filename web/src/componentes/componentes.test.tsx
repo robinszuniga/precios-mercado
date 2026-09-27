@@ -1,9 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { estadoPresupuesto } from '@shared/presupuesto.ts'
 import { leerRuta } from '../app/ruta.ts'
 import { BarraPresupuesto } from './BarraPresupuesto.tsx'
-import { leerNumero, Pasos } from './ui.tsx'
+import { avisar, Avisos, Hoja, leerNumero, Pasos } from './ui.tsx'
 import { precioAtipico } from './RegistrarPrecio.tsx'
 
 const d = (precio: number) => ({ estado: 'en_carrito' as const, cantidad: 1, precio_unitario: precio, borrado: false })
@@ -43,6 +43,12 @@ describe('utilidades', () => {
     expect(leerNumero('250000')).toBe(250000)
     expect(leerNumero('')).toBeNull()
     expect(leerNumero('abc')).toBeNull()
+    // Teclados con punto decimal: "1.5" no es 15.
+    expect(leerNumero('1.5')).toBe(1.5)
+    expect(leerNumero('0.25')).toBe(0.25)
+    expect(leerNumero('12.75')).toBe(12.75)
+    expect(leerNumero('1.234,5')).toBe(1234.5)
+    expect(leerNumero('1.500.000')).toBe(1500000)
   })
 
   it('rutas por hash', () => {
@@ -80,5 +86,27 @@ describe('Pasos', () => {
     fireEvent.blur(campo)
     expect(cambios).toEqual([])
     expect(campo).toHaveValue('6')
+  })
+})
+
+describe('Anotar precio', () => {
+  it('arranca en la última tienda usada, aunque llegue un instante después', async () => {
+    const { db, guardarMeta } = await import('../datos/db.ts')
+    const { nuevoProducto } = await import('../datos/escritura.ts')
+    const { RegistrarPrecio } = await import('./RegistrarPrecio.tsx')
+    await Promise.all(db.tables.map((t) => t.clear()))
+    await guardarMeta('ultimaTienda', 'EXITO')
+    render(<RegistrarPrecio producto={nuevoProducto({ nombre: 'Arroz' })} presentaciones={[]} actualesDe={new Map()} onListo={() => {}} />)
+    await waitFor(() => expect(screen.getByLabelText('Tienda')).toHaveValue('EXITO'))
+  })
+})
+
+describe('avisos', () => {
+  it('con una hoja abierta el aviso con Deshacer se muestra arriba (no tapa sus botones)', async () => {
+    const { rerender } = render(<><Avisos /><Hoja abierta={false} titulo="x" onCerrar={() => {}}><button type="button">Al carrito</button></Hoja></>)
+    avisar('Arroz al carrito', () => {})
+    expect((await screen.findByText('Arroz al carrito')).closest('[data-lugar]')).toHaveAttribute('data-lugar', 'abajo')
+    rerender(<><Avisos /><Hoja abierta titulo="x" onCerrar={() => {}}><button type="button">Al carrito</button></Hoja></>)
+    expect(screen.getByText('Arroz al carrito').closest('[data-lugar]')).toHaveAttribute('data-lugar', 'arriba')
   })
 })

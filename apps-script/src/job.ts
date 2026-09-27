@@ -124,11 +124,15 @@ export function ejecutarJob(s: Servicios, limiteMs = LIMITE_MS): Job | null {
       const r = guardarObservaciones(s, obs)
       job.actualizados += r.aplicadas
       if (parches.size) {
+        // Se relee dentro del lock y solo se tocan los campos del servidor: si el usuario cambió la presentación
+        // mientras corría el trabajo (la quitó, corrigió el tamaño), su cambio se respeta. updated_at no se toca
+        // para que una edición del celular hecha antes no pierda contra este parche.
         const ahora = s.reloj.ahora()
+        const frescas = new Map(s.repo.leer('Presentaciones').map((f) => [String(f.presentacion_id), f]))
         const filas: Fila[] = []
         for (const [id, parche] of parches) {
-          const actual = porId.get(id)
-          if (actual) filas.push({ ...(actual as unknown as Fila), ...parche, updated_at: ahora, _srv: ahora })
+          const actual = frescas.get(id)
+          if (actual) filas.push({ ...actual, ...parche, _srv: ahora })
         }
         s.repo.guardar('Presentaciones', filas)
       }

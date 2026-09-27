@@ -3,7 +3,7 @@ import { createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VincularTodos } from '../componentes/VincularTodos.tsx'
 import { db, guardarMeta } from './db.ts'
-import { guardar, nuevoProducto } from './escritura.ts'
+import { compraAbierta, guardar, nuevoProducto } from './escritura.ts'
 import { autoVincular, productosSinVincular } from './vincularLote.ts'
 
 type Item = { id: string; q?: string; ean?: string; unidad: string }
@@ -111,5 +111,45 @@ describe('con el script de Google viejo', () => {
   it('una respuesta rara (sin resultados) no rompe nada', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: true, data: {}, error: null, v: 1 }))))
     expect(await autoVincular()).toEqual({ vinculados: 0, dudosos: 0, sinResultado: 0 })
+  })
+})
+
+describe('sin duplicados ni sorpresas', () => {
+  it('la búsqueda automática y "Buscar precios" a la vez no vinculan dos veces lo mismo', async () => {
+    servidor()
+    render(createElement(VincularTodos, { onListo: () => {} }))
+    await autoVincular({ forzar: true })
+    await screen.findByRole('radiogroup', { name: 'Opciones para Leche' })
+    const pres = await db.presentaciones.toArray()
+    expect(pres.map((p) => `${p.tienda}:${p.sku_id}`).sort()).toEqual(['EXITO:EXITO-Arroz Diana 1000 g', 'OLIMPICA:OLIMPICA-Arroz Diana 1000 g'])
+  })
+
+  it('un vínculo automático que quitaste no vuelve solo', async () => {
+    servidor()
+    await autoVincular()
+    const pres = await db.presentaciones.toArray()
+    await guardar('Presentaciones', pres.map((p) => ({ ...p, activo: false })))
+    expect((await productosSinVincular()).map((p) => p.nombre)).not.toContain('Arroz')
+    await autoVincular({ forzar: true })
+    expect((await db.presentaciones.toArray()).every((p) => !p.activo)).toBe(true)
+  })
+
+  it('no corre sola en plena compra (sí si se fuerza al pegar la lista)', async () => {
+    const llamadas = servidor()
+    const arroz = (await db.productos.toArray()).find((p) => p.nombre === 'Arroz')!
+    const { agregarALaCompra } = await import('./escritura.ts')
+    await agregarALaCompra(arroz, [])
+    await guardar('Compras', { ...(await compraAbierta())!, estado: 'en_curso' })
+    expect(await autoVincular()).toBeNull()
+    expect(llamadas).toHaveLength(0)
+    expect(await autoVincular({ forzar: true })).not.toBeNull()
+  })
+
+  it('tras un fallo espera antes de reintentar solo', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
+    await autoVincular()
+    const llamadas = servidor()
+    expect(await autoVincular()).toBeNull()
+    expect(llamadas).toHaveLength(0)
   })
 })

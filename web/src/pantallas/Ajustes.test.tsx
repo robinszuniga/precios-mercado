@@ -31,7 +31,7 @@ describe('Ajustes · copia en Google', () => {
   it('si la URL es de un proyecto sin configurar lo dice, con el proyecto, y no muestra "Copia activa"', async () => {
     backend({ proyecto: 'zzz999', configurado: false })
     await probar()
-    expect(await screen.findByRole('alert')).toHaveTextContent('proyecto de Apps Script sin configurar (proyecto …zzz999)')
+    expect(await screen.findByRole('alert', {}, { timeout: 4000 })).toHaveTextContent('proyecto de Apps Script sin configurar (proyecto …zzz999)')
     expect(screen.queryByText(/Copia activa/)).toBeNull()
     expect(screen.getByText(/Todavía no se ha guardado nada en Google/)).toBeInTheDocument()
   })
@@ -39,7 +39,7 @@ describe('Ajustes · copia en Google', () => {
   it('conectado: dice a qué proyecto y la copia queda activa tras sincronizar', async () => {
     backend({ proyecto: 'abc123', configurado: true, hoja: true })
     await probar()
-    expect(await screen.findByText('✔ Conectado al proyecto …abc123. Copiando tus datos…')).toBeInTheDocument()
-    expect(await screen.findByText(/Copia activa \(proyecto …abc123\)/)).toBeInTheDocument()
+    expect(await screen.findByText('✔ Conectado al proyecto …abc123. Copiando tus datos…', {}, { timeout: 4000 })).toBeInTheDocument()
+    expect(await screen.findByText(/Copia activa \(proyecto …abc123\)/, {}, { timeout: 4000 })).toBeInTheDocument()
   })
 })

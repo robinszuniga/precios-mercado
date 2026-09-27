@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { parseContenido } from '@shared/contenido.ts'
 import type { PrecioActual, Presentacion, Producto } from '@shared/esquema.ts'
 import { diasEntre } from '@shared/fechas.ts'
@@ -66,7 +66,16 @@ export function RegistrarPrecio({
   const sinTamano = nueva && !tamanoOk
   const pideConfirmar = atipico || sinTamano
 
+  // La última tienda llega un instante después (base local): si el usuario no ha elegido otra, se usa esa.
+  const eligio = useRef(false)
+  useEffect(() => {
+    if (tiendaInicial || eligio.current || !ultima || ultima === tienda) return
+    setTienda(ultima)
+    if (!presentacionInicial) setPresId(primeraDe(presentaciones, ultima))
+  }, [ultima])
+
   function cambiarTienda(t: Tienda) {
+    eligio.current = true
     setTienda(t)
     setPresId(primeraDe(presentaciones, t))
     setConfirmando(false)

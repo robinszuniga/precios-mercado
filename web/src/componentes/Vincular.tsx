@@ -61,7 +61,7 @@ export function Vincular({ producto, yaVinculadas, onListo }: { producto: Produc
     if (!elegido) return
     const c = parseContenido(tamano)
     const contenido = c && c.unidad === producto.unidad_base ? c.valor : null
-    await crearDesdeCandidato(producto, elegido, contenido)
+    await crearDesdeCandidato(producto, elegido, contenido, { reactivar: true })
     if (elegido.ean) await buscar({ tienda: '*', ean: elegido.ean }, (xs) => setOtras(xs.filter((x) => x.tienda !== elegido.tienda)))
     else onListo()
   }
@@ -84,7 +84,7 @@ export function Vincular({ producto, yaVinculadas, onListo }: { producto: Produc
                 variante="secundario"
                 disabled={agregadas.includes(o.tienda)}
                 onClick={async () => {
-                  await crearDesdeCandidato(producto, o, contenidoCompatible(o.contenido, producto.unidad_base) ? o.contenido!.valor : (elegido && parseContenido(tamano)?.valor) ?? null)
+                  await crearDesdeCandidato(producto, o, contenidoCompatible(o.contenido, producto.unidad_base) ? o.contenido!.valor : (elegido && parseContenido(tamano)?.valor) ?? null, { reactivar: true })
                   setAgregadas((a) => [...a, o.tienda])
                 }}
               >

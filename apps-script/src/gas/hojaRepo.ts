@@ -50,6 +50,7 @@ export class HojaRepo implements Repo {
     if (!hoja) throw new Error(`Falta la pestaña ${tabla}: ejecuta inicializarHoja`)
     const valores = hoja.getDataRange().getValues()
     const encabezados = (valores[0] ?? []).map((x) => String(x).trim())
+    this.agregarColumnasNuevas(tabla, hoja, encabezados)
     const idCol = TABLAS[tabla].id
     const filas: Fila[] = []
     const indice = new Map<string, number>()
@@ -64,6 +65,34 @@ export class HojaRepo implements Repo {
     const c = { hoja, encabezados, filas, indice }
     this.cargadas.set(tabla, c)
     return c
+  }
+
+  /**
+   * Una versión nueva del Code.js puede traer columnas nuevas: se agregan solas al final (antes solo lo hacía
+   * inicializarHoja y el dato se perdía en silencio).
+   */
+  private agregarColumnasNuevas(tabla: NombreTabla, hoja: Hoja, encabezados: string[]) {
+    const faltan = Object.keys(TABLAS[tabla].cols).filter((col) => !encabezados.includes(col))
+    if (!faltan.length) return
+    const desde = encabezados.length + 1
+    const sobran = desde + faltan.length - 1 - hoja.getMaxColumns()
+    if (sobran > 0) hoja.insertColumnsAfter(hoja.getMaxColumns(), sobran)
+    hoja.getRange(1, desde, 1, faltan.length).setValues([faltan]).setFontWeight('bold')
+    faltan.forEach((h, i) => {
+      if (tipoDe(tabla, h) === 't') hoja.getRange(1, desde + i, hoja.getMaxRows(), 1).setNumberFormat('@')
+    })
+    encabezados.push(...faltan)
+  }
+
+  /** Una hoja nueva trae 1000 filas: antes de escribir más allá, se agregan (con formato de texto donde toca). */
+  private asegurarFilas(tabla: NombreTabla, c: Cargada, ultima: number) {
+    const max = c.hoja.getMaxRows()
+    if (ultima <= max) return
+    const extra = ultima - max + 500
+    c.hoja.insertRowsAfter(max, extra)
+    c.encabezados.forEach((h, i) => {
+      if (tipoDe(tabla, h) === 't') c.hoja.getRange(max + 1, i + 1, extra, 1).setNumberFormat('@')
+    })
   }
 
   private aFilaHoja(tabla: NombreTabla, c: Cargada, f: Fila): unknown[] {
@@ -103,6 +132,7 @@ export class HojaRepo implements Repo {
     }
     if (nuevas.length) {
       const desde = c.filas.length - nuevas.length + 2
+      this.asegurarFilas(tabla, c, desde + nuevas.length - 1)
       c.hoja.getRange(desde, 1, nuevas.length, ancho).setValues(nuevas.map((f) => this.aFilaHoja(tabla, c, f)))
     }
   }
@@ -111,6 +141,7 @@ export class HojaRepo implements Repo {
     if (!filas.length) return
     const c = this.cargar(tabla)
     const desde = c.filas.length + 2
+    this.asegurarFilas(tabla, c, desde + filas.length - 1)
     c.hoja.getRange(desde, 1, filas.length, c.encabezados.length).setValues(filas.map((f) => this.aFilaHoja(tabla, c, f)))
     const idCol = TABLAS[tabla].id
     for (const f of filas) {
@@ -125,6 +156,10 @@ export class HojaRepo implements Repo {
     if (sobran <= 0) return
     c.hoja.deleteRows(2, sobran)
     this.cargadas.delete(tabla)
+  }
+
+  refrescar(): void {
+    this.cargadas.clear()
   }
 
   pestanasFaltantes(): string[] {

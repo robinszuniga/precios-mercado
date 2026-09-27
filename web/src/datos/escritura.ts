@@ -105,8 +105,24 @@ export function nuevoDetalle(compraId: string, p: Partial<Detalle>): Detalle {
   }
 }
 
+let enCola: Promise<unknown> = Promise.resolve()
+
+/**
+ * Los pasos que leen la compra y luego escriben van de a uno: un doble toque en "+ Agregar" o en "Armar compra"
+ * no puede crear dos compras abiertas ni el mismo producto dos veces.
+ */
+function enSerie<T>(fn: () => Promise<T>): Promise<T> {
+  const r = enCola.then(fn, fn)
+  enCola = r.catch(() => undefined)
+  return r
+}
+
 /** Crea (o devuelve) la lista abierta, arrancando con los productos recurrentes. */
-export async function asegurarCompra(tiendasHoy: Tienda[]): Promise<Compra> {
+export function asegurarCompra(tiendasHoy: Tienda[]): Promise<Compra> {
+  return enSerie(() => asegurarCompraAhora(tiendasHoy))
+}
+
+async function asegurarCompraAhora(tiendasHoy: Tienda[]): Promise<Compra> {
   const abierta = await compraAbierta()
   if (abierta) return abierta
   const compra: Compra = {
@@ -122,26 +138,35 @@ export async function asegurarCompra(tiendasHoy: Tienda[]): Promise<Compra> {
   return compra
 }
 
-export async function agregarALaCompra(producto: Producto, tiendasHoy: Tienda[]) {
-  const compra = await asegurarCompra(tiendasHoy)
-  const ya = (await db.detalle.where('compra_id').equals(compra.compra_id).toArray()).find((d) => !d.borrado && d.producto_id === producto.producto_id)
-  if (ya) return ya
-  const [d] = await guardar('Compras_detalle', nuevoDetalle(compra.compra_id, { producto_id: producto.producto_id, necesidad: producto.cantidad_habitual }))
-  return d
+export function agregarALaCompra(producto: Producto, tiendasHoy: Tienda[]): Promise<Detalle> {
+  return enSerie(async () => {
+    const compra = await asegurarCompraAhora(tiendasHoy)
+    const ya = (await db.detalle.where('compra_id').equals(compra.compra_id).toArray()).find((d) => !d.borrado && d.producto_id === producto.producto_id)
+    if (ya) return ya
+    const [d] = await guardar('Compras_detalle', nuevoDetalle(compra.compra_id, { producto_id: producto.producto_id, necesidad: producto.cantidad_habitual }))
+    return d
+  })
 }
 
 /** Quita un producto de la compra abierta (con Deshacer en la pantalla). Devuelve el ítem quitado. */
-export async function quitarDeLaCompra(productoId: string): Promise<Detalle | undefined> {
-  const compra = await compraAbierta()
-  if (!compra) return undefined
-  const d = (await db.detalle.where('compra_id').equals(compra.compra_id).toArray()).find((x) => !x.borrado && x.producto_id === productoId)
-  if (!d) return undefined
-  await guardar('Compras_detalle', { ...d, borrado: true })
-  return d
+export function quitarDeLaCompra(productoId: string): Promise<Detalle | undefined> {
+  return enSerie(async () => {
+    const compra = await compraAbierta()
+    if (!compra) return undefined
+    const d = (await db.detalle.where('compra_id').equals(compra.compra_id).toArray()).find((x) => !x.borrado && x.producto_id === productoId)
+    if (!d) return undefined
+    await guardar('Compras_detalle', { ...d, borrado: true })
+    return d
+  })
 }
 
-export async function restaurarDetalle(d: Detalle) {
-  await guardar('Compras_detalle', { ...d, borrado: false })
+/** Deshacer: vuelve a poner el ítem, salvo que el producto ya se haya agregado otra vez (no duplica). */
+export function restaurarDetalle(d: Detalle): Promise<void> {
+  return enSerie(async () => {
+    const otro = d.producto_id && (await db.detalle.where('compra_id').equals(d.compra_id).toArray())
+      .some((x) => !x.borrado && x.detalle_id !== d.detalle_id && x.producto_id === d.producto_id)
+    if (!otro) await guardar('Compras_detalle', { ...d, borrado: false })
+  })
 }
 
 type Base = [nombre: string, unidad: Producto['unidad_base'], cantidad: number]

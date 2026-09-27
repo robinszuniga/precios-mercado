@@ -46,6 +46,15 @@ describe('ordenarCandidatos', () => {
     expect(ordenarCandidatos('Leche', 'ml', [cand('Leche deslactosada 1000 ml', 4500)])[0].seguro).toBe(false)
   })
 
+  it('un producto que solo empieza igual nunca es seguro (Papa ≠ Papaya, Maíz ≠ Maizena, Pan ≠ Pandebono)', () => {
+    const papa = ordenarCandidatos('Papa', 'g', [cand('Papaya 1 kg', 4000), cand('Papa pastusa 1 kg', 3000)])
+    expect(papa.find((x) => x.nombre === 'Papaya 1 kg')?.seguro).toBe(false)
+    expect(papa[0].nombre).toBe('Papa pastusa 1 kg')
+    expect(ordenarCandidatos('Maíz', 'g', [cand('Maizena 380 g', 5000)])[0]?.seguro ?? false).toBe(false)
+    expect(ordenarCandidatos('Pan', 'unidad', [cand('Pandebono x 6 und', 6000)])[0]?.seguro ?? false).toBe(false)
+    expect(ordenarCandidatos('Papa', 'g', [cand('Papa criolla 1 kg', 3000), cand('Papa 2 kg', 5000)]).find((x) => x.seguro)?.nombre).toBe('Papa 2 kg')
+  })
+
   it('sin precio, agotado o sin tamaño no es seguro', () => {
     expect(ordenarCandidatos('Arroz', 'g', [cand('Arroz Diana 1000 g', null)])[0].seguro).toBe(false)
     expect(ordenarCandidatos('Arroz', 'g', [cand('Arroz Diana 1000 g', 5000, { disponible: false })])[0].seguro).toBe(false)

@@ -85,6 +85,8 @@ export function serviciosGas(): Servicios {
         } catch {
           throw new Ocupado()
         }
+        // Lo leído antes del lock puede estar viejo (otra ejecución escribió mientras tanto).
+        repo?.refrescar()
         try {
           const r = fn()
           SpreadsheetApp.flush()

@@ -20,6 +20,7 @@ export class RepoMem {
   agregar(t: NombreTabla, filas: readonly Fila[]) { this.escrituras++; this.tablas.get(t)!.push(...filas.map((f) => ({ ...f }))) }
   recortar(t: NombreTabla, max: number) { const xs = this.tablas.get(t)!; if (xs.length > max) xs.splice(0, xs.length - max) }
   pestanasFaltantes() { return [] }
+  refrescar() {}
 }
 
 export type Responder = (p: PeticionHttp) => RespuestaHttp

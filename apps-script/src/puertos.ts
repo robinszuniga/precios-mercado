@@ -13,6 +13,8 @@ export interface Repo {
   /** Deja solo las últimas `max` filas. */
   recortar(tabla: NombreTabla, max: number): void
   pestanasFaltantes(): string[]
+  /** Olvida lo ya leído: la próxima lectura va a la hoja (lo que otro proceso escribió mientras tanto). */
+  refrescar(): void
 }
 
 export interface RespuestaHttp {

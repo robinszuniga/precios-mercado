@@ -57,3 +57,15 @@ describe('parseContenido', () => {
     expect(parseContenido('Carne 2 lb')?.confianza).toBe('baja')
   })
 })
+
+describe('paquetes: el número pegado a una medida es el tamaño, no cuántos', () => {
+  it.each([
+    ['Galletas Festival Paquete 500 g', 500, 'g'],
+    ['Leche Alpina Pack 200 ml', 200, 'ml'],
+    ['Cerveza Club Colombia Six Pack 330 ml', 1980, 'ml'],
+    ['Leche Alpina pack x 6 200 ml', 1200, 'ml'],
+    ['Papel higiénico paquete x 12 rollos', 12, 'unidad'],
+  ])('%s', (nombre, valor, unidad) => {
+    expect(parseContenido(nombre)).toMatchObject({ valor, unidad })
+  })
+})

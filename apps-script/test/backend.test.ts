@@ -189,6 +189,28 @@ describe('actualización de precios', () => {
     expect(f.repo.leer('Precios')).toHaveLength(2)
   })
 
+  it('no pisa lo que el usuario cambió en la presentación mientras corría el trabajo', () => {
+    let f!: ReturnType<typeof crearServicios>
+    f = crearServicios({
+      responder: (p) => {
+        // Mientras el trabajo consulta la tienda, el usuario quita la presentación desde el celular.
+        if (p.url.includes('skuId:55')) {
+          f.repo.guardar('Presentaciones', [{ presentacion_id: 'pe', activo: false, updated_at: '2026-09-27T10:00:30.000-05:00' }])
+          return { status: 200, cuerpo: '[]', setCookie: [] }
+        }
+        if (p.url.includes('alternateIds_Ean:770')) return { status: 206, cuerpo: vtexProducto('60', 5100, '770'), setCookie: [] }
+        return { status: 404, cuerpo: '', setCookie: [] }
+      },
+    })
+    prepararRegion(f)
+    f.repo.guardar('Presentaciones', [presentacion('pe', 'EXITO', '55', '770')])
+    tareaDiaria(f.s)
+    const pe = f.repo.leer('Presentaciones').find((p) => p.presentacion_id === 'pe')!
+    expect(pe.activo).toBe(false) // el cambio del usuario sigue
+    expect(pe.sku_id).toBe('60') // y el SKU nuevo también
+    expect(pe.updated_at).toBe('2026-09-27T10:00:30.000-05:00') // el parche del servidor no gana por fecha
+  })
+
   it('si se acerca el límite de tiempo guarda el avance y programa la continuación', () => {
     const f = crearServicios({ responder: (p) => ({ status: 200, cuerpo: vtexProducto(p.url.match(/skuId:(\d+)/)![1], 1000), setCookie: [] }) })
     prepararRegion(f)

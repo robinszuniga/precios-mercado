@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Producto } from '@shared/esquema.ts'
 import { etiquetaVisible, formatoContenido } from '@shared/unidades.ts'
 import { useMeta } from '../datos/consultas.ts'
-import { autoVincular, buscarLote, opcionesDe, productosSinVincular, seguros, vincular, type Elegido, type OpcionLote } from '../datos/vincularLote.ts'
+import { autoVincular, buscarLote, exclusivo, opcionesDe, productosSinVincular, seguros, vincular, type Elegido, type OpcionLote } from '../datos/vincularLote.ts'
 import { avisar, Boton, Hoja, NombreTienda, pesos, Tarjeta } from './ui.tsx'
 
 type Dudoso = { producto: Producto; opciones: OpcionLote[] }
@@ -43,7 +43,8 @@ export function VincularTodos({ onListo }: { onListo: () => void }) {
 
   useEffect(() => {
     vivo.current = true
-    void (async () => {
+    // Espera a que termine la búsqueda automática si está corriendo: así no se vincula dos veces lo mismo.
+    void exclusivo(async () => {
       const pendientes = await productosSinVincular()
       if (!pendientes.length) { setFase({ tipo: 'listo', texto: 'Todos tus productos ya tienen precio de internet.' }); return }
       const { resultados, fallo } = await buscarLote(
@@ -67,7 +68,7 @@ export function VincularTodos({ onListo }: { onListo: () => void }) {
       if (!vivo.current) return
       setEleccion(Object.fromEntries(dudosos.map((d) => [d.producto.producto_id, clave(d.opciones[0])])))
       setFase({ tipo: 'revisar', solos: n, dudosos, sinResultado, fallo })
-    })()
+    })
     return () => { vivo.current = false }
   }, [])
 
@@ -76,7 +77,7 @@ export function VincularTodos({ onListo }: { onListo: () => void }) {
       const o = d.opciones.find((x) => clave(x) === eleccion[d.producto.producto_id])
       return o ? [{ producto: d.producto, opciones: [o] }] : []
     })
-    const n = await vincular(elegidos, (hechos, total) => setFase({ tipo: 'vinculando', hechos, total }))
+    const n = await vincular(elegidos, (hechos, total) => setFase({ tipo: 'vinculando', hechos, total }), { reactivar: true })
     avisar(`Listo: ${n === 1 ? '1 producto más' : `${n} productos más`} con precio de internet.`)
     onListo()
   }
