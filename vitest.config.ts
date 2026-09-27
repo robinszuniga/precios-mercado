@@ -14,6 +14,7 @@ export default defineConfig({
       },
       {
         resolve: { alias: { '@shared': shared } },
+        define: { __VERSION__: JSON.stringify('test') },
         test: {
           name: 'web',
           environment: 'jsdom',
