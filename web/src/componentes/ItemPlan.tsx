@@ -1,7 +1,9 @@
+import { useEffect, useState } from 'react'
 import type { Detalle, Producto } from '@shared/esquema.ts'
 import type { ItemPlan } from '@shared/recomendacion.ts'
 import { INFO_TIENDAS, type Tienda } from '@shared/tiendas.ts'
 import { etiquetaVisible } from '@shared/unidades.ts'
+import { db } from '../datos/db.ts'
 import { guardar } from '../datos/escritura.ts'
 import { describirPresentacion } from './RegistrarPrecio.tsx'
 import { avisar, Boton, LogoTienda, Pasos, pesos } from './ui.tsx'
@@ -18,24 +20,32 @@ export function HojaItemPlan({ d, producto, item, tiendas, elegida, onListo }: {
 }) {
   const u = etiquetaVisible(producto.unidad_base)
   const fijar = async (t: Tienda | '') => {
-    await guardar('Compras_detalle', { ...d, tienda: t })
+    // Con lo que hay ahora en la base (la cantidad pudo cambiar desde que se abrió la hoja).
+    await guardar('Compras_detalle', { ...((await db.detalle.get(d.detalle_id)) ?? d), tienda: t })
     onListo()
   }
   const opciones = tiendas
     .map((t) => ({ t, c: item?.costos[t] }))
     .sort((a, b) => (a.c?.costoEquivalente ?? Infinity) - (b.c?.costoEquivalente ?? Infinity))
   const masBarata = opciones[0]?.c
+  // Se muestra al instante: con "+ + +" rápido, la base local todavía no ha devuelto el valor anterior.
+  const [necesidad, setNecesidad] = useState(d.necesidad ?? producto.cantidad_habitual)
+  useEffect(() => { setNecesidad(d.necesidad ?? producto.cantidad_habitual) }, [d.necesidad, producto.cantidad_habitual])
+  async function cambiarNecesidad(v: number) {
+    setNecesidad(v)
+    await guardar('Compras_detalle', { ...((await db.detalle.get(d.detalle_id)) ?? d), necesidad: v })
+  }
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2 rounded-xl bg-white p-2 ring-1 ring-stone-200">
         <span className="text-sm text-stone-700">Esta vez necesito</span>
         <Pasos
-          valor={d.necesidad ?? producto.cantidad_habitual}
+          valor={necesidad}
           paso={producto.unidad_base === 'unidad' ? 1 : 0.5}
           minimo={0.5}
           etiqueta="cantidad"
           sufijo={u}
-          onCambio={(v) => void guardar('Compras_detalle', { ...d, necesidad: v })}
+          onCambio={(v) => void cambiarNecesidad(v)}
         />
       </div>
       <fieldset>
@@ -84,8 +94,9 @@ export function HojaItemPlan({ d, producto, item, tiendas, elegida, onListo }: {
         variante="fantasma"
         className="w-full text-peligro"
         onClick={async () => {
-          const antes = { ...d }
-          await guardar('Compras_detalle', { ...d, borrado: true })
+          const ahora = (await db.detalle.get(d.detalle_id)) ?? d
+          const antes = { ...ahora }
+          await guardar('Compras_detalle', { ...ahora, borrado: true })
           avisar(`${producto.nombre} quitado de esta compra`, () => guardar('Compras_detalle', antes).then(() => undefined))
           onListo()
         }}

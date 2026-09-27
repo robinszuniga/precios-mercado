@@ -1,6 +1,6 @@
 import { NOMBRES_TABLAS, TABLAS, type NombreTabla, type TipoCol } from '../../../shared/src/esquema.ts'
 import { isoBogota } from '../../../shared/src/fechas.ts'
-import type { Fila } from '../../../shared/src/seguridad.ts'
+import { quitarEscape, type Fila } from '../../../shared/src/seguridad.ts'
 import type { Repo } from '../puertos.ts'
 
 type Hoja = GoogleAppsScript.Spreadsheet.Sheet
@@ -25,7 +25,8 @@ function deCelda(v: unknown, tipo: TipoCol | undefined): unknown {
     return Number.isFinite(n) ? n : null
   }
   if (v instanceof Date) return isoBogota(v.getTime())
-  return v == null ? '' : String(v)
+  // El apóstrofo que se antepuso para que no fuera fórmula no es parte del texto ("- sin azúcar").
+  return v == null ? '' : quitarEscape(String(v))
 }
 
 function aCelda(v: unknown, tipo: TipoCol | undefined): unknown {

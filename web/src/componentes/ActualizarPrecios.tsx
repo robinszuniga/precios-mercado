@@ -19,25 +19,42 @@ export function ActualizarPrecios() {
   const [job, setJob] = useState<JobPublico | null>(null)
   const [mensaje, setMensaje] = useState('')
   const [ocupado, setOcupado] = useState(false)
-  const temporizador = useRef<ReturnType<typeof setInterval> | null>(null)
+  const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const montado = useRef(true)
 
-  useEffect(() => () => { if (temporizador.current) clearInterval(temporizador.current) }, [])
+  useEffect(() => {
+    montado.current = true
+    return () => {
+      montado.current = false
+      if (temporizador.current) clearTimeout(temporizador.current)
+    }
+  }, [])
 
-  function seguir() {
-    if (temporizador.current) clearInterval(temporizador.current)
-    temporizador.current = setInterval(async () => {
+  /**
+   * Pregunta cada 5 s cómo va, una pregunta a la vez (la siguiente se programa al llegar la respuesta) y solo
+   * mientras la pantalla está abierta. Tras 10 min deja de preguntar: el trabajo sigue en el servidor.
+   */
+  function seguir(vueltas = 0) {
+    if (!montado.current) return
+    temporizador.current = setTimeout(async () => {
       const r = await llamar<{ job: JobPublico | null }>(await conexion(), 'estadoJob')
-      if (r.tipo !== 'ok' || !r.data.job) return
-      setJob(r.data.job)
-      if (r.data.job.estado === 'terminado' || r.data.job.estado === 'error') {
-        clearInterval(temporizador.current!)
-        temporizador.current = null
+      if (!montado.current) return
+      const j = r.tipo === 'ok' ? r.data.job : null
+      if (j) setJob(j)
+      if (j && (j.estado === 'terminado' || j.estado === 'error')) {
         setOcupado(false)
-        setMensaje(r.data.job.estado === 'terminado'
-          ? `Listo: ${r.data.job.actualizados} precios cambiaron${r.data.job.errores.length ? `, ${r.data.job.errores.length} con problemas (ver Ajustes)` : ''}.`
+        setMensaje(j.estado === 'terminado'
+          ? `Listo: ${j.actualizados} precios cambiaron${j.errores.length ? `, ${j.errores.length} con problemas (ver Ajustes)` : ''}.`
           : 'La actualización falló. Revisa el diagnóstico en Ajustes.')
         void sincronizar()
+        return
       }
+      if (vueltas >= 120) {
+        setOcupado(false)
+        setMensaje('Sigue trabajando en Google: los precios llegarán solos.')
+        return
+      }
+      seguir(vueltas + 1)
     }, 5000)
   }
 
@@ -45,6 +62,7 @@ export function ActualizarPrecios() {
     setOcupado(true)
     setMensaje('')
     const r = await llamar<{ job: JobPublico }>(await conexion(), 'actualizarPrecios')
+    if (!montado.current) return
     if (r.tipo === 'ok') {
       setJob(r.data.job)
       seguir()

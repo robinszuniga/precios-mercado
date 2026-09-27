@@ -60,7 +60,7 @@ export function validarObservacion(v: unknown): { ok: true; obs: Observacion } |
   return {
     ok: true,
     obs: {
-      obs_id: o.obs_id,
+      obs_id: escaparFormula(o.obs_id),
       presentacion_id: escaparFormula(o.presentacion_id),
       tienda: o.tienda,
       origen: o.origen,

@@ -25,7 +25,11 @@ export function leerRuta(hash: string): Ruta {
 }
 
 export function ir(ruta: string) {
-  window.location.hash = ruta.startsWith('#') ? ruta : `#/${ruta.replace(/^\//, '')}`
+  const hash = ruta.startsWith('#') ? ruta : `#/${ruta.replace(/^\//, '')}`
+  // Si se navega desde una hoja abierta (ej. "Archivar"), su entrada del historial se reemplaza: si no, Atrás
+  // volvería a una pantalla con la hoja fantasma y el siguiente Atrás no haría nada.
+  if (history.state?.hoja) location.replace(hash)
+  else window.location.hash = hash
 }
 
 /** Posición de scroll por pantalla: al volver de un producto, la lista queda donde estaba. */
@@ -41,8 +45,14 @@ export function useRuta(): Ruta {
       actual = window.location.hash
       setRuta(leerRuta(actual))
       const y = posiciones.get(actual) ?? 0
-      // Espera a que la pantalla se pinte con sus datos antes de restaurar.
-      requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y)))
+      // Espera a que la pantalla se pinte con sus datos (la base local responde un instante después).
+      const inicio = performance.now()
+      const intentar = () => {
+        const cabe = document.documentElement.scrollHeight - window.innerHeight >= y
+        if (cabe || performance.now() - inicio > 1500) window.scrollTo(0, y)
+        else requestAnimationFrame(intentar)
+      }
+      requestAnimationFrame(intentar)
     }
     window.addEventListener('hashchange', cambio)
     return () => {

@@ -1,6 +1,6 @@
 import { leerConfig } from '../../shared/src/config.ts'
 import type { Observacion, Presentacion } from '../../shared/src/esquema.ts'
-import type { Fila } from '../../shared/src/seguridad.ts'
+import { escaparFormula, type Fila } from '../../shared/src/seguridad.ts'
 import type { TiendaVtex } from '../../shared/src/tiendas.ts'
 import {
   peticionEan, peticionSku, planificarPeticiones, presentacionesAuto, procesarRespuesta,
@@ -137,7 +137,9 @@ export function ejecutarJob(s: Servicios, limiteMs = LIMITE_MS): Job | null {
         const filas: Fila[] = []
         for (const [id, parche] of parches) {
           const actual = frescas.get(id)
-          if (actual) filas.push({ ...actual, ...parche, _srv: ahora })
+          // Lo que viene de la tienda también puede empezar por "=" o "+": nunca se escribe como fórmula.
+          const seguro = Object.fromEntries(Object.entries(parche).map(([k, v]) => [k, typeof v === 'string' ? escaparFormula(v) : v]))
+          if (actual) filas.push({ ...actual, ...seguro, _srv: ahora })
         }
         s.repo.guardar('Presentaciones', filas)
       }

@@ -60,6 +60,16 @@ describe('HojaRepo', () => {
     expect(repo.leer('Compras_detalle')[0]).toMatchObject({ detalle_id: 'd1', precio_confirmado: true })
   })
 
+  it('el apóstrofo que evita fórmulas no vuelve al celular como parte del texto', () => {
+    const cols = Object.keys(TABLAS.Productos.cols)
+    const hoja = new HojaFalsa(10, cols.length)
+    hoja.celdas = [cols]
+    const repo = new HojaRepo(libro({ Productos: hoja }))
+    repo.guardar('Productos', [{ ...producto('a'), notas: "'- sin azúcar" }])
+    repo.refrescar()
+    expect(repo.leer('Productos')[0].notas).toBe('- sin azúcar')
+  })
+
   it('cuando la hoja se llena agrega filas en vez de fallar', () => {
     const cols = Object.keys(TABLAS.Productos.cols)
     const hoja = new HojaFalsa(3, cols.length) // encabezado + 2 filas libres

@@ -111,3 +111,12 @@ describe('sync y config', () => {
     expect(c.ubicacion.cp).toBe('440001')
   })
 })
+
+describe('formatoCop sin "-$ 0"', () => {
+  it('un resto de redondeo negativo se muestra como $ 0', async () => {
+    const { formatoCop, NBSP } = await import('../src/dinero.ts')
+    expect(formatoCop(-0.4)).toBe(`$${NBSP}0`)
+    expect(formatoCop(-1e-9)).toBe(`$${NBSP}0`)
+    expect(formatoCop(-1500)).toBe(`-$${NBSP}1.500`)
+  })
+})

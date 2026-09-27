@@ -141,7 +141,7 @@ export function RegistrarPrecio({
         onChange={(e) => { setPrecio(e.target.value); setConfirmando(false) }}
         placeholder="Ej: 4.500"
         required
-        autoFocus={!nueva}
+        data-autofocus={nueva ? undefined : true}
         aviso={aviso}
         ayuda={
           valor || anterior ? (

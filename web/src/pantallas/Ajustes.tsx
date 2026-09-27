@@ -231,7 +231,8 @@ function Dispositivo() {
     a.href = URL.createObjectURL(blob)
     a.download = `precios-mercado-${new Date().toISOString().slice(0, 10)}.json`
     a.click()
-    URL.revokeObjectURL(a.href)
+    // Safari (iPhone) todavía está leyendo el archivo justo después del clic: se libera un rato después.
+    setTimeout(() => URL.revokeObjectURL(a.href), 30_000)
     await guardarMeta('ultimoRespaldo', Date.now())
     avisar('Respaldo descargado')
   }

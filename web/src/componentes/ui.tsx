@@ -133,7 +133,9 @@ export function Hoja({ abierta, titulo, onCerrar, children, protegida = false }:
     window.addEventListener('popstate', atras)
     window.addEventListener('keydown', esc)
     document.body.style.overflow = 'hidden'
-    const primero = caja.current?.querySelector<HTMLElement>('input:not([type=hidden]), select, textarea, button:not([data-cerrar])')
+    // Un campo marcado con data-autofocus (ej. el precio) gana; si no, el primero.
+    const primero = caja.current?.querySelector<HTMLElement>('[data-autofocus]')
+      ?? caja.current?.querySelector<HTMLElement>('input:not([type=hidden]), select, textarea, button:not([data-cerrar])')
     primero?.focus({ preventScroll: true })
     return () => {
       contarHoja(-1)
