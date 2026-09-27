@@ -6,9 +6,13 @@ jobs:
     steps:
       - name: Íconos de las tiendas
         run: |
-          for d in exito.com olimpica.com d1.com.co aratiendas.com; do
-            curl -sSL -m 20 -o "$d.png" -w "$d google %{http_code} %{content_type} %{size_download}\n" "https://www.google.com/s2/favicons?domain=$d&sz=64"
-            echo "B64 $d $(base64 -w0 "$d.png")"
-            html=$(curl -sSL -m 20 -A "Mozilla/5.0" "https://www.$d/" | tr '\n' ' ')
-            echo "LINKS $d $(echo "$html" | grep -oiE '<link[^>]+rel="[^"]*icon[^"]*"[^>]*>' | head -5)"
-          done
+          set -x
+          curl -sSL -m 20 -A "Mozilla/5.0" -o exito.ico "https://www.exito.com/favicon.ico"
+          curl -sSL -m 20 -A "Mozilla/5.0" -o olimpica.png "https://www.olimpica.com/arquivos/olimpica-favicon1.png"
+          curl -sSL -m 20 -A "Mozilla/5.0" -o d1.ico "https://d1tiendas.vteximg.com.br/arquivos/d1tiendas-favicon.ico"
+          curl -sSL -m 20 -A "Mozilla/5.0" -o ara.png "https://sitemedia.aratiendas.com/wp-content/uploads/2021/03/cropped-icon-192x192.png"
+          file exito.ico olimpica.png d1.ico ara.png
+          for f in exito.ico olimpica.png d1.ico ara.png; do convert "$f[0]" -background white -flatten -resize 48x48 "${f%.*}-48.png"; done
+          convert exito-48.png olimpica-48.png d1-48.png ara-48.png -background white +append -strip -define png:compression-level=9 tira.png
+          identify tira.png
+          echo "TIRA $(base64 -w0 tira.png)"
