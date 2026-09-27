@@ -69,6 +69,47 @@ async function region(tienda: TiendaVtex, lugar: { cp: Lugar; geo: Lugar }, sc?:
   return { r: estaLocalizada(r2) ? r2 : (r2 ?? r1), via: estaLocalizada(r2) ? 'geo' : 'ninguna', resp: porGeo }
 }
 
+function legible(regionId: string | null): string {
+  if (!regionId) return '—'
+  if (regionId.startsWith('v2.')) return regionId
+  try { return Buffer.from(regionId, 'base64').toString('utf8') } catch { return regionId }
+}
+
+/** Para entender la regionalización: qué región sale por CP y por coordenadas, y qué sellers y precios trae el SKU con cada cookie. */
+async function diagnosticoRegiones(tienda: TiendaVtex, sku: string, channel: string, segBase: Segmento | null, home: Resp) {
+  console.log(`  -- diagnóstico de regiones (${tienda}) --`)
+  const nombresCookies = (home.cabeceras.getSetCookie?.() ?? []).map((c) => c.split('=')[0])
+  console.log(`     cookies de la home: ${nombresCookies.join(', ') || '(ninguna)'}`)
+  const lugares: [string, Lugar][] = [
+    ['Riohacha CP', { cp: '440001' }],
+    ['Riohacha geo', { lon: -72.907, lat: 11.544 }],
+    ['Bogotá CP', { cp: '110111' }],
+    ['Bogotá geo', { lon: -74.0721, lat: 4.711 }],
+    ['Medellín geo', { lon: -75.5636, lat: 6.2518 }],
+    ['Barranquilla geo', { lon: -74.7813, lat: 10.9685 }],
+  ]
+  const vistos = new Map<string, string>()
+  for (const [nombre, lugar] of lugares) {
+    await espera(500)
+    const r = await pedir(urlRegiones(tienda, lugar))
+    const reg = parseRegiones(r.status, r.cuerpo)
+    console.log(`     ${nombre}: HTTP ${r.status} región=${legible(reg?.regionId ?? null)} sellers=${reg?.sellers.join(',') || '—'}`)
+    if (reg?.regionId && !vistos.has(reg.regionId)) vistos.set(reg.regionId, nombre)
+  }
+  const variantes: [string, string | undefined][] = [['sin cookie', undefined]]
+  for (const [id, nombre] of vistos) variantes.push([`cookie ${nombre}`, cabeceraCookie(armarSegmento(id, channel, segBase))])
+  for (const [nombre, cookie] of variantes) {
+    await espera(500)
+    const r = await pedir(urlPorSku(tienda, sku), cookie)
+    let sellers = '—'
+    try {
+      const item = (JSON.parse(r.cuerpo) as { items: { itemId: string; sellers: { sellerId: string; sellerDefault: boolean; commertialOffer: { Price: number; ListPrice: number; AvailableQuantity: number } }[] }[] }[])[0]?.items.find((i) => i.itemId === sku)
+      sellers = item?.sellers.map((s) => `${s.sellerId}${s.sellerDefault ? '*' : ''}=${s.commertialOffer.Price}/${s.commertialOffer.ListPrice} (${s.commertialOffer.AvailableQuantity})`).join(' · ') ?? 'SKU no está'
+    } catch { sellers = `no JSON: ${r.cuerpo.slice(0, 80)}` }
+    console.log(`     SKU ${sku} ${nombre}: HTTP ${r.status} → ${sellers}`)
+  }
+}
+
 async function probar(tienda: TiendaVtex) {
   console.log(`\n=== ${INFO_TIENDAS[tienda].nombre} (${INFO_TIENDAS[tienda].catalogo}) ===`)
   const resumen: Record<string, unknown> = { tienda }
@@ -132,6 +173,8 @@ async function probar(tienda: TiendaVtex) {
   const conRio = localizada ? await precioCon(rio.r) : undefined
   const conBog = estaLocalizada(bog.r) ? await precioCon(bog.r) : undefined
   linea(null, `precio del SKU ${c.skuId}: sin cookie=${sin?.precio ?? '—'} · Riohacha=${conRio?.precio ?? '—'} (seller ${conRio?.sellerId ?? '—'}) · Bogotá=${conBog?.precio ?? '—'} (seller ${conBog?.sellerId ?? '—'})`)
+
+  await diagnosticoRegiones(tienda, c.skuId, channel, segBase, home)
 
   let n429 = 0
   for (let i = 0; i < 10; i++) {
