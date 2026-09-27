@@ -69,6 +69,8 @@ export interface InfoPing {
   /** El proyecto tiene TOKEN (se ejecutó inicializarHoja). */
   configurado?: boolean
   hoja?: boolean
+  /** Versión del código del script (gas-vN). */
+  version?: string
 }
 
 /** GET sin token: dice si la URL es la de este backend, de qué proyecto y si está configurado. */

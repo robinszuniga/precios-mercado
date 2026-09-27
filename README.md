@@ -40,8 +40,26 @@ presupuesto en vivo mientras compras y saber dónde conviene cada producto.
    - Quién tiene acceso: **Cualquier persona** (no “cualquier persona con cuenta de Google”)
    Copia la URL que termina en `/exec`.
 
-> Para actualizar el backend después: pega el nuevo `Code.js` y ve a **Implementar → Gestionar implementaciones →
-> ✏️ → Versión: Nueva versión**. Así la URL `/exec` no cambia. No crees una implementación nueva.
+### Actualizaciones del script (automáticas)
+
+El script se actualiza solo con las **versiones publicadas** en
+[Releases](https://github.com/robinszuniga/precios-mercado/releases) (etiquetas `gas-vN`; nunca un cambio a medias):
+después del trabajo diario de las 6 a. m. baja el `Code.js` nuevo, reemplaza su código, crea una versión y mueve tu
+implementación a esa versión. La URL `/exec` y el token no cambian.
+
+Para que pueda hacerlo, **una sola vez**:
+
+1. Activa la **API de Google Apps Script** en <https://script.google.com/home/usersettings>.
+2. Pega el `Code.js` del último release (y su `appsscript.json`), ejecuta **`actualizarme`** y acepta los permisos
+   nuevos (modificar y publicar su propio proyecto).
+
+Si una versión pide permisos nuevos no se instala sola: *Ajustes → Script de Google* lo avisa y la instalas tú
+ejecutando `actualizarme` (o con **Actualizar ahora**). Ahí también ves la versión instalada.
+
+> Con esos permisos el script puede reemplazarse con lo que se publique en este repositorio: quien pueda publicar
+> releases aquí puede cambiar el código que corre con tu cuenta de Google. Protege tu cuenta de GitHub (2FA).
+> Sin la API activada todo sigue funcionando; solo toca actualizar a mano: pega el `Code.js` y en **Implementar →
+> Gestionar implementaciones → ✏️ → Versión: Nueva versión** (así la URL `/exec` no cambia).
 
 ### 2. La app en el celular
 

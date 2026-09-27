@@ -55,6 +55,7 @@ export function crearServicios(opciones: { responder?: Responder; inicio?: numbe
     uuid: () => `uuid-${++n}`,
     log: () => {},
     proyecto: () => 'abc123',
+    actualizar: () => ({ estado: 'al_dia' as const, actual: 'dev', nueva: 'dev', mensaje: 'Al día (dev).', fecha: AHORA }),
   }
   return {
     s, repo, props, pedidas, triggers,

@@ -11,7 +11,9 @@ import type { Candidato } from '../../shared/src/vtex/parse.ts'
 import { aplicarCambios, registrar, type Cambio } from './datos.ts'
 import { ejecutarJob, guardarJob, leerJob, nuevoJob, type Job } from './job.ts'
 import type { Servicios } from './puertos.ts'
+import { ultimaActualizacion } from './actualizar.ts'
 import { obtenerContextos } from './regiones.ts'
+import { VERSION_CODIGO } from './version.ts'
 
 export class ErrorApi extends Error {
   codigo: string
@@ -48,7 +50,13 @@ export function ping(s: Servicios) {
     proyecto: s.proyecto(),
     configurado: !!s.props.get('TOKEN'),
     hoja: !!s.props.get('SHEET_ID'),
+    version: VERSION_CODIGO,
   }
+}
+
+/** Desde la app (Ajustes → "Actualizar ahora"): cuenta como pedido del usuario. */
+export function actualizarScript(s: Servicios) {
+  return s.actualizar({ desdeEditor: true })
 }
 
 export function diag(s: Servicios) {
@@ -60,6 +68,8 @@ export function diag(s: Servicios) {
   return {
     v: VERSION_API,
     esquema: VERSION_ESQUEMA,
+    version: VERSION_CODIGO,
+    actualizacion: ultimaActualizacion(s.props),
     pestanasFaltantes: faltantes,
     triggers: s.triggers.listar(),
     job: leerJob(s),

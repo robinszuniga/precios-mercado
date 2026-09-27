@@ -1,5 +1,7 @@
 import { isoBogota } from '../../../shared/src/fechas.ts'
 import { Ocupado, type Http, type PeticionHttp, type RespuestaHttp, type Servicios, type Triggers } from '../puertos.ts'
+import { actualizarCodigo } from '../actualizar.ts'
+import { puertosActualizarGas } from './actualizarGas.ts'
 import { HojaRepo } from './hojaRepo.ts'
 
 const UNA_VEZ = 'continuarPrecios'
@@ -114,5 +116,6 @@ export function serviciosGas(): Servicios {
     uuid: () => Utilities.getUuid(),
     log: (m) => console.log(m),
     proyecto: () => ScriptApp.getScriptId().slice(-6),
+    actualizar: (opciones) => actualizarCodigo(puertosActualizarGas(), opciones),
   }
 }

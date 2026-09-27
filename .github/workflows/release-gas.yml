@@ -1,0 +1,35 @@
+name: Publicar versión del script
+
+# Una etiqueta gas-vN marca una versión del script como lista. Se arma el Code.js con esa versión y se publica
+# como release; el script de Google la toma de ahí (releases/latest) al actualizarse.
+on:
+  push:
+    tags: ['gas-v*']
+
+permissions:
+  contents: write
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build:gas
+        env:
+          GAS_VERSION: ${{ github.ref_name }}
+      - name: Crear el release con Code.js, appsscript.json y version.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            apps-script/dist/Code.js apps-script/dist/appsscript.json apps-script/dist/version.json \
+            --title "Script ${GITHUB_REF_NAME}" \
+            --notes "Código del script de Google. Se instala solo después del trabajo diario (6 a. m.), o ya con \"actualizarme\" en Apps Script o \"Actualizar ahora\" en Ajustes." \
+            --latest

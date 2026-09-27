@@ -147,8 +147,9 @@ function CopiaGoogle() {
         texto: `Esa dirección es de un proyecto de Apps Script sin configurar (proyecto${proyecto}). Copia la URL del proyecto donde ejecutaste “inicializarHoja”: Implementar → Gestionar implementaciones. El registro de “inicializarHoja” dice el proyecto y su URL.`,
       })
     } else {
-      const d = await llamar<{ pestanasFaltantes: string[] }>(c, 'diag')
+      const d = await llamar<{ pestanasFaltantes: string[]; version?: string; actualizacion?: InfoActualizacion | null }>(c, 'diag')
       if (d.tipo === 'ok') {
+        await guardarMeta('scriptInfo', { version: d.data.version ?? null, actualizacion: d.data.actualizacion ?? null })
         setResultado(d.data.pestanasFaltantes.length
           ? { ok: false, texto: `Conectado, pero al Sheet le faltan pestañas. En Apps Script ejecuta “inicializarHoja”.` }
           : { ok: true, texto: `✔ Conectado${proyecto ? ` al proyecto${proyecto}` : ''}. Copiando tus datos…` })
@@ -183,6 +184,49 @@ function CopiaGoogle() {
       <Boton className="w-full" onClick={probar} disabled={probando || !url || !token}>{probando ? 'Probando…' : 'Guardar y probar'}</Boton>
       {resultado && (resultado.ok ? <p role="status" className="text-sm font-medium text-ok">{resultado.texto}</p> : <ErrorTexto>{resultado.texto}</ErrorTexto>)}
       {conectada && <Boton variante="secundario" className="w-full" onClick={() => void sincronizar()}>Sincronizar ahora</Boton>}
+    </Tarjeta>
+  )
+}
+
+interface InfoActualizacion {
+  estado: 'al_dia' | 'actualizado' | 'necesita_permiso' | 'api_apagada' | 'error'
+  nueva: string | null
+  mensaje: string
+  fecha: string
+}
+
+/** Versión del script de Google y su actualización automática (desde las versiones publicadas en GitHub). */
+function ScriptGoogle() {
+  const guardada = useMeta<Conexion>('conexion', { url: '', token: '' })
+  const info = useMeta<{ version: string | null; actualizacion: InfoActualizacion | null } | null>('scriptInfo', null)
+  const [mensaje, setMensaje] = useState('')
+  const [ocupado, setOcupado] = useState(false)
+  if (!guardada.url || !guardada.token) return null
+
+  async function actualizar() {
+    setOcupado(true)
+    setMensaje('Buscando una versión nueva…')
+    const r = await llamar<InfoActualizacion>(await conexion(), 'actualizarScript', {}, 120_000)
+    setOcupado(false)
+    if (r.tipo === 'ok') {
+      setMensaje(r.data.mensaje)
+      await guardarMeta('scriptInfo', { version: r.data.estado === 'actualizado' ? r.data.nueva : info?.version ?? null, actualizacion: r.data })
+    } else setMensaje(r.tipo === 'error' ? r.mensaje : 'Sin respuesta. ¿Hay señal?')
+  }
+
+  const a = info?.actualizacion
+  const problema = a && (a.estado === 'api_apagada' || a.estado === 'necesita_permiso' || a.estado === 'error')
+  return (
+    <Tarjeta className="space-y-2 text-sm">
+      <h3 className="text-base font-semibold">Script de Google</h3>
+      <p className="text-stone-700">
+        Versión {info?.version ?? '— (toca “Guardar y probar”)'}. Se actualiza solo cada mañana con las versiones publicadas.
+      </p>
+      {problema && <p className="font-medium text-alerta">{a.mensaje}</p>}
+      <Boton variante="secundario" className="w-full" onClick={() => void actualizar()} disabled={ocupado}>
+        {ocupado ? 'Actualizando…' : 'Actualizar ahora'}
+      </Boton>
+      {mensaje && <p role="status" className="text-stone-700">{mensaje}</p>}
     </Tarjeta>
   )
 }
@@ -312,6 +356,7 @@ export function Ajustes() {
       </Seccion>
       <Seccion titulo="Copia en Google y precios de internet">
         <CopiaGoogle />
+        <ScriptGoogle />
         <Regiones />
       </Seccion>
       <Seccion titulo="Este celular">

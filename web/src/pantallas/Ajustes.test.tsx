@@ -59,3 +59,26 @@ describe('Ajustes · reglas', () => {
     await waitFor(async () => expect((await db.config.get('vigencia_tienda_max_dias'))?.valor).toBe('45'))
   })
 })
+
+describe('Ajustes · script de Google', () => {
+  it('muestra la versión, avisa si falta activar la API y "Actualizar ahora" pide la actualización', async () => {
+    const acciones: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      if (!init?.method) return new Response(JSON.stringify({ ok: true, data: { app: 'precios-mercado', v: 1, proyecto: 'abc123', configurado: true, hoja: true, version: 'gas-v1' }, error: null, v: 1 }))
+      const a = JSON.parse(String(init.body)).a
+      acciones.push(a)
+      const data = a === 'diag'
+        ? { pestanasFaltantes: [], version: 'gas-v1', actualizacion: { estado: 'api_apagada', nueva: 'gas-v2', mensaje: 'Falta activar la "API de Google Apps Script" en script.google.com/home/usersettings.', fecha: '' } }
+        : a === 'actualizarScript' ? { estado: 'actualizado', nueva: 'gas-v2', mensaje: 'Actualizado de gas-v1 a gas-v2 (versión 7).', fecha: '' }
+          : a === 'pull' ? { tablas: {}, cursor: 'c' } : { resultados: [] }
+      return new Response(JSON.stringify({ ok: true, data, error: null, v: 1 }))
+    }))
+    await probar()
+    expect(await screen.findByText(/Versión gas-v1/, {}, { timeout: 4000 })).toBeInTheDocument()
+    expect(screen.getByText(/Falta activar la "API de Google Apps Script"/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Actualizar ahora' }))
+    expect(await screen.findByText('Actualizado de gas-v1 a gas-v2 (versión 7).', {}, { timeout: 4000 })).toBeInTheDocument()
+    expect(acciones).toContain('actualizarScript')
+    expect(await screen.findByText(/Versión gas-v2/, {}, { timeout: 4000 })).toBeInTheDocument()
+  })
+})

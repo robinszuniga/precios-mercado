@@ -26,6 +26,7 @@ const ACCIONES: Record<string, Accion> = {
   probarRegion: A.probarRegion,
   actualizarPrecios: A.actualizarPrecios,
   estadoJob: (s) => A.estadoJob(s),
+  actualizarScript: (s) => A.actualizarScript(s),
 }
 
 function comparar(a: string, b: string): boolean {

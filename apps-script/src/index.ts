@@ -10,6 +10,7 @@ import { asegurarEsquema } from './gas/hojaRepo.ts'
 import { abrirHoja, serviciosGas } from './gas/servicios.ts'
 import { obtenerContextos } from './regiones.ts'
 import { manejarGet, manejarPost, type Respuesta } from './router.ts'
+import { VERSION_CODIGO } from './version.ts'
 
 function json(r: Respuesta) {
   return ContentService.createTextOutput(JSON.stringify(r)).setMimeType(ContentService.MimeType.JSON)
@@ -32,7 +33,7 @@ function identidad(): string {
   let url = ''
   try { url = ScriptApp.getService().getUrl() ?? '' } catch { url = '' }
   const exec = url.endsWith('/exec') ? url : ''
-  return `Proyecto: …${ScriptApp.getScriptId().slice(-6)} · URL de la app web: ${exec || 'todavía no está implementada (Implementar → Nueva implementación)'}`
+  return `Proyecto: …${ScriptApp.getScriptId().slice(-6)} · código ${VERSION_CODIGO} · URL de la app web: ${exec || 'todavía no está implementada (Implementar → Nueva implementación)'}`
 }
 
 /** Ejecutar una vez desde el editor: crea las pestañas, la configuración, el token y el trigger diario. */
@@ -120,7 +121,23 @@ export function autoprueba() {
 }
 
 export function tareaDiaria() {
-  return A.tareaDiaria(serviciosGas())
+  const s = serviciosGas()
+  const job = A.tareaDiaria(s)
+  // Después de los precios, se busca una versión nueva del código (nunca tumba el trabajo diario).
+  try {
+    const r = s.actualizar({})
+    if (r.estado !== 'al_dia') registrar(s, 'actualizacion', r.estado === 'actualizado' ? 'info' : 'aviso', r.mensaje)
+  } catch (e) {
+    registrar(s, 'actualizacion', 'error', String(e))
+  }
+  return job
+}
+
+/** Ejecutar desde el editor: instala la última versión publicada del código (y pide permisos nuevos si hace falta). */
+export function actualizarme() {
+  const r = serviciosGas().actualizar({ desdeEditor: true })
+  console.log(`${r.estado === 'actualizado' || r.estado === 'al_dia' ? '✔' : '✘'} ${r.mensaje}`)
+  return r
 }
 
 export function continuarPrecios() {
