@@ -1,4 +1,4 @@
-import { TABLAS, type NombreTabla, type TipoCol } from './esquema.ts'
+import { COLUMNAS_OPCIONALES, TABLAS, type NombreTabla, type TipoCol } from './esquema.ts'
 import { esIso } from './fechas.ts'
 
 /** Un texto que empieza por = + - @ se volvería fórmula en Sheets; se le antepone un apóstrofo. */
@@ -11,6 +11,9 @@ export function quitarEscape(v: string): string {
 }
 
 export type Fila = Record<string, unknown>
+
+/** Una celda de Sheets aguanta 50.000 caracteres: un texto más largo haría fallar la escritura de toda la tabla. */
+export const MAX_TEXTO = 2000
 
 function coercer(valor: unknown, tipo: TipoCol): { ok: true; v: string | number | boolean | null } | { ok: false } {
   if (valor === undefined || valor === null || valor === '') return { ok: true, v: tipo === 'b' ? false : tipo === 'n' ? null : '' }
@@ -37,11 +40,14 @@ export function validarFila(tabla: NombreTabla, fila: unknown, deCliente = true)
   if (deCliente && !def.cliente) return { ok: false, error: `la tabla ${tabla} no se puede escribir` }
   const f = fila as Fila
   const salida: Fila = {}
+  const opcionales = COLUMNAS_OPCIONALES[tabla] ?? []
   for (const [col, tipo] of Object.entries(def.cols) as [string, TipoCol][]) {
     if (col === '_srv') continue
+    // Un cliente viejo no manda las columnas nuevas: sin la clave no se toca lo que ya hay.
+    if (deCliente && f[col] === undefined && opcionales.includes(col)) continue
     const c = coercer(f[col], tipo)
     if (!c.ok) return { ok: false, error: `columna ${col}: valor inválido` }
-    salida[col] = typeof c.v === 'string' ? escaparFormula(c.v) : c.v
+    salida[col] = typeof c.v === 'string' ? escaparFormula(c.v.slice(0, MAX_TEXTO)) : c.v
   }
   const id = salida[def.id]
   if (typeof id !== 'string' || id.length === 0 || id.length > 200) return { ok: false, error: `falta ${def.id}` }

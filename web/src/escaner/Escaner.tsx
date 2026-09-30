@@ -8,58 +8,88 @@ function mensajeDe(e: unknown): string {
   if (nombre === 'NotAllowedError' || nombre === 'SecurityError') return 'No diste permiso para la cámara. Actívalo en el candado de la barra de direcciones (o en Ajustes del celular) y vuelve a intentar.'
   if (nombre === 'NotFoundError' || nombre === 'OverconstrainedError') return 'No encontré una cámara en este celular.'
   if (nombre === 'NotReadableError') return 'Otra app está usando la cámara. Ciérrala y vuelve a intentar.'
-  return 'No pude abrir el lector de códigos. Escribe el número que sale debajo de las barras.'
+  return 'No pude abrir la cámara.'
 }
+
+const AYUDA_MANUAL = 'Escribe el número que sale debajo de las barras.'
+/** Cuadros seguidos que fallan al leer antes de rendirse y ofrecer escribir el código. */
+const MAX_FALLOS = 25
+/** Justo después de guardar, la cámara sigue apuntando al mismo producto: no se vuelve a leer el mismo código. */
+const IGNORAR_MISMO_MS = 4000
 
 /**
  * Cámara trasera leyendo códigos de barras. Entrega el primero con dígito de control válido (la cámara a veces
- * lee mal un número) y apaga la cámara al salir. Si no hay cámara, deja escribir el código a mano.
+ * lee mal un número) y apaga la cámara al salir, pase lo que pase. Si no hay cámara o el lector no carga, deja
+ * escribir el código a mano.
  */
-export function Escaner({ onCodigo, onCancelar }: { onCodigo: (ean: string) => void; onCancelar: () => void }) {
+export function Escaner({ onCodigo, onCancelar, ignorar }: { onCodigo: (ean: string) => void; onCancelar: () => void; ignorar?: string }) {
   const video = useRef<HTMLVideoElement>(null)
   const [estado, setEstado] = useState<'abriendo' | 'leyendo' | 'error'>('abriendo')
   const [error, setError] = useState('')
   const [manual, setManual] = useState('')
   const entregado = useRef(false)
+  const inicio = useRef(Date.now())
 
   useEffect(() => {
     let vivo = true
     let flujo: MediaStream | null = null
     let reloj = 0
+    const fallar = (texto: string) => {
+      if (!vivo) return
+      setError(texto)
+      setEstado('error')
+    }
     void (async () => {
       try {
         if (!navigator.mediaDevices?.getUserMedia) throw new DOMException('sin cámara', 'NotFoundError')
-        const [detector, f] = await Promise.all([
-          obtenerDetector(),
-          navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }, audio: false }),
-        ])
-        flujo = f
-        // Se cerró mientras abría: la cámara no puede quedar encendida.
-        if (!vivo || !video.current) { f.getTracks().forEach((t) => t.stop()); return }
-        video.current.srcObject = f
-        await video.current.play()
+        // Primero la cámara y se guarda ya: si lo demás falla, el cleanup la apaga.
+        flujo = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }, audio: false })
+        if (!vivo) { flujo.getTracks().forEach((t) => t.stop()); return }
+        let detector: Awaited<ReturnType<typeof obtenerDetector>>
+        try {
+          detector = await obtenerDetector()
+        } catch {
+          flujo.getTracks().forEach((t) => t.stop())
+          fallar(`No pude cargar el lector de códigos (la primera vez necesita señal). ${AYUDA_MANUAL}`)
+          return
+        }
+        if (!vivo || !video.current) return
+        video.current.srcObject = flujo
+        try {
+          await video.current.play()
+        } catch {
+          flujo.getTracks().forEach((t) => t.stop())
+          fallar(`No pude mostrar la cámara. ${AYUDA_MANUAL}`)
+          return
+        }
         setEstado('leyendo')
+        let fallos = 0
         const ciclo = async () => {
           if (!vivo || entregado.current) return
           try {
             const vistos = video.current && video.current.readyState >= 2 ? await detector.detect(video.current) : []
-            const bueno = vistos.map((x) => x.rawValue).find(eanValido)
-            if (bueno && vivo && !entregado.current) {
+            fallos = 0
+            const bueno = vistos.map((x) => normalizarEan(x.rawValue)).find(eanValido)
+            const repetido = !!bueno && bueno === ignorar && Date.now() - inicio.current < IGNORAR_MISMO_MS
+            if (bueno && !repetido && vivo && !entregado.current) {
               entregado.current = true
               navigator.vibrate?.(80)
-              onCodigo(normalizarEan(bueno))
+              onCodigo(bueno)
               return
             }
           } catch {
-            // Un cuadro que no se pudo leer: se intenta con el siguiente.
+            // Un cuadro que no se pudo leer: se intenta con el siguiente; si fallan todos, se ofrece escribirlo.
+            if (++fallos >= MAX_FALLOS) {
+              flujo?.getTracks().forEach((t) => t.stop())
+              fallar(`El lector de códigos no está funcionando. ${AYUDA_MANUAL}`)
+              return
+            }
           }
           reloj = window.setTimeout(ciclo, 120)
         }
         void ciclo()
       } catch (e) {
-        if (!vivo) return
-        setError(mensajeDe(e))
-        setEstado('error')
+        fallar(`${mensajeDe(e)} ${e instanceof DOMException && e.name === 'NotAllowedError' ? '' : AYUDA_MANUAL}`.trim())
       }
     })()
     return () => {
@@ -97,7 +127,7 @@ export function Escaner({ onCodigo, onCancelar }: { onCodigo: (ean: string) => v
             value={manual}
             onChange={(e) => setManual(e.target.value)}
             placeholder="7702511000014"
-            aviso={manual && escrito.length >= 8 && !escritoOk ? 'Ese código no es válido: revisa los números.' : undefined}
+            aviso={escrito.length >= 12 && !escritoOk ? 'Ese código no es válido: revisa los números.' : undefined}
           />
         </div>
         <Boton type="submit" disabled={!escritoOk}>Listo</Boton>

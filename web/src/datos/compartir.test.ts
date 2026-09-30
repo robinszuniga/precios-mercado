@@ -24,4 +24,12 @@ describe('lista para WhatsApp', () => {
   it('solo lo que va sin precio: sin total', () => {
     expect(textoPlan([], ['Pan'], 0)).not.toContain('Total')
   })
+
+  it('los símbolos de formato en un nombre no se vuelven negrita y no quedan renglones vacíos', () => {
+    const t = textoPlan([{ tienda: 'D1', total: 1000, lineas: [{ nombre: 'Arroz *Diana*', detalle: '1 × Diana 1 kg', costo: 1000 }] }], ['Sal — 1 kg', '', '  '], 1000, new Date(2026, 8, 30))
+    expect(t).toContain('▢ Arroz Diana — 1 × Diana 1 kg')
+    expect(t).not.toMatch(/▢ \s*$/m)
+    expect(t).toContain('▢ Sal — 1 kg')
+  })
 })
+

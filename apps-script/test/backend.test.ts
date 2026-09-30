@@ -367,3 +367,34 @@ describe('buscarVarios', () => {
     expect(post(s, { a: 'buscarVarios', items: muchos }).error?.codigo).toBe('validacion')
   })
 })
+
+describe('robustez del servidor (revisión)', () => {
+  it('un cliente viejo que edita un producto sin mandar la marca no se la borra a los demás', () => {
+    const { s } = crearServicios()
+    post(s, { a: 'upsert', cambios: [{ tabla: 'Productos', fila: producto('a', AHORA, { marca: 'Diana' }) }] })
+    const viejo = producto('a', '2026-09-27T12:00:00.000-05:00', { nombre: 'Arroz integral' }) // sin la columna marca
+    post(s, { a: 'upsert', cambios: [{ tabla: 'Productos', fila: viejo }] })
+    const fila = s.repo.leer('Productos').find((f) => f.producto_id === 'a')!
+    expect(fila).toMatchObject({ nombre: 'Arroz integral', marca: 'Diana' })
+  })
+
+  it('buscarVarios no repite tiendas ni pasa de 3: nadie multiplica las consultas a las tiendas', () => {
+    const f = crearServicios({ responder: () => ({ status: 200, cuerpo: '[]', setCookie: [] }) })
+    prepararRegion(f)
+    const antes = f.pedidas.length
+    post(f.s, { a: 'buscarVarios', tiendas: Array(500).fill('EXITO'), items: [{ id: 'a', q: 'arroz', unidad: 'g' }] })
+    expect(f.pedidas.length - antes).toBe(1)
+  })
+
+  it('un código de 12 dígitos (UPC-A) y el mismo de 13 son el mismo producto', () => {
+    const cuerpo = JSON.stringify([{ productId: 'p', productName: 'Arroz Diana 1000 g', brand: 'Diana', link: 'l', linkText: 'x',
+      items: [{ itemId: '1', ean: '0036000291452', name: 'Arroz Diana 1000 g', measurementUnit: 'un', unitMultiplier: 1,
+        sellers: [{ sellerId: '1', sellerDefault: true, commertialOffer: { Price: 5000, ListPrice: 5000, AvailableQuantity: 9, IsAvailable: true } }] }] }])
+    const f = crearServicios({ responder: () => ({ status: 200, cuerpo, setCookie: [] }) })
+    prepararRegion(f)
+    const r = post(f.s, { a: 'buscarVarios', tiendas: ['EXITO'], items: [{ id: 'a', ean: '036000291452', unidad: 'g' }] })
+    const data = r.data as { resultados: { porTienda: Record<string, unknown[]> }[] }
+    expect(data.resultados[0].porTienda.EXITO).toHaveLength(1)
+  })
+})
+

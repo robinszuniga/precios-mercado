@@ -52,7 +52,14 @@ export function Plan() {
         return { nombre: p.nombre, detalle: `${cuanto} ${describirPresentacion(costo.opcion.presentacion, p)}`, costo: costo.costoReal }
       }),
     }))
-    const sin = [...ordenados(plan.sinPrecio.map((id) => ({ id }))).map((x) => nombre(x.id)), ...libres.map((d) => d.nombre_libre)]
+    // Lo que va sin precio también lleva cuánto se necesita ("Arroz — 5 kg"): quien compra no tiene que adivinarlo.
+    const sinPrecio = ordenados(plan.sinPrecio.map((id) => ({ id }))).map((x) => {
+      const d = porId.get(x.id)!
+      const p = cat!.producto.get(d.producto_id)
+      const cuanto = p && d.necesidad != null ? formatoCantidadVisible(d.necesidad, p.unidad_base) : p ? formatoCantidadVisible(p.cantidad_habitual, p.unidad_base) : ''
+      return cuanto ? `${nombre(x.id)} — ${cuanto}` : nombre(x.id)
+    })
+    const sin = [...sinPrecio, ...libres.map((d) => d.nombre_libre)]
     void compartirTexto(textoPlan(grupos, sin, plan.total))
   }
 

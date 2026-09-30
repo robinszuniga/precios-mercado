@@ -76,4 +76,59 @@ describe('modo tienda', () => {
     // Vuelve a la cámara para el siguiente producto.
     expect(await screen.findByLabelText('O escribe el código')).toBeInTheDocument()
   })
+
+  it('un código nuevo con otra marca ya anotada en esa tienda: no pisa el precio de la otra y recuerda el código', async () => {
+    await guardarMeta('conexion', { url: '', token: '' }) // sin internet: no hay sugerencia
+    const [arroz] = await guardar('Productos', nuevoProducto({ nombre: 'Arroz', unidad_base: 'g' }))
+    const [diana] = await guardar('Presentaciones', nuevaPresentacion({ producto_id: arroz.producto_id, tienda: 'D1', marca: 'Diana', contenido: 1000 }))
+    const { registrarPrecioManual } = await import('../datos/escritura.ts')
+    await registrarPrecioManual(diana, 4900)
+    render(<ModoTienda onListo={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: /Escanear código de barras/ }))
+    fireEvent.change(await screen.findByLabelText('O escribe el código'), { target: { value: '7702511000021' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Listo' }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Arroz/ }))
+    // Empieza en "otra marca o tamaño", no sobre Diana.
+    expect(await screen.findByLabelText('Marca y tamaño')).toHaveValue('__nueva')
+    fireEvent.change(screen.getByLabelText('Marca', { exact: true }), { target: { value: 'Roa' } })
+    fireEvent.change(screen.getByLabelText('Tamaño del paquete'), { target: { value: '500 g' } })
+    fireEvent.change(screen.getByLabelText('Precio del paquete'), { target: { value: '3.500' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar precio' }))
+    await waitFor(async () => expect((await db.presentaciones.toArray()).find((p) => p.marca === 'Roa')?.ean).toBe('7702511000021'))
+    expect((await db.preciosActuales.where('presentacion_id').equals(diana.presentacion_id).first())?.precio).toBe(4900)
+  })
+
+  it('si internet tarda se puede seguir sin esperar, y la respuesta tardía no cambia la pantalla', async () => {
+    let soltar: () => void = () => {}
+    vi.stubGlobal('fetch', vi.fn(async (_u: string, init?: RequestInit) => {
+      const c = JSON.parse(String(init?.body))
+      if (c.a === 'buscarEnTienda') await new Promise<void>((r) => { soltar = r })
+      return new Response(JSON.stringify({ ok: true, data: { candidatos: [candidato('OLIMPICA')], tablas: {}, cursor: 'x', resultados: [] }, error: null, v: 1 }))
+    }))
+    await guardar('Productos', nuevoProducto({ nombre: 'Arroz', unidad_base: 'g' }))
+    render(<ModoTienda onListo={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: /Escanear código de barras/ }))
+    fireEvent.change(await screen.findByLabelText('O escribe el código'), { target: { value: EAN } })
+    fireEvent.click(screen.getByRole('button', { name: 'Listo' }))
+    expect(await screen.findByText(/Buscando el código/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /No esperar/ }))
+    expect(await screen.findByText(/No conozco el código/)).toBeInTheDocument()
+    soltar()
+    await new Promise((r) => setTimeout(r, 100))
+    expect(screen.getByText(/No conozco el código/)).toBeInTheDocument()
+  })
+
+  it('el mismo código dos veces en una tienda (dos SKU) crea un solo vínculo online', async () => {
+    const [arroz] = await guardar('Productos', nuevoProducto({ nombre: 'Arroz', unidad_base: 'g' }))
+    const a = candidato('OLIMPICA')
+    const b = { ...candidato('OLIMPICA'), skuId: 'OTRO-SKU' }
+    await asignarCodigo(arroz, 'D1', EAN, { nombre: a.nombre, marca: 'Diana', candidatos: [a, b] as never })
+    expect((await db.presentaciones.toArray()).filter((p) => p.tienda === 'OLIMPICA' && p.sku_id)).toHaveLength(1)
+  })
+
+  it('al ordenar por parecido la marca de internet no cuenta: Arroz antes que Aceite Diana', () => {
+    const ps = [nuevoProducto({ nombre: 'Aceite Diana' }), nuevoProducto({ nombre: 'Arroz' })]
+    expect(ordenarPorParecido(ps, 'Arroz Diana 1000 g', 'Diana')[0].nombre).toBe('Arroz')
+  })
 })
+

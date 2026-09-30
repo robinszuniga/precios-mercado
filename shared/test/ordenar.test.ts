@@ -98,4 +98,17 @@ describe('ordenarCandidatos', () => {
     const xs = ordenarCandidatos('Arroz Diana', 'g', [cand('Arroz Diana 1000 g', 5200, { marca: 'Diana' })], 4, 'Diana')
     expect(xs[0].seguro).toBe(true)
   })
+
+  it('la marca se compara por palabras seguidas y solo con la marca de la tienda si la trae', () => {
+    expect(esDeMarca({ nombre: 'Arroz del mejor campo 1 kg', marca: '' }, 'Del Campo')).toBe(false)
+    expect(esDeMarca({ nombre: 'Arroz Del Campo 1 kg', marca: '' }, 'Del Campo')).toBe(true)
+    expect(esDeMarca({ nombre: 'Sal fina 500 g', marca: 'Refisal' }, 'Fina')).toBe(false)
+    expect(esDeMarca({ nombre: 'Sal 500 g', marca: 'La Fina' }, 'Fina')).toBe(true)
+    expect(() => esDeMarca({ nombre: 'x', marca: undefined }, 'Diana')).not.toThrow()
+  })
+
+  it('si el producto se llama igual que la marca igual encuentra opciones', () => {
+    const xs = ordenarCandidatos('Diana', 'g', [cand('Arroz Diana 500 g', 2600, { marca: 'Diana' })], 4, 'Diana')
+    expect(xs).toHaveLength(1)
+  })
 })

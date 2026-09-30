@@ -5,6 +5,7 @@ import type { Fila } from '../../shared/src/seguridad.ts'
 import { esTiendaVtex, TIENDAS_VTEX, type TiendaVtex } from '../../shared/src/tiendas.ts'
 import { esUnidadBase, precioPorUnidad, type UnidadBase } from '../../shared/src/unidades.ts'
 import { catalogoLegacy } from '../../shared/src/vtex/adaptador.ts'
+import { mismoEan } from '../../shared/src/ean.ts'
 import { claveProducto } from '../../shared/src/importarLista.ts'
 import { ordenarCandidatos, type Opcion } from '../../shared/src/vtex/ordenar.ts'
 import { urlBusqueda } from '../../shared/src/vtex/urls.ts'
@@ -200,14 +201,19 @@ function leerItems(p: Params): ItemLote[] {
  */
 export function buscarVarios(s: Servicios, p: Params) {
   const items = leerItems(p)
-  const pedidas = Array.isArray(p.tiendas) ? p.tiendas.filter(esTiendaVtex) : []
+  // Sin repetidas y con tope: un cliente con un fallo no puede multiplicar las consultas a las tiendas.
+  const pedidas = Array.isArray(p.tiendas) ? [...new Set(p.tiendas.filter(esTiendaVtex))].slice(0, TIENDAS_VTEX.length) : []
   const tiendas: TiendaVtex[] = pedidas.length ? pedidas : ['OLIMPICA', 'EXITO']
   const cfg = config(s)
   const ctx = obtenerContextos(s, cfg)
   guardarCambiosConfig(s, ctx.cambiosConfig)
 
   // Con marca preferida se busca "arroz diana": así la tienda la trae entre los primeros resultados.
-  const texto = (it: ItemLote) => (it.marca && !claveProducto(it.q).includes(claveProducto(it.marca)) ? `${it.q} ${it.marca}` : it.q)
+  const yaDice = (it: ItemLote) => {
+    const palabras = new Set(claveProducto(it.q).split(' '))
+    return claveProducto(it.marca).split(' ').every((w) => palabras.has(w))
+  }
+  const texto = (it: ItemLote) => (it.marca && !yaDice(it) ? `${it.q} ${it.marca}` : it.q)
   const claveDe = (t: TiendaVtex, it: ItemLote) => `lote:${t}:${it.ean || texto(it)}`
   const trabajos = items.flatMap((it) => tiendas.map((t) => ({ it, t, clave: claveDe(t, it) })))
   const encontrados = new Map<string, CandidatoConRegion[]>()
@@ -236,13 +242,14 @@ export function buscarVarios(s: Servicios, p: Params) {
     for (const t of tiendas) {
       const cands = encontrados.get(claveDe(t, it)) ?? []
       porTienda[t] = it.ean
-        ? cands.filter((c) => c.ean === it.ean && c.contenido?.unidad === it.unidad).slice(0, 1)
+        ? cands.filter((c) => (c.ean === it.ean || mismoEan(c.ean, it.ean)) && c.contenido?.unidad === it.unidad).slice(0, 1)
           .map((c) => ({ ...c, puntaje: 100, precioUnidad: precioPorUnidad(c.precio, c.contenido!.valor, it.unidad) ?? 0, seguro: c.precio != null && c.disponible }))
         : ordenarCandidatos(it.q, it.unidad, cands, 4, it.marca)
     }
     return { id: it.id, porTienda }
   })
-  return { resultados, errores: [...errores] }
+  // marcas: este script entiende la marca preferida (uno viejo la ignoraría y devolvería otra marca como segura).
+  return { resultados, errores: [...errores], marcas: true }
 }
 
 export function probarRegion(s: Servicios, p: Params) {

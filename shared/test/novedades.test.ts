@@ -15,6 +15,15 @@ describe('detectarCambio', () => {
   })
 })
 
+describe('resumirCambios (origen)', () => {
+  it('el precio de internet y el de la góndola de la misma presentación no se mezclan', () => {
+    const c = (origen: 'online' | 'tienda', antes: number, despues: number): CambioPrecio => ({ presentacion_id: 'p', tienda: 'OLIMPICA', origen, antes, despues, fecha: AHORA - 1000 })
+    const r = resumirCambios([c('online', 1000, 1100), c('tienda', 1300, 900)], AHORA)
+    expect(r.subidas.map((m) => [m.origen, Math.round(m.variacion * 100)])).toEqual([['online', 10]])
+    expect(r.bajas.map((m) => [m.origen, Math.round(m.variacion * 100)])).toEqual([['tienda', -31]])
+  })
+})
+
 describe('resumirCambios', () => {
   const c = (id: string, antes: number, despues: number, haceDias: number): CambioPrecio => ({ presentacion_id: id, tienda: 'OLIMPICA', antes, despues, fecha: AHORA - haceDias * DIA })
 
@@ -45,5 +54,11 @@ describe('teTocaComprar', () => {
   it('una sola compra, o comprado a diario, no dice nada; las compras sin cerrar no cuentan', () => {
     const compras = [compra('a', '2026-09-28'), compra('b', '2026-09-29'), { ...compra('c', '2026-09-01'), estado: 'en_curso' }]
     expect(teTocaComprar(compras, [d('a', 'pan'), d('b', 'pan'), d('c', 'sal'), d('a', 'sal')], '2026-09-30T08:00:00.000-05:00')).toEqual([])
+  })
+
+  it('la mediana de una cantidad par de saltos es el promedio de los dos del medio (0, 3 y 33 → cada ~17 días)', () => {
+    const compras = [compra('a', '2026-08-01'), compra('b', '2026-08-04'), compra('c', '2026-09-03')]
+    const detalles = [d('a', 'sal'), d('b', 'sal'), d('c', 'sal')]
+    expect(teTocaComprar(compras, detalles, '2026-09-30T08:00:00.000-05:00')).toEqual([{ producto_id: 'sal', cadaDias: 17, haceDias: 27 }])
   })
 })

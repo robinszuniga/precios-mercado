@@ -155,6 +155,9 @@ describe('sin duplicados ni sorpresas', () => {
 })
 
 describe('marca preferida', () => {
+  let soportaMarcas = true
+  beforeEach(() => { soportaMarcas = true })
+
   function servidorMarcas() {
     const llamadas: Item[][] = []
     vi.stubGlobal('fetch', vi.fn(async (_u: string, init?: RequestInit) => {
@@ -167,7 +170,7 @@ describe('marca preferida', () => {
         // Un script viejo que no conoce marcas marca como segura la primera que coincida (Roa).
         return { id: it.id, porTienda: { OLIMPICA: it.marca === 'Diana' ? [diana, { ...roa, seguro: false }] : [roa], EXITO: [] } }
       })
-      return new Response(JSON.stringify({ ok: true, data: { resultados, errores: [] }, error: null, v: 1 }))
+      return new Response(JSON.stringify({ ok: true, data: { resultados, errores: [], marcas: soportaMarcas }, error: null, v: 1 }))
     }))
     return llamadas
   }
@@ -191,8 +194,33 @@ describe('marca preferida', () => {
 
     const { vincularMarca } = await import('./vincularLote.ts')
     const [conMarca] = await guardar('Productos', { ...arroz, marca: 'Diana' })
-    expect(await vincularMarca(conMarca)).toEqual({ con: ['OLIMPICA'], sin: ['EXITO'] })
+    expect(await vincularMarca(conMarca)).toEqual({ tipo: 'ok', con: ['OLIMPICA'], sin: ['EXITO'] })
     const activas = (await db.presentaciones.toArray()).filter((p) => p.activo).map((p) => p.nombre_en_tienda)
     expect(activas).toEqual(['Arroz Diana 1000 g'])
+  })
+
+  it('con un script viejo (no dice que conoce las marcas) no vincula nada por marca y queda pendiente para reintentar', async () => {
+    servidorMarcas()
+    await db.productos.clear()
+    const [arroz] = await guardar('Productos', nuevoProducto({ nombre: 'Arroz', unidad_base: 'g', marca: 'Diana' }))
+    soportaMarcas = false
+    const { vincularMarca, SCRIPT_SIN_MARCAS } = await import('./vincularLote.ts')
+    expect(await vincularMarca(arroz)).toEqual({ tipo: 'fallo', motivo: SCRIPT_SIN_MARCAS })
+    expect(await db.presentaciones.count()).toBe(0)
+    expect((await db.meta.get('marcasPendientes'))?.valor).toEqual([arroz.producto_id])
+
+    // Cuando el script se actualiza, la búsqueda automática la resuelve sola y la quita de pendientes.
+    soportaMarcas = true
+    await autoVincular({ forzar: true })
+    expect((await db.presentaciones.toArray()).map((p) => p.nombre_en_tienda)).toEqual(['Arroz Diana 1000 g'])
+    expect((await db.meta.get('marcasPendientes'))?.valor).toEqual([])
+  })
+
+  it('sin la copia en Google lo dice y queda pendiente por si la conecta después', async () => {
+    await guardarMeta('conexion', { url: '', token: '' })
+    const [p] = await guardar('Productos', nuevoProducto({ nombre: 'Sal', unidad_base: 'g', marca: 'Refisal' }))
+    const { vincularMarca } = await import('./vincularLote.ts')
+    expect(await vincularMarca(p)).toEqual({ tipo: 'sin_google' })
+    expect((await db.meta.get('marcasPendientes'))?.valor).toEqual([p.producto_id])
   })
 })

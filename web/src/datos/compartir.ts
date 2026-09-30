@@ -10,17 +10,21 @@ export interface GrupoCompartir {
 /** WhatsApp muestra mal el espacio duro de "$ 1.000" en algunos celulares: se cambia por uno normal. */
 const plata = (n: number) => formatoCop(n).replace(/ /g, ' ')
 
+/** Un nombre con asteriscos o guiones bajos se vería en negrita o cursiva en WhatsApp: se quitan esos símbolos. */
+const limpio = (t: string) => t.replace(/[*_~`]/g, '').trim()
+
 /** El plan como mensaje de WhatsApp: una sección por tienda (en *negrita*), lo que va sin precio y el total. */
 export function textoPlan(grupos: GrupoCompartir[], sinPrecio: string[], total: number, fecha = new Date()): string {
   const dia = fecha.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })
   const partes = [`🛒 Mercado · ${dia}`]
   for (const g of grupos) {
     partes.push('', `*${INFO_TIENDAS[g.tienda].nombre}* · ${plata(g.total)}`)
-    for (const l of g.lineas) partes.push(`▢ ${l.nombre} — ${l.detalle} · ${plata(l.costo)}`)
+    for (const l of g.lineas) partes.push(`▢ ${limpio(l.nombre)} — ${limpio(l.detalle)} · ${plata(l.costo)}`)
   }
-  if (sinPrecio.length) {
+  const pendientes = sinPrecio.map(limpio).filter(Boolean)
+  if (pendientes.length) {
     partes.push('', '*Sin precio (donde lo encuentres)*')
-    for (const n of sinPrecio) partes.push(`▢ ${n}`)
+    for (const n of pendientes) partes.push(`▢ ${n}`)
   }
   if (grupos.length) partes.push('', `Total estimado: *${plata(total)}*`)
   return partes.join('\n')

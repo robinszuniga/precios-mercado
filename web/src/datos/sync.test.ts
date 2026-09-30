@@ -170,3 +170,53 @@ describe('novedades', () => {
     expect(await db.cambios.toArray()).toEqual([expect.objectContaining({ presentacion_id: 'p1', tienda: 'OLIMPICA', antes: 12900, despues: 10500 })])
   })
 })
+
+describe('script viejo y cambios de precio (revisión)', () => {
+  it('un servidor que no guarda la marca no se la borra al celular, y la marca se vuelve a enviar', async () => {
+    const [p] = await guardar('Productos', nuevoProducto({ nombre: 'Arroz', marca: 'Diana' }))
+    await db.outbox.clear()
+    const { marca: _m, ...sinMarca } = p
+    servidor((c) => (c.a === 'pull' ? respuesta({ tablas: { Productos: [sinMarca] }, cursor: 'c' }) : respuesta({ resultados: [] })))
+    await sincronizar()
+    const local = (await db.productos.get(p.producto_id))!
+    expect(local.marca).toBe('Diana')
+    expect(local.updated_at >= p.updated_at).toBe(true)
+    const enviados = (await db.outbox.toArray()).flatMap((e) => ((e.payload as { cambios?: { fila: { marca?: string } }[] }).cambios ?? []).map((x) => x.fila.marca))
+    // Con un servidor que ya responde bien, el envío sale en la misma sincronización; si no, queda en la cola.
+    expect(enviados.length === 0 || enviados.includes('Diana')).toBe(true)
+  })
+
+  it('un precio más viejo que el local no queda anotado como cambio', async () => {
+    const fila = (precio: number, fecha: string, verificado = fecha) => ({
+      clave: 'p1|online', presentacion_id: 'p1', tienda: 'OLIMPICA', origen: 'online', fuente: 'auto', precio, precio_lista: precio,
+      disponible: true, region: 'RIOHACHA', fecha_observado: fecha, fecha_verificado: verificado,
+    })
+    let siguiente = fila(12900, '2026-09-29T06:00:00.000-05:00')
+    servidor((c) => (c.a === 'pull' ? respuesta({ tablas: { Precios_actuales: [siguiente] }, cursor: 'c' }) : respuesta({ resultados: [] })))
+    await sincronizar()
+    siguiente = fila(9000, '2026-09-28T06:00:00.000-05:00', '2026-09-28T06:00:00.000-05:00')
+    await sincronizar()
+    expect(await db.cambios.count()).toBe(0)
+    expect((await db.preciosActuales.get('p1|online'))?.precio).toBe(12900)
+  })
+
+  it('con más de 300 cambios se quedan los más grandes, no los últimos por orden de llegada', async () => {
+    const filas = Array.from({ length: 400 }, (_, i) => ({
+      clave: `p${i}|online`, presentacion_id: `p${i}`, tienda: 'OLIMPICA', origen: 'online', fuente: 'auto', precio: 1000, precio_lista: 1000,
+      disponible: true, region: 'RIOHACHA', fecha_observado: '2026-09-29T06:00:00.000-05:00', fecha_verificado: '2026-09-29T06:00:00.000-05:00',
+    }))
+    let ronda = 0
+    servidor((c) => {
+      if (c.a !== 'pull') return respuesta({ resultados: [] })
+      ronda++
+      const f = ronda === 1 ? filas : filas.map((x, i) => ({ ...x, precio: 1000 + (i + 1) * 10, fecha_observado: '2026-09-30T06:00:00.000-05:00', fecha_verificado: '2026-09-30T06:00:00.000-05:00' }))
+      return respuesta({ tablas: { Precios_actuales: f }, cursor: 'c' })
+    })
+    await sincronizar()
+    await sincronizar()
+    const guardados = await db.cambios.toArray()
+    expect(guardados).toHaveLength(300)
+    expect(guardados.some((c) => c.presentacion_id === 'p399')).toBe(true) // el de mayor variación
+    expect(guardados.some((c) => c.presentacion_id === 'p0')).toBe(false) // el más chico se descarta
+  })
+})

@@ -3,6 +3,9 @@ name: Publicar versión del script
 # Una versión gas-vN marca el script como listo. Se arma el Code.js con esa versión y se publica como release; el
 # script de Google la toma de ahí (releases/latest) al actualizarse. Se lanza empujando la etiqueta o a mano
 # (Actions → Publicar versión del script → Run workflow), y entonces el propio workflow crea la etiqueta.
+#
+# Dos trabajos: el que instala dependencias y compila no tiene permiso de escritura ni guarda la credencial; el que
+# publica el release solo recibe los archivos ya armados y no ejecuta código del proyecto.
 on:
   push:
     tags: ['gas-v*']
@@ -13,10 +16,10 @@ on:
         required: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  publicar:
+  construir:
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ inputs.version || github.ref_name }}
@@ -24,6 +27,8 @@ jobs:
       - name: La versión tiene la forma gas-vN
         run: '[[ "$VERSION" =~ ^gas-v[0-9]+$ ]] || { echo "Versión inválida: $VERSION"; exit 1; }'
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -34,12 +39,34 @@ jobs:
       - run: npm run build:gas
         env:
           GAS_VERSION: ${{ env.VERSION }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: script-${{ env.VERSION }}
+          path: |
+            apps-script/dist/Cargador.js
+            apps-script/dist/Code.js
+            apps-script/dist/appsscript.json
+            apps-script/dist/version.json
+          if-no-files-found: error
+
+  publicar:
+    needs: construir
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ inputs.version || github.ref_name }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: script-${{ env.VERSION }}
+          path: dist
       - name: Crear el release con Cargador.js, Code.js, appsscript.json y version.json
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$VERSION" --target "$GITHUB_SHA" \
-            apps-script/dist/Cargador.js apps-script/dist/Code.js apps-script/dist/appsscript.json apps-script/dist/version.json \
+          gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            dist/Cargador.js dist/Code.js dist/appsscript.json dist/version.json \
             --title "Script $VERSION" \
             --notes "Código del script de Google. En Apps Script se pega solo Cargador.js (una vez); él baja este Code.js solo: cada mañana, cada 6 horas al usar la app o con \"Actualizar ahora\" en Ajustes." \
             --latest

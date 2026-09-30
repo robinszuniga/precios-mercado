@@ -110,3 +110,13 @@ describe('avisos', () => {
     expect(screen.getByText('Arroz al carrito').closest('[data-lugar]')).toHaveAttribute('data-lugar', 'arriba')
   })
 })
+
+describe('revisión: textos y formularios', () => {
+  it('describirPresentacion no repite el tamaño cuando no hay marca', async () => {
+    const { describirPresentacion } = await import('./RegistrarPrecio.tsx')
+    const p = { presentacion_id: 'x', producto_id: 'y', tienda: 'D1', nombre_en_tienda: '1 L', marca: '', contenido: 1000, granel: false } as never
+    expect(describirPresentacion(p, { unidad_base: 'ml' } as never).replace(/\u00a0/g, ' ')).toBe('Sin marca 1 L')
+    const q = { ...(p as object), nombre_en_tienda: 'Leche entera 1100 ml', contenido: 1100 } as never
+    expect(describirPresentacion(q, { unidad_base: 'ml' } as never).replace(/\u00a0/g, ' ')).toBe('Leche entera 1,1 L')
+  })
+})

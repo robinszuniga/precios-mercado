@@ -22,12 +22,18 @@ function palabras(texto: string): string[] {
   return claveProducto(texto).split(' ').filter(Boolean)
 }
 
-/** El candidato es de la marca que prefieres: la dice su marca o su nombre ("Arroz Diana 1 kg"). Sin preferencia, cualquiera sirve. */
-export function esDeMarca(c: Pick<Candidato, 'nombre' | 'marca'>, preferida: string | undefined): boolean {
+/**
+ * El candidato es de la marca que prefieres. Si la tienda dice su marca, cuenta solo esa (las palabras de la marca
+ * en orden: "Del Campo" no es "del mejor campo"); si no la dice, se busca la marca seguida en el nombre.
+ * Sin preferencia, cualquiera sirve.
+ */
+export function esDeMarca(c: { nombre: string; marca?: string | null }, preferida: string | undefined): boolean {
   const pref = palabras(preferida ?? '')
   if (!pref.length) return true
-  const suyas = new Set([...palabras(c.marca), ...palabras(c.nombre)])
-  return pref.every((w) => suyas.has(w))
+  const suya = palabras(c.marca ?? '')
+  if (suya.length) return pref.every((w) => suya.includes(w))
+  const ws = palabras(c.nombre)
+  return ws.some((_, i) => pref.every((w, j) => ws[i + j] === w))
 }
 
 /**
@@ -39,7 +45,10 @@ export function esDeMarca(c: Pick<Candidato, 'nombre' | 'marca'>, preferida: str
 export function ordenarCandidatos<C extends Candidato>(nombre: string, unidad: UnidadBase, cands: readonly C[], max = 4, preferida = ''): Opcion<C>[] {
   const pref = palabras(preferida)
   // La marca preferida no es parte del producto: "Arroz" + Diana busca arroz y prefiere Diana.
-  const buscadas = palabras(nombre).filter((w) => (w.length >= 3 || /\d/.test(w)) && !pref.includes(w))
+  const todas = palabras(nombre).filter((w) => w.length >= 3 || /\d/.test(w))
+  // Si el producto se llama solo como la marca ("Diana"), no hay otra palabra que buscar.
+  const sinMarca = todas.filter((w) => !pref.includes(w))
+  const buscadas = sinMarca.length ? sinMarca : todas
   if (!buscadas.length) return []
   const vistos = new Set<string>()
   const out: Opcion<C>[] = []
@@ -48,7 +57,7 @@ export function ordenarCandidatos<C extends Candidato>(nombre: string, unidad: U
     vistos.add(c.skuId)
     if (!c.contenido || c.contenido.unidad !== unidad || !(c.contenido.valor > 0)) return
     const ws = palabras(c.nombre)
-    const marca = new Set(palabras(c.marca))
+    const marca = new Set(palabras(c.marca ?? ''))
     // Solo la palabra exacta cuenta completa: "Papaya" empieza por "papa" pero es otro producto.
     const exactas = buscadas.filter((b) => ws.includes(b))
     const parecidas = buscadas.filter((b) => !ws.includes(b) && b.length >= 4 && ws.some((w) => w.startsWith(b)))

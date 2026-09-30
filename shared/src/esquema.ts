@@ -105,6 +105,12 @@ export const TABLAS = {
 } as const satisfies Record<string, DefTabla>
 
 export type NombreTabla = keyof typeof TABLAS
+
+/**
+ * Columnas que se agregaron después de la primera versión. Un cliente o un script más viejo no las conoce:
+ * si no vienen en la fila, se conserva lo que ya había (no se borran con un vacío).
+ */
+export const COLUMNAS_OPCIONALES: Partial<Record<NombreTabla, readonly string[]>> = { Productos: ['marca'] }
 export const NOMBRES_TABLAS = Object.keys(TABLAS) as NombreTabla[]
 export const TABLAS_CLIENTE = NOMBRES_TABLAS.filter((t) => TABLAS[t].cliente)
 export const TABLAS_SYNC = NOMBRES_TABLAS.filter((t) => TABLAS[t].sincroniza)

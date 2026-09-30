@@ -69,3 +69,14 @@ describe('paquetes: el número pegado a una medida es el tamaño, no cuántos', 
     expect(parseContenido(nombre)).toMatchObject({ valor, unidad })
   })
 })
+
+describe('quitarTamano', () => {
+  it('quita el tamaño del final o si es lo único que hay, y no toca nombres con números dentro', async () => {
+    const { quitarTamano } = await import('../src/contenido.ts')
+    expect(quitarTamano('Arroz Diana 1000 g')).toBe('Arroz Diana')
+    expect(quitarTamano('Leche entera x 6 und')).toBe('Leche entera')
+    expect(quitarTamano('1 L')).toBe('')
+    expect(quitarTamano('2 Límpido')).toBe('2 Límpido')
+    expect(quitarTamano('Pan')).toBe('Pan')
+  })
+})

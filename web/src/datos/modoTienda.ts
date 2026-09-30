@@ -9,6 +9,8 @@ import { guardar, nuevaPresentacion } from './escritura.ts'
 import { conexion } from './sync.ts'
 import { crearDesdeCandidato, TIENDAS_LOTE, type Cand } from './vincularLote.ts'
 
+const TIEMPO_BUSQUEDA_MS = 8000
+
 /** Lo que dice internet de un código de barras que no conocías: nombre, marca, tamaño y dónde lo venden. */
 export interface Sugerencia {
   nombre: string
@@ -51,7 +53,8 @@ export async function resolverCodigo(ean: string, tienda: Tienda): Promise<Resue
 
   const c = await conexion()
   if (!c.url || !c.token) return { tipo: 'elegir', ean: codigo, sugerencia: null }
-  const r = await llamar<{ candidatos: Cand[] }>(c, 'buscarEnTienda', { tienda: '*', ean: codigo })
+  // En la tienda la señal es mala: si internet no responde pronto, se sigue sin la sugerencia.
+  const r = await llamar<{ candidatos: Cand[] }>(c, 'buscarEnTienda', { tienda: '*', ean: codigo }, TIEMPO_BUSQUEDA_MS)
   const cands = r.tipo === 'ok' ? (r.data.candidatos ?? []).filter((x) => mismoEan(x.ean, codigo)) : []
   const mejor = cands.find((x) => x.contenido) ?? cands[0]
   return { tipo: 'elegir', ean: codigo, sugerencia: mejor ? { nombre: mejor.nombre, marca: mejor.marca, candidatos: cands } : null }
@@ -66,9 +69,12 @@ export async function asignarCodigo(producto: Producto, tienda: Tienda, ean: str
   const compatibles = (sugerencia?.candidatos ?? []).filter((c) => contenidoCompatible(c.contenido, producto.unidad_base))
   if (!compatibles.length) return null
   const ya = await db.presentaciones.where('producto_id').equals(producto.producto_id).toArray()
+  // Una sola presentación online por tienda: el mismo código puede salir dos veces en una tienda (dos SKU).
+  const vinculadas = new Set(ya.filter((p) => p.activo && p.sku_id).map((p) => p.tienda))
   for (const c of compatibles) {
     const t = c.tienda as TiendaVtex
-    if (TIENDAS_LOTE.includes(t) && !ya.some((p) => p.activo && p.tienda === t && p.sku_id)) await crearDesdeCandidato(producto, c, c.contenido!.valor)
+    if (!TIENDAS_LOTE.includes(t) || vinculadas.has(t)) continue
+    if (await crearDesdeCandidato(producto, c, c.contenido!.valor)) vinculadas.add(t)
   }
   const base = compatibles[0]
   const ahora = await db.presentaciones.where('producto_id').equals(producto.producto_id).toArray()
@@ -86,9 +92,10 @@ export async function asignarCodigo(producto: Producto, tienda: Tienda, ean: str
   return nueva
 }
 
-/** Tus productos ordenados por parecido con el nombre que dio internet ("Arroz Diana 1000 g" → Arroz primero). */
-export function ordenarPorParecido(productos: readonly Producto[], nombre: string): Producto[] {
-  const suyas = new Set(claveProducto(nombre).split(' ').filter((w) => w.length >= 3))
-  const puntos = (p: Producto) => claveProducto(`${p.nombre} ${p.marca ?? ''}`).split(' ').filter((w) => suyas.has(w)).length
+/** Tus productos ordenados por parecido con el nombre que dio internet ("Arroz Diana 1000 g" → Arroz primero). La marca no cuenta. */
+export function ordenarPorParecido(productos: readonly Producto[], nombre: string, marca = ''): Producto[] {
+  const deMarca = new Set(claveProducto(marca).split(' '))
+  const suyas = new Set(claveProducto(nombre).split(' ').filter((w) => w.length >= 3 && !deMarca.has(w)))
+  const puntos = (p: Producto) => claveProducto(p.nombre).split(' ').filter((w) => suyas.has(w)).length
   return [...productos].sort((a, b) => puntos(b) - puntos(a) || a.nombre.localeCompare(b.nombre, 'es'))
 }

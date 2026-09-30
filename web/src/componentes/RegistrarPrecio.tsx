@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { parseContenido } from '@shared/contenido.ts'
+import { parseContenido, quitarTamano } from '@shared/contenido.ts'
 import type { PrecioActual, Presentacion, Producto } from '@shared/esquema.ts'
 import { diasEntre } from '@shared/fechas.ts'
 import { INFO_TIENDAS, TIENDAS, type Tienda } from '@shared/tiendas.ts'
@@ -11,7 +11,8 @@ import { ahoraIso } from '../datos/sync.ts'
 import { avisar, Boton, Campo, Casilla, hace, leerNumero, pesos, Selector } from './ui.tsx'
 
 export function describirPresentacion(p: Presentacion, producto: Producto): string {
-  const nombre = p.marca || p.nombre_en_tienda || 'Sin marca'
+  // Sin marca, el nombre de la tienda ya trae el tamaño ("Arroz 1000 g"): se quita para no repetirlo después.
+  const nombre = p.marca || quitarTamano(p.nombre_en_tienda) || 'Sin marca'
   if (p.granel) return `${nombre} (a granel, por ${etiquetaVisible(producto.unidad_base)})`
   if (!p.contenido) return `${nombre} (sin tamaño)`
   return `${nombre} ${formatoContenido(p.contenido, producto.unidad_base)}`
@@ -49,7 +50,9 @@ export function RegistrarPrecio({
   const ultima = useMeta<Tienda | null>('ultimaTienda', null)
   const [tienda, setTienda] = useState<Tienda>(tiendaInicial ?? ultima ?? 'D1')
   const deTienda = presentaciones.filter((p) => p.activo && p.tienda === tienda)
-  const [presId, setPresId] = useState(presentacionInicial ?? primeraDe(presentaciones, tiendaInicial ?? ultima ?? 'D1'))
+  // Con un código escaneado que no es de ninguna presentación, se empieza en "otra marca o tamaño": si no, el precio
+  // se guardaría sobre otra marca que sí tienes en esa tienda y el código no se recordaría.
+  const [presId, setPresId] = useState(presentacionInicial ?? (ean ? '__nueva' : primeraDe(presentaciones, tiendaInicial ?? ultima ?? 'D1')))
   const [marca, setMarca] = useState('')
   const [tamano, setTamano] = useState('')
   const [granel, setGranel] = useState(false)
@@ -74,7 +77,7 @@ export function RegistrarPrecio({
   useEffect(() => {
     if (tiendaInicial || eligio.current || !ultima || ultima === tienda) return
     setTienda(ultima)
-    if (!presentacionInicial) setPresId(primeraDe(presentaciones, ultima))
+    if (!presentacionInicial && !ean) setPresId(primeraDe(presentaciones, ultima))
   }, [ultima])
 
   function cambiarTienda(t: Tienda) {

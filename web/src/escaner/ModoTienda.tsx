@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useState } from 'react'
-import { normalizar } from '@shared/contenido.ts'
+import { useRef, useState } from 'react'
+import { normalizar, quitarTamano } from '@shared/contenido.ts'
 import type { Producto } from '@shared/esquema.ts'
 import { INFO_TIENDAS, TIENDAS, type Tienda } from '@shared/tiendas.ts'
 import { etiquetaVisible, formatoContenido } from '@shared/unidades.ts'
@@ -18,13 +18,13 @@ import { Escaner } from './Escaner.tsx'
 type Fase =
   | { tipo: 'lista' }
   | { tipo: 'escanear' }
-  | { tipo: 'buscando' }
+  | { tipo: 'buscando'; ean: string }
   | { tipo: 'elegir'; ean: string; sugerencia: Sugerencia | null }
   | { tipo: 'crear'; ean: string; sugerencia: Sugerencia | null }
   | { tipo: 'precio'; producto: Producto; presentacionId?: string; ean?: string; escaneado: boolean }
 
-/** Nombre sin tamaño para proponer un producto nuevo: "Arroz Diana 1000 g" → "Arroz Diana". */
-const sinTamano = (nombre: string) => nombre.replace(/\s+(x\s*)?\d+([.,]\d+)?\s*(g|gr|kg|ml|l|lt|cc|und|un)\b.*$/i, '').trim()
+/** El código como está impreso: un UPC-A de 12 dígitos se guarda con un 0 adelante, pero se ve sin él. */
+const codigoVisible = (ean: string) => ean.replace(/^0(?=\d{12}$)/, '')
 
 /**
  * En la tienda: eliges dónde estás, escaneas el código de barras (o tocas el producto) y escribes el precio.
@@ -37,6 +37,9 @@ export function ModoTienda({ onListo }: { onListo: () => void }) {
   const [fase, setFase] = useState<Fase>({ tipo: 'lista' })
   const [q, setQ] = useState('')
   const [anotados, setAnotados] = useState(0)
+  const ultimo = useRef('')
+  /** Cada lectura tiene su número: si se toca "Saltar", la respuesta tardía de la anterior se ignora. */
+  const lectura = useRef(0)
   const enCompra = useLiveQuery(async () => {
     const c = await compraAbierta()
     const ds = c ? await db.detalle.where('compra_id').equals(c.compra_id).toArray() : []
@@ -48,20 +51,34 @@ export function ModoTienda({ onListo }: { onListo: () => void }) {
   const ahora = ahoraIso()
 
   async function alLeer(ean: string) {
-    setFase({ tipo: 'buscando' })
+    const esta = ++lectura.current
+    ultimo.current = ean
+    setFase({ tipo: 'buscando', ean })
     const r = await resolverCodigo(ean, tienda)
+    if (esta !== lectura.current) return
     if (r.tipo === 'conocido') setFase({ tipo: 'precio', producto: r.producto, presentacionId: r.presentacion.presentacion_id, escaneado: true })
     else setFase({ tipo: 'elegir', ean: r.ean, sugerencia: r.sugerencia })
   }
 
   async function elegido(p: Producto, ean: string, sugerencia: Sugerencia | null) {
-    setFase({ tipo: 'buscando' })
+    setFase({ tipo: 'buscando', ean })
     const pres = await asignarCodigo(p, tienda, ean, sugerencia)
     setFase({ tipo: 'precio', producto: p, presentacionId: pres?.presentacion_id, ean, escaneado: true })
   }
 
-  if (fase.tipo === 'escanear') return <Escaner onCodigo={(ean) => void alLeer(ean)} onCancelar={() => setFase({ tipo: 'lista' })} />
-  if (fase.tipo === 'buscando') return <div className="py-8"><Cargando /></div>
+  if (fase.tipo === 'escanear') return <Escaner ignorar={ultimo.current} onCodigo={(ean) => void alLeer(ean)} onCancelar={() => setFase({ tipo: 'lista' })} />
+  if (fase.tipo === 'buscando') {
+    const ean = fase.ean
+    return (
+      <div className="space-y-3 py-4" role="status">
+        <p className="text-stone-700">Buscando el código {codigoVisible(ean)}…</p>
+        <Cargando />
+        <Boton variante="secundario" className="w-full" onClick={() => { lectura.current++; setFase({ tipo: 'elegir', ean, sugerencia: null }) }}>
+          No esperar: elegir yo
+        </Boton>
+      </div>
+    )
+  }
 
   if (fase.tipo === 'precio') {
     const volver = () => { setAnotados((n) => n + 1); setFase(fase.escaneado ? { tipo: 'escanear' } : { tipo: 'lista' }) }
@@ -83,12 +100,17 @@ export function ModoTienda({ onListo }: { onListo: () => void }) {
   }
 
   if (fase.tipo === 'crear') {
+    const medida = fase.sugerencia?.candidatos.find((x) => x.contenido)?.contenido?.unidad
     return (
-      <FormProducto
-        nombreInicial={fase.sugerencia ? sinTamano(fase.sugerencia.nombre) : ''}
-        categorias={cat.categorias}
-        onListo={(p) => void elegido(p, fase.ean, fase.sugerencia)}
-      />
+      <div className="space-y-3">
+        <FormProducto
+          nombreInicial={fase.sugerencia ? quitarTamano(fase.sugerencia.nombre) : ''}
+          unidadInicial={medida}
+          categorias={cat.categorias}
+          onListo={(p) => void elegido(p, fase.ean, fase.sugerencia)}
+        />
+        <Boton variante="fantasma" className="w-full" onClick={() => setFase({ tipo: 'elegir', ean: fase.ean, sugerencia: fase.sugerencia })}>Volver</Boton>
+      </div>
     )
   }
 
@@ -96,7 +118,7 @@ export function ModoTienda({ onListo }: { onListo: () => void }) {
     const s = fase.sugerencia
     const c = s?.candidatos.find((x) => x.contenido)?.contenido
     const nq = normalizar(q)
-    const opciones = ordenarPorParecido(activos, s?.nombre ?? '').filter((p) => !nq || normalizar(p.nombre).includes(nq))
+    const opciones = ordenarPorParecido(activos, s?.nombre ?? '', s?.marca ?? '').filter((p) => !nq || normalizar(p.nombre).includes(nq))
     return (
       <div className="space-y-3">
         {s ? (
@@ -104,7 +126,7 @@ export function ModoTienda({ onListo }: { onListo: () => void }) {
             Es <strong>{s.nombre}</strong>{c ? ` (${formatoContenido(c.valor, c.unidad)})` : ''}. ¿Cuál de tus productos es?
           </p>
         ) : (
-          <p className="rounded-xl bg-stone-100 p-3 text-sm">No conozco el código {fase.ean}. ¿Cuál de tus productos es? Lo recordaré la próxima vez.</p>
+          <p className="rounded-xl bg-stone-100 p-3 text-sm">No conozco el código {codigoVisible(fase.ean)}. ¿Cuál de tus productos es? Lo recordaré la próxima vez.</p>
         )}
         <input
           className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5"

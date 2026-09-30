@@ -11,7 +11,8 @@ const lista = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} 
 /** Tras elegir marca: la busca en internet y dice dónde quedó (en segundo plano; el formulario ya se cerró). */
 async function buscarSuMarca(p: Producto) {
   const r = await vincularMarca(p)
-  if (!r) return
+  if (r.tipo === 'sin_google') { avisar(`Marca guardada. Sin la copia en Google no se buscan precios de internet: anota el precio en la tienda.`); return }
+  if (r.tipo === 'fallo') { avisar(`Guardé la marca ${p.marca}; ahora no pude buscar su precio. ${r.motivo.startsWith('Tu script') ? r.motivo : 'Lo intento de nuevo solo en un rato.'}`); return }
   const con = r.con.map((t) => INFO_TIENDAS[t].nombre)
   const sin = r.sin.map((t) => INFO_TIENDAS[t].nombre)
   avisar(con.length
@@ -26,20 +27,23 @@ const UNIDADES: { v: UnidadBase; texto: string }[] = [
 ]
 
 export function FormProducto({
-  inicial, nombreInicial = '', categorias, onListo,
-}: { inicial?: Producto; nombreInicial?: string; categorias: Categoria[]; onListo: (p: Producto) => void }) {
+  inicial, nombreInicial = '', unidadInicial, categorias, onListo,
+}: { inicial?: Producto; nombreInicial?: string; unidadInicial?: UnidadBase; categorias: Categoria[]; onListo: (p: Producto) => void }) {
   const [nombre, setNombre] = useState(inicial?.nombre ?? nombreInicial)
   const [categoriaId, setCategoriaId] = useState(inicial?.categoria_id ?? (categorias.length ? '' : '__nueva'))
   const [categoriaNueva, setCategoriaNueva] = useState(categorias.length ? '' : 'General')
-  const [unidad, setUnidad] = useState<UnidadBase>(inicial?.unidad_base ?? 'g')
+  const [unidad, setUnidad] = useState<UnidadBase>(inicial?.unidad_base ?? unidadInicial ?? 'g')
   const [recurrente, setRecurrente] = useState(inicial?.recurrente ?? true)
   const [cantidad, setCantidad] = useState(String(inicial?.cantidad_habitual ?? 1).replace('.', ','))
   const [marca, setMarca] = useState(inicial?.marca ?? '')
   const [guardando, setGuardando] = useState(false)
+  // Los productos que llegaron de una lista pegada no tienen pasillo: editarles la marca no debe exigir uno.
+  const sinPasilloAbierto = !!inicial && !inicial.categoria_id
+  const faltaPasillo = !categoriaId && !sinPasilloAbierto
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault()
-    if (!nombre.trim() || !categoriaId) return
+    if (!nombre.trim() || faltaPasillo) return
     setGuardando(true)
     try {
       let cat = categoriaId
@@ -64,8 +68,8 @@ export function FormProducto({
   return (
     <form onSubmit={enviar} className="space-y-3">
       <Campo etiqueta="Nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Arroz, aceite, huevos…" autoFocus required />
-      <Selector etiqueta="Pasillo" value={categoriaId} onChange={(e) => setCategoriaId(e.target.value)} required>
-        <option value="" disabled>Elige el pasillo…</option>
+      <Selector etiqueta="Pasillo" value={categoriaId} onChange={(e) => setCategoriaId(e.target.value)} required={!sinPasilloAbierto}>
+        <option value="" disabled={!sinPasilloAbierto}>{sinPasilloAbierto ? 'Sin pasillo' : 'Elige el pasillo…'}</option>
         {categorias.map((c) => <option key={c.categoria_id} value={c.categoria_id}>{c.nombre}</option>)}
         <option value="__nueva">+ Pasillo nuevo…</option>
       </Selector>
@@ -92,7 +96,7 @@ export function FormProducto({
         ayuda="Los precios de internet se buscan de esa marca. Vacío: la más barata que coincida."
       />
       <Casilla etiqueta="Recurrente: entra solo en cada lista nueva" checked={recurrente} onChange={setRecurrente} />
-      <Boton type="submit" className="w-full" disabled={guardando || !nombre.trim() || !categoriaId}>{inicial ? 'Guardar cambios' : 'Crear producto'}</Boton>
+      <Boton type="submit" className="w-full" disabled={guardando || !nombre.trim() || faltaPasillo}>{inicial ? 'Guardar cambios' : 'Crear producto'}</Boton>
     </form>
   )
 }

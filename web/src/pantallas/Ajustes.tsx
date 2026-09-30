@@ -133,8 +133,13 @@ function CopiaGoogle() {
   const conectada = !!guardada.url && !!guardada.token
 
   async function probar() {
-    setProbando(true)
     const c = { url: url.trim(), token: token.trim() }
+    // El token solo viaja a una aplicación web de Google: una dirección de otro sitio no se guarda ni se prueba.
+    if (!/^https:\/\/script\.google\.com\/(?:a\/macros\/[\w.-]+|macros)\/s\/[\w-]+\/exec$/.test(c.url)) {
+      setResultado({ ok: false, texto: 'Esa dirección no parece la de una aplicación web de Google. Debe verse como https://script.google.com/macros/s/…/exec' })
+      return
+    }
+    setProbando(true)
     await guardarMeta('conexion', c)
     const p = await ping(c.url)
     const proyecto = p.tipo === 'ok' && p.data.proyecto ? ` …${p.data.proyecto}` : ''

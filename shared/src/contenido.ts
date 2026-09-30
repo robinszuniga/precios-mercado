@@ -154,3 +154,8 @@ export function parseContenido(texto: string): Contenido | null {
 export function contenidoCompatible(c: Contenido | null, unidad: UnidadBase): boolean {
   return c != null && c.unidad === unidad
 }
+
+/** El nombre sin el tamaño del final, para mostrarlo o proponerlo como producto: "Arroz Diana 1000 g" → "Arroz Diana". */
+export function quitarTamano(nombre: string): string {
+  return nombre.replace(/(^|\s+)(x\s*)?\d+([.,]\d+)?\s*(g|gr|grs|kg|ml|l|lt|lts|cc|und|un|unds)(?![\p{L}\d]).*$/iu, '').trim()
+}

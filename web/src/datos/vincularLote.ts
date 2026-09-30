@@ -77,20 +77,28 @@ export function itemDe(p: Producto): Item {
   return { id: p.producto_id, q: p.nombre, unidad: p.unidad_base, ...(p.marca ? { marca: p.marca } : {}) }
 }
 
+export const SCRIPT_SIN_MARCAS = 'Tu script de Google es una versión vieja y no conoce las marcas: en Ajustes toca “Actualizar ahora”.'
+
 /** Busca de a 8 productos por llamada. Si el servidor no responde, se detiene y lo dice. */
 export async function buscarLote(items: Item[], tiendas: TiendaVtex[] = TIENDAS_LOTE, onAvance?: (hechos: number, total: number) => void) {
   const resultados = new Map<string, PorTienda>()
   const errores = new Set<string>()
+  let sinMarcas = false
   const c = await conexion()
   for (let i = 0; i < items.length; i += LOTE) {
     onAvance?.(i, items.length)
-    const r = await llamar<{ resultados: { id: string; porTienda: PorTienda }[]; errores: string[] }>(c, 'buscarVarios', { items: items.slice(i, i + LOTE), tiendas }, 90_000)
-    if (r.tipo !== 'ok') return { resultados, errores: [...errores], fallo: r.tipo === 'error' ? r.mensaje : 'Sin respuesta. ¿Hay señal?' }
-    for (const x of r.data?.resultados ?? []) resultados.set(x.id, x.porTienda)
+    const lote = items.slice(i, i + LOTE)
+    const r = await llamar<{ resultados: { id: string; porTienda: PorTienda }[]; errores: string[]; marcas?: boolean }>(c, 'buscarVarios', { items: lote, tiendas }, 90_000)
+    if (r.tipo !== 'ok') return { resultados, errores: [...errores], sinMarcas, fallo: r.tipo === 'error' ? r.mensaje : 'Sin respuesta. ¿Hay señal?' }
+    // Un script viejo ignora la marca y marcaría como segura otra: lo de los productos con marca no se usa.
+    const confiar = r.data?.marcas === true
+    const conMarca = new Set(lote.filter((x) => x.marca).map((x) => x.id))
+    if (!confiar && conMarca.size) sinMarcas = true
+    for (const x of r.data?.resultados ?? []) if (confiar || !conMarca.has(x.id)) resultados.set(x.id, x.porTienda)
     for (const e of r.data?.errores ?? []) errores.add(e)
   }
   onAvance?.(items.length, items.length)
-  return { resultados, errores: [...errores], fallo: null as string | null }
+  return { resultados, errores: [...errores], sinMarcas, fallo: null as string | null }
 }
 
 /**
@@ -188,11 +196,26 @@ async function correrAuto(opciones: { forzar?: boolean }): Promise<ResultadoAuto
   await sincronizar()
   const recientes = (id: string) => ahora - (estado.revisados[id] ?? 0) < DIAS_SIN_REPETIR * 86400_000
   const pendientes = (await productosSinVincular()).filter((p) => opciones.forzar || !recientes(p.producto_id))
+  // Marcas que se eligieron cuando no se pudo buscar (sin señal, script viejo): se reintentan aquí.
+  const idsMarca = await leerMeta<string[]>('marcasPendientes', [])
+  const conMarcaPendiente = idsMarca.length ? (await db.productos.bulkGet(idsMarca)).filter((p): p is Producto => !!p && p.activo && !!p.marca) : []
+  let falloMarca: string | null = null
+  if (conMarcaPendiente.length) {
+    const pend = new Set(idsMarca)
+    for (const p of conMarcaPendiente) {
+      const r = await vincularMarcaAhora(p)
+      if (r.tipo === 'ok') pend.delete(p.producto_id)
+      else if (r.tipo === 'fallo') { falloMarca = r.motivo; break }
+    }
+    for (const id of idsMarca) if (!conMarcaPendiente.some((p) => p.producto_id === id)) pend.delete(id)
+    await guardarMeta('marcasPendientes', [...pend])
+  }
   if (!pendientes.length) {
-    await guardarMeta('autoVinculo', { ...estado, ultimo: ahora })
+    await guardarMeta('autoVinculo', falloMarca ? { ...estado, fallo: ahora } : { ...estado, ultimo: ahora })
     return { vinculados: 0, dudosos: 0, sinResultado: 0 }
   }
-  const { resultados, fallo } = await buscarLote(pendientes.map(itemDe))
+  const { resultados, fallo: falloBusqueda, sinMarcas } = await buscarLote(pendientes.map(itemDe))
+  const fallo = falloBusqueda ?? (sinMarcas ? SCRIPT_SIN_MARCAS : null) ?? falloMarca
   const elegidos: Elegido[] = []
   let dudosos = 0
   let sinResultado = 0
@@ -213,34 +236,43 @@ async function correrAuto(opciones: { forzar?: boolean }): Promise<ResultadoAuto
   return { vinculados, dudosos, sinResultado }
 }
 
-export interface ResultadoMarca {
-  /** Tiendas donde quedó vinculada la marca preferida. */
-  con: TiendaVtex[]
-  /** Tiendas online donde no apareció esa marca (se deja lo que había). */
-  sin: TiendaVtex[]
+export type ResultadoMarca =
+  | { tipo: 'ok'; /** Tiendas donde quedó vinculada la marca preferida. */ con: TiendaVtex[]; /** Tiendas online donde no apareció esa marca (se deja lo que había). */ sin: TiendaVtex[] }
+  | { tipo: 'sin_google' }
+  | { tipo: 'fallo'; motivo: string }
+
+async function vincularMarcaAhora(producto: Producto): Promise<ResultadoMarca> {
+  const c = await conexion()
+  if (!c.url || !c.token) return { tipo: 'sin_google' }
+  if (!producto.marca) return { tipo: 'ok', con: [], sin: [] }
+  const { resultados, fallo, sinMarcas } = await buscarLote([itemDe(producto)])
+  if (fallo) return { tipo: 'fallo', motivo: fallo }
+  if (sinMarcas) return { tipo: 'fallo', motivo: SCRIPT_SIN_MARCAS }
+  const antes = await db.presentaciones.where('producto_id').equals(producto.producto_id).toArray()
+  const con: TiendaVtex[] = []
+  for (const o of seguros(resultados.get(producto.producto_id), producto.marca)) {
+    const nueva = await crearDesdeCandidato(producto, o, o.contenido!.valor, { reactivar: true })
+    if (!nueva) continue
+    con.push(o.tienda)
+    const otras = antes.filter((x) => x.tienda === o.tienda && x.activo && x.sku_id && x.presentacion_id !== nueva.presentacion_id
+      && !esDeMarca({ nombre: x.nombre_en_tienda, marca: x.marca }, producto.marca))
+    if (otras.length) await guardar<Presentacion>('Presentaciones', otras.map((x) => ({ ...x, activo: false })))
+  }
+  return { tipo: 'ok', con, sin: TIENDAS_LOTE.filter((t) => !con.includes(t)) }
 }
 
 /**
  * Al elegir la marca preferida de un producto: la busca en Olímpica y Éxito y, donde la encuentra sin duda, la
  * vincula y quita el vínculo a otra marca en esa tienda. Donde no está, deja lo que había (mejor un precio de otra
- * marca que ninguno). Null si no hay copia en Google o no hubo respuesta.
+ * marca que ninguno). Si no se pudo buscar, queda pendiente: la búsqueda automática lo reintenta.
  */
-export function vincularMarca(producto: Producto): Promise<ResultadoMarca | null> {
+export function vincularMarca(producto: Producto): Promise<ResultadoMarca> {
   return exclusivo(async () => {
-    const c = await conexion()
-    if (!c.url || !c.token || !producto.marca) return null
-    const { resultados, fallo } = await buscarLote([itemDe(producto)])
-    if (fallo) return null
-    const antes = await db.presentaciones.where('producto_id').equals(producto.producto_id).toArray()
-    const con: TiendaVtex[] = []
-    for (const o of seguros(resultados.get(producto.producto_id), producto.marca)) {
-      const nueva = await crearDesdeCandidato(producto, o, o.contenido!.valor, { reactivar: true })
-      if (!nueva) continue
-      con.push(o.tienda)
-      const otras = antes.filter((x) => x.tienda === o.tienda && x.activo && x.sku_id && x.presentacion_id !== nueva.presentacion_id
-        && !esDeMarca({ nombre: x.nombre_en_tienda, marca: x.marca }, producto.marca))
-      if (otras.length) await guardar<Presentacion>('Presentaciones', otras.map((x) => ({ ...x, activo: false })))
-    }
-    return { con, sin: TIENDAS_LOTE.filter((t) => !con.includes(t)) }
+    const r = await vincularMarcaAhora(producto)
+    const pend = new Set(await leerMeta<string[]>('marcasPendientes', []))
+    if (r.tipo === 'ok') pend.delete(producto.producto_id)
+    else if (producto.marca) pend.add(producto.producto_id)
+    await guardarMeta('marcasPendientes', [...pend])
+    return r
   })
 }

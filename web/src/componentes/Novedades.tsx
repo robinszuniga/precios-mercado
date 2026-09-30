@@ -81,7 +81,7 @@ export function Novedades({ className = '' }: { className?: string }) {
               <li key={p.producto_id} className="flex items-center justify-between gap-2 py-1">
                 <span className="min-w-0">
                   <span className="font-medium">{p.nombre}</span>
-                  <span className="block text-xs text-stone-600">Lo compras cada ~{t.cadaDias} días; la última vez hace {t.haceDias}.</span>
+                  <span className="block text-xs text-stone-600">Lo compras cada ~{t.cadaDias} días; la última vez hace {t.haceDias} {t.haceDias === 1 ? 'día' : 'días'}.</span>
                 </span>
                 <Boton
                   variante="fantasma"

@@ -49,6 +49,22 @@ describe('Ajustes · copia en Google', () => {
   })
 })
 
+describe('Ajustes · dirección', () => {
+  it('una dirección que no es de Google no se guarda y el token no sale a ninguna parte', async () => {
+    const mock = vi.fn(async () => new Response('{}'))
+    vi.stubGlobal('fetch', mock)
+    render(<Ajustes />)
+    fireEvent.change(await screen.findByLabelText('Dirección de la aplicación web (termina en /exec)'), { target: { value: 'https://ejemplo.com/exec' } })
+    fireEvent.change(screen.getByLabelText('Clave (token)'), { target: { value: 'secreta' } })
+    const boton = screen.getByRole('button', { name: 'Guardar y probar' })
+    await waitFor(() => expect(boton).toBeEnabled(), { timeout: ESPERA })
+    fireEvent.click(boton)
+    expect(await screen.findByRole('alert', {}, { timeout: ESPERA })).toHaveTextContent('no parece la de una aplicación web de Google')
+    expect(mock).not.toHaveBeenCalled()
+    expect((await db.meta.get('conexion'))?.valor).toEqual({ url: '', token: '' })
+  })
+})
+
 describe('Ajustes · reglas', () => {
   it('borrar un número para reescribirlo no guarda 0', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{}')))

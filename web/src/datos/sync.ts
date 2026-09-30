@@ -1,7 +1,7 @@
 import { TABLAS, type NombreTabla, type PrecioActual } from '@shared/esquema.ts'
 import { isoBogota } from '@shared/fechas.ts'
 import { detectarCambio, type CambioPrecio } from '@shared/novedades.ts'
-import { ganaRemoto } from '@shared/sync.ts'
+import { conservarOpcionales, ganaRemoto } from '@shared/sync.ts'
 import { llamar, type Conexion } from './api.ts'
 import { db, guardarMeta, leerMeta, TABLA_LOCAL, type EntradaOutbox } from './db.ts'
 
@@ -109,16 +109,17 @@ function actualMasNuevo(local: PrecioActual | undefined, remoto: PrecioActual): 
 
 const MAX_CAMBIOS_GUARDADOS = 300
 
-/** Anota los precios que cambiaron (para "Novedades") y deja solo los últimos. */
-async function anotarCambios(locales: (PrecioActual | undefined)[], remotos: PrecioActual[]) {
+/** Anota los precios que cambiaron (para "Novedades"): solo los que de verdad se guardaron, los más grandes primero. */
+async function anotarCambios(guardados: PrecioActual[], anteriores: Map<string, PrecioActual | undefined>) {
   const ahora = Date.now()
-  const nuevos: CambioPrecio[] = []
-  remotos.forEach((r, i) => {
-    const c = detectarCambio(locales[i], r)
-    if (c) nuevos.push({ presentacion_id: r.presentacion_id, tienda: r.tienda, ...c, fecha: ahora })
-  })
+  const nuevos: (CambioPrecio & { tam: number })[] = []
+  for (const r of guardados) {
+    const c = detectarCambio(anteriores.get(r.clave), r)
+    if (c) nuevos.push({ presentacion_id: r.presentacion_id, tienda: r.tienda, origen: r.origen, ...c, fecha: ahora, tam: Math.abs(c.despues - c.antes) / c.antes })
+  }
   if (!nuevos.length) return
-  await db.cambios.bulkAdd(nuevos)
+  nuevos.sort((a, b) => b.tam - a.tam)
+  await db.cambios.bulkAdd(nuevos.slice(0, MAX_CAMBIOS_GUARDADOS).map(({ tam: _tam, ...c }) => c))
   const sobran = (await db.cambios.count()) - MAX_CAMBIOS_GUARDADOS
   if (sobran > 0) await db.cambios.orderBy('fecha').limit(sobran).delete()
 }
@@ -132,22 +133,38 @@ export async function traer(c: Conexion, completo = false): Promise<boolean> {
     return false
   }
   const tablasLocales = Object.values(TABLA_LOCAL).map((t) => db.table(t!))
-  await db.transaction('rw', [...tablasLocales, db.meta, db.cambios], async () => {
+  const reenviar: { tabla: NombreTabla; fila: Record<string, unknown> }[] = []
+  await db.transaction('rw', [...tablasLocales, db.meta, db.cambios, db.outbox], async () => {
     for (const [nombre, filas] of Object.entries(r.data.tablas)) {
       const local = TABLA_LOCAL[nombre as NombreTabla]
       if (!local || !filas.length) continue
       const tabla = db.table(local)
       const idCol = TABLAS[nombre as NombreTabla].id
       const existentes = await tabla.bulkGet(filas.map((f) => f[idCol] as string))
-      const aGuardar = filas.filter((f, i) => {
+      const aGuardar: Record<string, unknown>[] = []
+      filas.forEach((f, i) => {
         const e = existentes[i] as Record<string, unknown> | undefined
-        if (nombre === 'Precios_actuales') return actualMasNuevo(e as unknown as PrecioActual, f as unknown as PrecioActual)
-        if (!('updated_at' in TABLAS[nombre as NombreTabla].cols)) return true
-        return ganaRemoto(e as { updated_at: string } | undefined, f as { updated_at: string })
+        if (nombre === 'Precios_actuales') {
+          if (actualMasNuevo(e as unknown as PrecioActual, f as unknown as PrecioActual)) aGuardar.push(f)
+          return
+        }
+        if (!('updated_at' in TABLAS[nombre as NombreTabla].cols)) { aGuardar.push(f); return }
+        if (!ganaRemoto(e as { updated_at: string } | undefined, f as { updated_at: string })) return
+        // Un script viejo no guarda la marca: no se la quitamos al celular, y se vuelve a enviar cuando se pueda.
+        const m = conservarOpcionales(nombre as NombreTabla, e as { updated_at: string } | undefined, f as { updated_at: string })
+        if (m.reenviar) {
+          const fila = { ...m.fila, updated_at: ahoraIso() }
+          aGuardar.push(fila)
+          reenviar.push({ tabla: nombre as NombreTabla, fila })
+        } else aGuardar.push(f)
       })
       if (aGuardar.length) await tabla.bulkPut(aGuardar)
-      if (nombre === 'Precios_actuales') await anotarCambios(existentes as (PrecioActual | undefined)[], filas as unknown as PrecioActual[])
+      if (nombre === 'Precios_actuales') {
+        const antes = new Map((existentes as (PrecioActual | undefined)[]).map((x, i) => [(filas[i] as unknown as PrecioActual).clave, x]))
+        await anotarCambios(aGuardar as unknown as PrecioActual[], antes)
+      }
     }
+    for (const x of reenviar) await encolar('upsert', { cambios: [x] })
     await db.meta.put({ clave: 'cursor', valor: r.data.cursor })
   })
   return true

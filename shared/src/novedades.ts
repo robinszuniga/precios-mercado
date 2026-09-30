@@ -8,6 +8,8 @@ export interface CambioPrecio {
   id?: number
   presentacion_id: string
   tienda: Tienda
+  /** De dónde vino el precio; los anotados antes de tenerlo cuentan como de internet. */
+  origen?: 'online' | 'tienda'
   antes: number
   despues: number
   /** Cuándo lo vio el celular (ms). */
@@ -36,10 +38,12 @@ export interface Movimiento extends CambioPrecio {
 export function resumirCambios(cambios: readonly CambioPrecio[], ahoraMs: number, opciones: { dias?: number; minimo?: number } = {}) {
   const desde = ahoraMs - (opciones.dias ?? 3) * DIA_MS
   const minimo = opciones.minimo ?? 0.05
+  // El precio de internet y el de la góndola de una misma presentación son dos series distintas: no se mezclan.
   const porPresentacion = new Map<string, CambioPrecio[]>()
   for (const c of cambios) {
     if (c.fecha < desde) continue
-    porPresentacion.set(c.presentacion_id, [...(porPresentacion.get(c.presentacion_id) ?? []), c])
+    const clave = `${c.presentacion_id}|${c.origen ?? 'online'}`
+    porPresentacion.set(clave, [...(porPresentacion.get(clave) ?? []), c])
   }
   const movimientos: Movimiento[] = []
   for (const xs of porPresentacion.values()) {
@@ -88,7 +92,9 @@ export function teTocaComprar(
     const dias = [...set].sort((a, b) => a - b)
     if (dias.length < 2) continue
     const saltos = dias.slice(1).map((d, i) => d - dias[i]).sort((a, b) => a - b)
-    const cadaDias = saltos[Math.floor(saltos.length / 2)]
+    // Mediana de verdad: con una cantidad par de saltos, el promedio de los dos del medio.
+    const m = saltos.length / 2
+    const cadaDias = Math.round(saltos.length % 2 ? saltos[Math.floor(m)] : (saltos[m - 1] + saltos[m]) / 2)
     const haceDias = hoyDia - dias[dias.length - 1]
     if (cadaDias >= 3 && haceDias >= Math.round(cadaDias * 0.9)) out.push({ producto_id, cadaDias, haceDias })
   }
