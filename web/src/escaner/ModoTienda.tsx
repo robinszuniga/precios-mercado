@@ -201,11 +201,15 @@ export function ModoTienda({ onListo }: { onListo: () => void }) {
 }
 
 /** Botón que abre el modo tienda. */
-export function BotonModoTienda({ className = '', variante = 'secundario' }: { className?: string; variante?: 'primario' | 'secundario' | 'fantasma' }) {
+export function BotonModoTienda({ className = '', variante = 'secundario', compacto = false }: { className?: string; variante?: 'primario' | 'secundario' | 'fantasma'; compacto?: boolean }) {
   const [abierto, setAbierto] = useState(false)
   return (
     <>
-      <Boton variante={variante} className={className} onClick={() => setAbierto(true)}>📷 Anotar precios en la tienda</Boton>
+      {compacto ? (
+        <Boton variante={variante} className={`min-w-11 px-3 text-xl ${className}`} aria-label="Anotar precios en la tienda" title="Anotar precios en la tienda" onClick={() => setAbierto(true)}>📷</Boton>
+      ) : (
+        <Boton variante={variante} className={className} onClick={() => setAbierto(true)}>📷 Anotar precios en la tienda</Boton>
+      )}
       <Hoja abierta={abierto} titulo="Precios en la tienda" onCerrar={() => setAbierto(false)} protegida>
         {abierto && <ModoTienda onListo={() => setAbierto(false)} />}
       </Hoja>

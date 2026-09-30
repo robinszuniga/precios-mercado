@@ -122,8 +122,11 @@ internet: al abrir la app (una vez al día) y justo después de pegar tu lista.
    - **Buscar online**: busca en Éxito, Olímpica o D1, eliges el producto exacto y con su código de barras la app lo busca en las demás.
 2. **Plan**: marca las tiendas que visitas hoy y mira dónde comprar cada cosa y por qué. Toca un producto para cambiar
    la cantidad de esta vez, fijar la tienda o quitarlo.
-3. **Compra**: pon el presupuesto, marca lo que echas al carrito (el círculo lo marca de una si el precio ya lo viste
-   en la tienda) y cierra la compra. Solo los precios que confirmaste quedan como precio de tienda.
+3. **Compra**: pon el presupuesto, elige **¿En qué tienda estás?** (la tuya queda abierta y las demás plegadas) y marca
+   lo que echas al carrito: el círculo lo marca de una si el precio ya lo viste en la tienda hace menos de una semana
+   (si es más viejo, abre la hoja para confirmarlo); el producto se queda tachado un segundo y otro toque lo desmarca.
+   Abajo, siempre a la vista: 📷 anotar precios, **+ Agregar** (un producto tuyo o “algo que no está en mis productos”)
+   y **Terminar**. Solo los precios que confirmaste quedan como precio de tienda.
 4. **Historial**: cómo cambian los precios de cada producto, el resumen de cada compra y lo gastado en el mes.
 
 Además:

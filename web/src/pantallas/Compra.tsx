@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { normalizar } from '@shared/contenido.ts'
 import type { Compra as TCompra, Detalle } from '@shared/esquema.ts'
 import { formatoNumero } from '@shared/dinero.ts'
@@ -46,20 +46,22 @@ function Empezar({ compra, tiendasHoy, alternar }: { compra?: TCompra; tiendasHo
   )
 }
 
-function Agregar({ cat, tiendasHoy, onListo }: { cat: Catalogo; tiendasHoy: Tienda[]; onListo: () => void }) {
+function Agregar({ cat, tiendasHoy, onElegido, onAlgoMas }: { cat: Catalogo; tiendasHoy: Tienda[]; onElegido: (d: Detalle) => void; onAlgoMas: () => void }) {
   const [q, setQ] = useState('')
   const nq = normalizar(q)
   const xs = cat.productos.filter((p) => p.activo && (!nq || normalizar(p.nombre).includes(nq))).slice(0, 30)
   return (
     <div className="space-y-2">
-      <input autoFocus type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar en tus productos…" aria-label="Buscar en tus productos" className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5" />
-      <ul className="max-h-[50dvh] divide-y divide-stone-100 overflow-y-auto">
+      <input autoFocus type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar en tus productos…" aria-label="Buscar en tus productos" className="min-h-11 w-full rounded-xl border border-stone-400 bg-white px-3 py-2.5" />
+      {/* Con el teclado abierto caben pocas filas: mejor pocas y buscar que una lista larga tapada. */}
+      <ul className="max-h-[35dvh] divide-y divide-stone-100 overflow-y-auto">
         {xs.map((p) => (
           <li key={p.producto_id}>
-            <button type="button" className="min-h-11 w-full py-2 text-left active:bg-stone-100" onClick={async () => { await agregarALaCompra(p, tiendasHoy); avisar(`${p.nombre} agregado`); onListo() }}>{p.nombre}</button>
+            <button type="button" className="min-h-11 w-full py-2 text-left active:bg-stone-100" onClick={async () => onElegido(await agregarALaCompra(p, tiendasHoy))}>{p.nombre}</button>
           </li>
         ))}
       </ul>
+      <Boton variante="secundario" className="w-full" onClick={onAlgoMas}>+ Algo que no está en mis productos{q.trim() ? `: “${q.trim()}”` : ''}</Boton>
     </div>
   )
 }
@@ -74,11 +76,44 @@ export function Compra() {
   /** En qué tienda estoy ahora: esa va arriba y abierta; las otras, plegadas. Vacío = todas. */
   const aqui = useMeta<Tienda | ''>('estoyEn', '')
   const ultimaMarca = useRef(0)
+  /** Los que se marcaron hace un instante: se quedan tachados en su lugar un segundo antes de bajar al carrito. */
+  const [recien, setRecien] = useState<ReadonlySet<string>>(new Set())
+  /** Producto recién agregado: su hoja se abre cuando ya aparece en la compra (y cuando cerró la de agregar). */
+  const [porAbrir, setPorAbrir] = useState<string | 'libre' | null>(null)
+  const barraRef = useRef<HTMLDivElement>(null)
+  const [mini, setMini] = useState(false)
   const datos = useLiveQuery(async () => {
     const compra = await compraAbierta()
     const detalles = compra ? (await db.detalle.where('compra_id').equals(compra.compra_id).toArray()).filter((d) => !d.borrado) : []
     return { compra, detalles }
   }, [])
+  // La barra de presupuesto grande se sale al bajar: entonces aparece una de una línea, fija arriba (sin mover la lista).
+  useEffect(() => {
+    const ver = () => { const r = barraRef.current?.getBoundingClientRect(); setMini(!!r && r.height > 0 && r.bottom < 8) }
+    ver()
+    window.addEventListener('scroll', ver, { passive: true })
+    return () => window.removeEventListener('scroll', ver)
+  }, [])
+  // La barra de acciones fija tapa el borde de abajo: los avisos y la pastilla de señal suben por encima.
+  useEffect(() => {
+    document.documentElement.style.setProperty('--barra-acciones', '4.25rem')
+    return () => { document.documentElement.style.removeProperty('--barra-acciones') }
+  }, [])
+  useEffect(() => {
+    if (!porAbrir) return
+    const listo = porAbrir === 'libre' || datos?.detalles.some((x) => x.detalle_id === porAbrir)
+    if (!listo) return
+    // Un momento después: primero se cierra la hoja de agregar (y su entrada del historial), luego se abre la siguiente.
+    const t = setTimeout(() => {
+      setPorAbrir(null)
+      if (porAbrir === 'libre') setDialogo({ libre: null })
+      else {
+        const d = datos?.detalles.find((x) => x.detalle_id === porAbrir)
+        if (d) setDialogo({ detalle: d })
+      }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [porAbrir, datos])
   if (!cat || !datos) return <Cargando />
   const { compra, detalles } = datos
   if (!compra || compra.estado === 'borrador') return <Empezar compra={compra} tiendasHoy={tiendasHoy} alternar={alternar} />
@@ -91,13 +126,16 @@ export function Compra() {
   const orden = comparadorPasillo(cat)
   const pendientes = detalles.filter((d) => d.estado === 'pendiente').sort((a, b) => orden(a.producto_id, b.producto_id))
   const enCarrito = detalles.filter((d) => d.estado === 'en_carrito')
+  // En la lista siguen, tachados, los que se acaban de marcar; en la tarjeta del carrito todavía no.
+  const enLista = detalles.filter((d) => d.estado === 'pendiente' || (d.estado === 'en_carrito' && recien.has(d.detalle_id))).sort((a, b) => orden(a.producto_id, b.producto_id))
+  const enCarritoVisible = enCarrito.filter((d) => !recien.has(d.detalle_id))
   const noEncontrados = detalles.filter((d) => d.estado === 'no_encontrado')
   const cerrar = () => setDialogo(null)
   const total = pendientes.length + enCarrito.length + noEncontrados.length
   const pasilloDe = (d: Detalle) => cat.categorias.find((c) => c.categoria_id === cat.producto.get(d.producto_id)?.categoria_id)?.nombre ?? ''
 
   const porTienda = new Map<string, Detalle[]>()
-  for (const d of pendientes) {
+  for (const d of enLista) {
     const t = d.tienda || sugerencias.get(d.detalle_id)?.tienda || ''
     porTienda.set(t, [...(porTienda.get(t) ?? []), d])
   }
@@ -124,6 +162,8 @@ export function Compra() {
     const antes = { ...d }
     ultimaMarca.current = Date.now()
     navigator.vibrate?.(15)
+    setRecien((r) => new Set(r).add(d.detalle_id))
+    setTimeout(() => setRecien((r) => { const n = new Set(r); n.delete(d.detalle_id); return n }), 1100)
     await guardar('Compras_detalle', {
       ...d, tienda: s.tienda, presentacion_id: s.presentacion.presentacion_id, cantidad: s.paquetes, precio_unitario: e.precio,
       subtotal: subtotal(s.paquetes, e.precio), estado: 'en_carrito', precio_confirmado: true,
@@ -131,16 +171,29 @@ export function Compra() {
     avisar(`${nombre(d)} al carrito · ${pesos(subtotal(s.paquetes, e.precio))}`, () => guardar('Compras_detalle', antes).then(() => undefined))
   }
 
+  /** Tocar de nuevo el círculo de uno recién marcado lo desmarca (sin esperar el aviso de Deshacer). */
+  async function desmarcar(d: Detalle) {
+    if (Date.now() - ultimaMarca.current < 400) return
+    setRecien((r) => { const n = new Set(r); n.delete(d.detalle_id); return n })
+    await guardar('Compras_detalle', { ...d, estado: 'pendiente', subtotal: null })
+  }
+
   const detalleDialogo = dialogo && typeof dialogo === 'object' && 'detalle' in dialogo ? dialogo.detalle : null
   const productoDialogo = detalleDialogo?.producto_id ? cat.producto.get(detalleDialogo.producto_id) : undefined
   const libreDialogo = dialogo && typeof dialogo === 'object' && 'libre' in dialogo ? dialogo : null
 
   return (
-    <section className="space-y-3">
+    <section className="space-y-3 pb-20">
       <Titulo sub={`${enCarrito.length} de ${total} en el carrito`}>Tu compra de hoy</Titulo>
-      <div className="sticky top-0 z-20 -mx-4 bg-fondo/95 px-4 pt-1 pb-2 backdrop-blur">
+      <div ref={barraRef}>
         <BarraPresupuesto estado={estado} onEditar={() => setDialogo('presupuesto')} compacta />
       </div>
+      {/* Al bajar por la lista, el saldo sigue a la vista en una sola línea (fija: no empuja nada). */}
+      {mini && (
+        <div className="fixed inset-x-0 top-0 z-20 mx-auto max-w-lg px-4" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.25rem)' }}>
+          <BarraPresupuesto estado={estado} mini />
+        </div>
+      )}
       {estoyEn.length > 1 && (
         <div>
           <p className="mb-1 text-sm text-stone-700">¿En qué tienda estás?</p>
@@ -169,25 +222,33 @@ export function Compra() {
                 const pasillo = pasilloDe(d)
                 const mostrarPasillo = pasillo !== pasilloPrevio
                 pasilloPrevio = pasillo
+                const marcado = d.estado === 'en_carrito'
                 return (
                   <li key={d.detalle_id}>
                     {mostrarPasillo && pasillo && <p className="px-1 pt-2 text-xs font-semibold tracking-wide text-stone-600 uppercase">{pasillo}</p>}
-                    <div className="flex items-center gap-1 border-b border-stone-100">
+                    <div className={`flex items-center gap-1 border-b border-stone-100 ${marcado ? 'bg-green-50' : ''}`}>
                       <button
                         type="button"
-                        aria-label={`Marcar ${nombre(d)} como comprado`}
+                        aria-label={marcado ? `Desmarcar ${nombre(d)}` : `Marcar ${nombre(d)} como comprado`}
+                        aria-pressed={marcado}
                         className="grid size-11 shrink-0 place-items-center rounded-full active:bg-stone-100"
-                        onClick={() => void marcarRapido(d)}
+                        onClick={() => void (marcado ? desmarcar(d) : marcarRapido(d))}
                       >
-                        <span aria-hidden className="size-7 rounded-full border-2 border-stone-500" />
+                        {marcado
+                          ? <span aria-hidden className="grid size-7 place-items-center rounded-full bg-ok text-sm text-white">✓</span>
+                          : <span aria-hidden className="size-7 rounded-full border-2 border-stone-500" />}
                       </button>
                       <button type="button" className="flex min-h-14 min-w-0 flex-1 items-center gap-2 py-2 text-left active:bg-stone-100" onClick={() => setDialogo({ detalle: d })}>
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium">{nombre(d)}</span>
-                          {s && p && <span className="block truncate text-sm text-stone-700">{s.presentacion.granel ? formatoCantidadVisible(s.paquetes, p.unidad_base) : `${s.paquetes} ×`} {describirPresentacion(s.presentacion, p)}</span>}
-                          {edadViejaDe(d) != null && <span className="block text-xs font-medium text-alerta">Precio visto {hace(edadViejaDe(d)!)}: confírmalo</span>}
+                          <span className={`block truncate font-medium ${marcado ? 'text-stone-500 line-through' : ''}`}>{nombre(d)}</span>
+                          {marcado
+                            ? <span className="block text-sm text-stone-600">{formatoNumero(d.cantidad ?? 0)} × {pesos(d.precio_unitario)}</span>
+                            : s && p && <span className="block truncate text-sm text-stone-700">{s.presentacion.granel ? formatoCantidadVisible(s.paquetes, p.unidad_base) : `${s.paquetes} ×`} {describirPresentacion(s.presentacion, p)}</span>}
+                          {!marcado && edadViejaDe(d) != null && <span className="block text-xs font-medium text-alerta">Precio visto {hace(edadViejaDe(d)!)}: confírmalo</span>}
                         </span>
-                        {s && <span className="shrink-0 text-base font-semibold text-stone-800"><abbr title="aproximadamente" className="no-underline">≈</abbr> {pesos(s.costo)}</span>}
+                        {marcado
+                          ? <span className="shrink-0 text-base font-semibold text-ok">{pesos(d.subtotal)}</span>
+                          : s && <span className="shrink-0 text-base font-semibold text-stone-800"><abbr title="aproximadamente" className="no-underline">≈</abbr> {pesos(s.costo)}</span>}
                       </button>
                     </div>
                   </li>
@@ -219,7 +280,7 @@ export function Compra() {
         <Tarjeta className="px-2">
           <h2 className="mb-1 px-1 text-sm font-semibold text-ok">En el carrito ({enCarrito.length})</h2>
           <ul>
-            {enCarrito.map((d) => (
+            {enCarritoVisible.map((d) => (
               <li key={d.detalle_id} className="border-b border-stone-100 last:border-0">
                 <button type="button" className="flex min-h-14 w-full items-center gap-3 px-1 py-2 text-left active:bg-stone-100" onClick={() => setDialogo(d.producto_id ? { detalle: d } : { libre: d })}>
                   <span aria-hidden className="grid size-6 shrink-0 place-items-center rounded-full bg-ok text-sm text-white">✓</span>
@@ -251,15 +312,23 @@ export function Compra() {
         </Tarjeta>
       )}
 
-      <BotonModoTienda className="w-full" />
-      <div className="grid grid-cols-2 gap-2">
-        <Boton variante="secundario" onClick={() => setDialogo('agregar')}>+ Producto</Boton>
-        <Boton variante="secundario" onClick={() => setDialogo({ libre: null })}>+ Algo más</Boton>
-      </div>
-      <Boton className="w-full" onClick={() => setDialogo('cerrar')} disabled={enCarrito.length === 0}>Terminar y cerrar compra</Boton>
-      {enCarrito.length === 0 && <p className="text-center text-xs text-stone-600">Marca al menos un producto para poder cerrar.</p>}
+      {enCarrito.length === 0 && <p className="text-center text-xs text-stone-600">Marca al menos un producto para poder cerrar la compra.</p>}
       <div className="pt-4 text-center">
         <button type="button" className="min-h-11 px-3 text-sm text-stone-600 underline" onClick={() => setDialogo('descartar')}>Descartar esta compra…</button>
+      </div>
+
+      {/* Siempre a la vista, encima de la barra de navegación: agregar, anotar precios o terminar sin recorrer la lista. */}
+      <div
+        className="fixed inset-x-0 z-30 border-t border-stone-200 bg-white/95 px-3 py-2 backdrop-blur"
+        style={{ bottom: 'calc(env(safe-area-inset-bottom) + 3.5rem)' }}
+      >
+        <div className="mx-auto flex max-w-lg items-center gap-2">
+          <BotonModoTienda compacto />
+          <Boton variante="secundario" className="flex-1 px-2" onClick={() => setDialogo('agregar')}>+ Agregar</Boton>
+          <Boton className="flex-[1.4] px-2" onClick={() => setDialogo('cerrar')} disabled={enCarrito.length === 0}>
+            Terminar{enCarrito.length > 0 ? ` (${enCarrito.length})` : ''}
+          </Boton>
+        </div>
       </div>
 
       <Hoja abierta={!!detalleDialogo && !!productoDialogo} titulo={productoDialogo?.nombre ?? ''} onCerrar={cerrar} protegida>
@@ -271,7 +340,7 @@ export function Compra() {
         {libreDialogo && <ItemLibre compraId={compra.compra_id} crear={nuevoDetalle} existente={libreDialogo.libre ?? undefined} onListo={cerrar} />}
       </Hoja>
       <Hoja abierta={dialogo === 'agregar'} titulo="Agregar a la compra" onCerrar={cerrar}>
-        <Agregar cat={cat} tiendasHoy={tiendasHoy} onListo={cerrar} />
+        <Agregar cat={cat} tiendasHoy={tiendasHoy} onElegido={(d) => { cerrar(); setPorAbrir(d.detalle_id) }} onAlgoMas={() => { cerrar(); setPorAbrir('libre') }} />
       </Hoja>
       <Hoja abierta={dialogo === 'presupuesto'} titulo="Presupuesto de esta compra" onCerrar={cerrar} protegida>
         <EditarPresupuesto valor={compra.presupuesto} onGuardar={async (v) => { await guardar('Compras', { ...compra, presupuesto: v }); cerrar() }} />

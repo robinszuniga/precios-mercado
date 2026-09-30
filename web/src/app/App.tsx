@@ -77,7 +77,7 @@ function EstadoConexion() {
         href="#/ajustes"
         role="status"
         className="fixed left-3 z-30 rounded-full bg-stone-800/90 px-3 py-1.5 text-xs font-medium text-white shadow"
-        style={{ bottom: 'calc(env(safe-area-inset-bottom) + 4.25rem)' }}
+        style={{ bottom: 'calc(env(safe-area-inset-bottom) + 4.25rem + var(--barra-acciones, 0rem))' }}
       >
         {pastilla}
       </a>

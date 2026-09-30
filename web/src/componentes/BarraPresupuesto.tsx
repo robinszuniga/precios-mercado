@@ -14,8 +14,26 @@ function frase(e: EstadoPresupuesto): string | null {
 }
 
 /** Lo que se mira en el pasillo es cuánto queda: eso va grande. Tocarla permite cambiar el presupuesto. */
-export function BarraPresupuesto({ estado, onEditar, compacta = false }: { estado: EstadoPresupuesto; onEditar?: () => void; compacta?: boolean }) {
+export function BarraPresupuesto({ estado, onEditar, compacta = false, mini = false }: { estado: EstadoPresupuesto; onEditar?: () => void; compacta?: boolean; mini?: boolean }) {
   const { gastado, presupuesto, restante, proporcion, color } = estado
+  // Una sola línea, para cuando la barra grande ya se salió de la pantalla al bajar por la lista.
+  if (mini) {
+    const pctMini = Math.min(100, Math.round((proporcion ?? 0) * 100))
+    return (
+      <div className="rounded-xl bg-white px-3 py-1.5 shadow ring-1 ring-stone-200" aria-hidden>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-sm text-stone-700">{presupuesto == null ? 'Llevas' : restante! < 0 ? 'Te pasaste' : 'Te quedan'}</span>
+          <span className={`text-lg font-bold ${presupuesto == null ? '' : TEXTO[color!]}`}>{pesos(presupuesto == null ? gastado : Math.abs(restante!))}</span>
+          {presupuesto != null && <span className="text-xs text-stone-600">{pctMini} %</span>}
+        </div>
+        {presupuesto != null && (
+          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-stone-200">
+            <div className={`h-full rounded-full ${BARRA[color!]}`} style={{ width: `${pctMini}%` }} />
+          </div>
+        )}
+      </div>
+    )
+  }
   const Contenedor = onEditar ? 'button' : 'div'
   const base = 'block w-full rounded-2xl bg-white p-3 text-left ring-1 ring-stone-200'
   if (presupuesto == null) {

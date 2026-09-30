@@ -368,7 +368,7 @@ export function Avisos() {
   const hayHoja = useSyncExternalStore((f) => { oyentesHoja.add(f); return () => oyentesHoja.delete(f) }, () => hojasAbiertas > 0)
   // Con una hoja abierta van arriba, en el espacio libre sobre la hoja: abajo taparían sus botones y un toque del
   // pulgar desharía lo anterior sin querer.
-  const lugar = hayHoja ? { top: 'calc(env(safe-area-inset-top) + 0.75rem)' } : { bottom: 'calc(env(safe-area-inset-bottom) + 4.75rem)' }
+  const lugar = hayHoja ? { top: 'calc(env(safe-area-inset-top) + 0.75rem)' } : { bottom: 'calc(env(safe-area-inset-bottom) + 4.75rem + var(--barra-acciones, 0rem))' }
   return (
     <div className="pointer-events-none fixed inset-x-0 z-50 mx-auto flex max-w-lg flex-col gap-2 px-4" style={lugar} data-lugar={hayHoja ? 'arriba' : 'abajo'} role="status" aria-live="polite">
       {lista.map((a) => (

@@ -115,6 +115,66 @@ describe('en la tienda', () => {
   })
 })
 
+describe('compra: barra fija, tachado y agregar directo', () => {
+  async function compraConDos() {
+    const [arroz, leche] = await guardar('Productos', [nuevoProducto({ nombre: 'Arroz', unidad_base: 'g' }), nuevoProducto({ nombre: 'Leche', unidad_base: 'ml' })])
+    const [pa] = await guardar('Presentaciones', nuevaPresentacion({ producto_id: arroz.producto_id, tienda: 'D1', marca: 'Diana', contenido: 1000 }))
+    const [pl] = await guardar('Presentaciones', nuevaPresentacion({ producto_id: leche.producto_id, tienda: 'D1', marca: 'Alquería', contenido: 1000 }))
+    await registrarPrecioManual(pa, 5000)
+    await registrarPrecioManual(pl, 4000)
+    await asegurarCompra(['D1'])
+    await agregarALaCompra(arroz, ['D1'])
+    await agregarALaCompra(leche, ['D1'])
+    const c = (await db.compras.toArray())[0]
+    await guardar('Compras', { ...c, estado: 'en_curso' })
+    return { arroz, leche }
+  }
+
+  it('la barra de acciones está siempre: Terminar apagado hasta marcar algo, y + Agregar abre la búsqueda', async () => {
+    await compraConDos()
+    render(<Compra />)
+    const terminar = await screen.findByRole('button', { name: /^Terminar/ })
+    expect(terminar).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Anotar precios en la tienda' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '+ Agregar' }))
+    expect(await screen.findByLabelText('Buscar en tus productos')).toBeInTheDocument()
+  })
+
+  it('el producto marcado se queda tachado en su sitio, se puede desmarcar con otro toque y después baja al carrito', async () => {
+    await compraConDos()
+    render(<Compra />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Marcar Arroz como comprado' }))
+    const desmarcar = await screen.findByRole('button', { name: 'Desmarcar Arroz' })
+    expect(desmarcar).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Arroz')).toHaveClass('line-through')
+    expect(screen.queryByText(/En el carrito \(/)).toBeInTheDocument() // ya cuenta, aunque la tarjeta aún no lo muestre
+    await new Promise((r) => setTimeout(r, 1500))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Desmarcar Arroz' })).toBeNull())
+    expect(screen.getByText('Arroz')).toBeInTheDocument() // ahora está en la tarjeta del carrito
+
+    // Desmarcar dentro de la ventana de un segundo: vuelve a pendiente.
+    fireEvent.click(screen.getByRole('button', { name: 'Marcar Leche como comprado' }))
+    await screen.findByRole('button', { name: 'Desmarcar Leche' })
+    await new Promise((r) => setTimeout(r, 450))
+    fireEvent.click(screen.getByRole('button', { name: 'Desmarcar Leche' }))
+    await waitFor(async () => expect((await db.detalle.toArray()).find((d) => d.nombre_libre === '' && d.estado === 'pendiente')).toBeTruthy())
+    expect(await screen.findByRole('button', { name: 'Marcar Leche como comprado' })).toBeInTheDocument()
+  })
+
+  it('al agregar un producto, su hoja se abre sola con el cursor en el precio', async () => {
+    const { arroz, leche } = await compraConDos()
+    const d = (await db.detalle.toArray()).find((x) => x.producto_id === leche.producto_id)!
+    await guardar('Compras_detalle', { ...d, borrado: true }) // la leche sale de la compra; se vuelve a agregar
+    render(<Compra />)
+    await screen.findByText('Arroz')
+    fireEvent.click(screen.getByRole('button', { name: '+ Agregar' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Leche' }))
+    const precio = await screen.findByLabelText('Precio de cada uno', {}, { timeout: 4000 })
+    expect(precio).toHaveAttribute('data-autofocus')
+    expect(arroz.nombre).toBe('Arroz')
+  })
+})
+
 describe('historial', () => {
   it('no celebra el ahorro cuando solo se pudo comparar una parte de la compra', async () => {
     await db.compras.put({
