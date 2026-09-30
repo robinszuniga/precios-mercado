@@ -34,7 +34,7 @@ export const TABLAS = {
     id: 'producto_id',
     cols: {
       producto_id: 't', nombre: 't', categoria_id: 't', unidad_base: 't', recurrente: 'b',
-      cantidad_habitual: 'n', notas: 't', activo: 'b', updated_at: 't', _srv: 't',
+      cantidad_habitual: 'n', notas: 't', activo: 'b', updated_at: 't', _srv: 't', marca: 't',
     },
     cliente: true,
     sincroniza: true,
@@ -140,6 +140,8 @@ export interface Producto extends Sincronizable {
   cantidad_habitual: number
   notas: string
   activo: boolean
+  /** Marca que sueles comprar ("Diana"). Vacía = cualquiera. Las filas viejas no la traen. */
+  marca?: string
 }
 
 export interface Presentacion extends Sincronizable {

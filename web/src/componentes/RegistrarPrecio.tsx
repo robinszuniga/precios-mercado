@@ -35,13 +35,15 @@ function primeraDe(presentaciones: Presentacion[], t: Tienda): string {
 
 /** Precio visto en la tienda (manual). Si la presentación no existe, se crea con marca y tamaño. */
 export function RegistrarPrecio({
-  producto, presentaciones, actualesDe, tiendaInicial, presentacionInicial, onListo,
+  producto, presentaciones, actualesDe, tiendaInicial, presentacionInicial, ean = '', onListo,
 }: {
   producto: Producto
   presentaciones: Presentacion[]
   actualesDe: ReadonlyMap<string, PrecioActual[]>
   tiendaInicial?: Tienda
   presentacionInicial?: string
+  /** Código de barras escaneado: queda en la marca/tamaño nuevo para reconocerlo la próxima vez. */
+  ean?: string
   onListo: () => void
 }) {
   const ultima = useMeta<Tienda | null>('ultimaTienda', null)
@@ -98,6 +100,7 @@ export function RegistrarPrecio({
         nombre_en_tienda: [marca.trim(), tamano.trim()].filter(Boolean).join(' '),
         granel,
         contenido,
+        ean,
       }))
     }
     await registrarPrecioManual(p!, valor)

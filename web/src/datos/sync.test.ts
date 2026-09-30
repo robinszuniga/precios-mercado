@@ -152,3 +152,21 @@ describe('celular y servidor siempre terminan iguales', () => {
     expect(entradas.map((e) => (e.payload.cambios as unknown[]).length)).toEqual([100, 100, 50])
   })
 })
+
+describe('novedades', () => {
+  it('un precio que llega distinto y más nuevo queda anotado como cambio; uno igual o el primero, no', async () => {
+    const fila = (precio: number, fecha: string) => ({
+      clave: 'p1|online', presentacion_id: 'p1', tienda: 'OLIMPICA', origen: 'online', fuente: 'auto', precio, precio_lista: precio,
+      disponible: true, region: 'RIOHACHA', fecha_observado: fecha, fecha_verificado: fecha,
+    })
+    let siguiente = fila(12900, '2026-09-28T06:00:00.000-05:00')
+    servidor((c) => (c.a === 'pull' ? respuesta({ tablas: { Precios_actuales: [siguiente] }, cursor: 'c' }) : respuesta({ resultados: [] })))
+    await sincronizar()
+    expect(await db.cambios.count()).toBe(0)
+    siguiente = fila(10500, '2026-09-29T06:00:00.000-05:00')
+    await sincronizar()
+    siguiente = fila(10500, '2026-09-30T06:00:00.000-05:00')
+    await sincronizar()
+    expect(await db.cambios.toArray()).toEqual([expect.objectContaining({ presentacion_id: 'p1', tienda: 'OLIMPICA', antes: 12900, despues: 10500 })])
+  })
+})

@@ -37,7 +37,7 @@ function FilaCandidato({ c, producto, onElegir }: { c: Cand; producto: Producto;
 /** Busca el producto en la tienda online, elige el SKU exacto y luego ofrece el mismo EAN en las otras tiendas. */
 export function Vincular({ producto, yaVinculadas, onListo }: { producto: Producto; yaVinculadas: Presentacion[]; onListo: () => void }) {
   const [tienda, setTienda] = useState<TiendaVtex>('EXITO')
-  const [q, setQ] = useState(producto.nombre)
+  const [q, setQ] = useState(producto.marca ? `${producto.nombre} ${producto.marca}` : producto.nombre)
   const [cands, setCands] = useState<Cand[] | null>(null)
   const [error, setError] = useState('')
   const [buscando, setBuscando] = useState(false)

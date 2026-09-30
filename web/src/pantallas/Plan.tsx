@@ -5,10 +5,12 @@ import { planCompra } from '@shared/recomendacion.ts'
 import { INFO_TIENDAS, TIENDAS } from '@shared/tiendas.ts'
 import { formatoCantidadVisible } from '@shared/unidades.ts'
 import { ActualizarPrecios } from '../componentes/ActualizarPrecios.tsx'
+import { BotonModoTienda } from '../escaner/ModoTienda.tsx'
 import { AvisoSinVincular } from '../componentes/VincularTodos.tsx'
 import { HojaItemPlan } from '../componentes/ItemPlan.tsx'
 import { describirPresentacion } from '../componentes/RegistrarPrecio.tsx'
 import { Boton, Campo, Cargando, ChipTienda, Distintivo, hace, Hoja, leerNumero, NombreTienda, pesos, Tarjeta, Titulo, Vacio } from '../componentes/ui.tsx'
+import { compartirTexto, textoPlan } from '../datos/compartir.ts'
 import { comparadorPasillo, itemsDelPlan, useCatalogo } from '../datos/consultas.ts'
 import { db } from '../datos/db.ts'
 import { asegurarCompra, compraAbierta, guardar } from '../datos/escritura.ts'
@@ -38,6 +40,21 @@ export function Plan() {
   const dAbierto = abierto ? porId.get(abierto) : undefined
   const pAbierto = dAbierto ? cat.producto.get(dAbierto.producto_id) : undefined
   const tiendaDe = (id: string) => plan.grupos.find((g) => g.items.some((i) => i.id === id))?.tienda
+  const ordenados = <T extends { id: string }>(xs: readonly T[]) => [...xs].sort((a, b) => orden(porId.get(a.id)!.producto_id, porId.get(b.id)!.producto_id))
+
+  function enviar() {
+    const grupos = plan.grupos.map((g) => ({
+      tienda: g.tienda,
+      total: g.total,
+      lineas: ordenados(g.items).map(({ id, costo }) => {
+        const p = cat!.producto.get(porId.get(id)!.producto_id)!
+        const cuanto = costo.opcion.presentacion.granel ? formatoCantidadVisible(costo.paquetes, p.unidad_base) : `${costo.paquetes} ×`
+        return { nombre: p.nombre, detalle: `${cuanto} ${describirPresentacion(costo.opcion.presentacion, p)}`, costo: costo.costoReal }
+      }),
+    }))
+    const sin = [...ordenados(plan.sinPrecio.map((id) => ({ id }))).map((x) => nombre(x.id)), ...libres.map((d) => d.nombre_libre)]
+    void compartirTexto(textoPlan(grupos, sin, plan.total))
+  }
 
   return (
     <section className="space-y-3">
@@ -83,6 +100,7 @@ export function Plan() {
 
       <AvisoSinVincular />
       <ActualizarPrecios />
+      {compra && <BotonModoTienda className="w-full" />}
 
       {plan.grupos.map((g) => (
         <Tarjeta key={g.tienda} className="px-2">
@@ -91,7 +109,7 @@ export function Plan() {
             <span className="font-semibold">{pesos(g.total)}</span>
           </div>
           <ul className="divide-y divide-stone-100">
-            {[...g.items].sort((a, b) => orden(porId.get(a.id)!.producto_id, porId.get(b.id)!.producto_id)).map(({ id, costo, alternativa }) => {
+            {ordenados(g.items).map(({ id, costo, alternativa }) => {
               const d = porId.get(id)!
               const p = cat.producto.get(d.producto_id)!
               const e = costo.opcion.efectivo
@@ -151,6 +169,9 @@ export function Plan() {
           ))}
           <p className="text-xs text-stone-600">Solo se propone ir a otra tienda si ahorras más de {pesos(cat.cfg.ahorroMinimoTienda)} por viaje (se cambia en Ajustes).</p>
         </Tarjeta>
+      )}
+      {compra && (items.length > 0 || libres.length > 0) && (
+        <Boton variante="secundario" className="w-full" onClick={enviar}>Enviar la lista por WhatsApp</Boton>
       )}
       {compra && items.length > 0 && <a href="#/compra" className="flex min-h-11 items-center justify-center font-medium text-marca">Ir a comprar →</a>}
 

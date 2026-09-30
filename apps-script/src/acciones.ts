@@ -5,6 +5,7 @@ import type { Fila } from '../../shared/src/seguridad.ts'
 import { esTiendaVtex, TIENDAS_VTEX, type TiendaVtex } from '../../shared/src/tiendas.ts'
 import { esUnidadBase, precioPorUnidad, type UnidadBase } from '../../shared/src/unidades.ts'
 import { catalogoLegacy } from '../../shared/src/vtex/adaptador.ts'
+import { claveProducto } from '../../shared/src/importarLista.ts'
 import { ordenarCandidatos, type Opcion } from '../../shared/src/vtex/ordenar.ts'
 import { urlBusqueda } from '../../shared/src/vtex/urls.ts'
 import type { Candidato } from '../../shared/src/vtex/parse.ts'
@@ -171,7 +172,7 @@ export function buscarEnTienda(s: Servicios, p: Params) {
   return salida
 }
 
-type ItemLote = { id: string; q: string; ean: string; unidad: UnidadBase }
+type ItemLote = { id: string; q: string; ean: string; unidad: UnidadBase; marca: string }
 type CandidatoConRegion = Candidato & { region: string }
 const MAX_LOTE = 8
 
@@ -184,8 +185,9 @@ function leerItems(p: Params): ItemLote[] {
     const id = typeof o.id === 'string' ? o.id.slice(0, 64) : ''
     const q = typeof o.q === 'string' ? o.q.trim().slice(0, 80) : ''
     const ean = typeof o.ean === 'string' ? o.ean.replace(/\D/g, '') : ''
+    const marca = typeof o.marca === 'string' ? o.marca.trim().slice(0, 40) : ''
     if (!id || (!q && !ean) || !esUnidadBase(o.unidad)) throw new ErrorApi('validacion', 'cada producto necesita id, q o ean, y unidad')
-    items.push({ id, q, ean, unidad: o.unidad })
+    items.push({ id, q, ean, unidad: o.unidad, marca })
   }
   if (!items.length) throw new ErrorApi('validacion', 'faltan productos')
   return items
@@ -204,7 +206,10 @@ export function buscarVarios(s: Servicios, p: Params) {
   const ctx = obtenerContextos(s, cfg)
   guardarCambiosConfig(s, ctx.cambiosConfig)
 
-  const trabajos = items.flatMap((it) => tiendas.map((t) => ({ it, t, clave: `lote:${t}:${it.ean || it.q}` })))
+  // Con marca preferida se busca "arroz diana": así la tienda la trae entre los primeros resultados.
+  const texto = (it: ItemLote) => (it.marca && !claveProducto(it.q).includes(claveProducto(it.marca)) ? `${it.q} ${it.marca}` : it.q)
+  const claveDe = (t: TiendaVtex, it: ItemLote) => `lote:${t}:${it.ean || texto(it)}`
+  const trabajos = items.flatMap((it) => tiendas.map((t) => ({ it, t, clave: claveDe(t, it) })))
   const encontrados = new Map<string, CandidatoConRegion[]>()
   const faltan = trabajos.filter((w) => {
     const g = s.cache.get(w.clave)
@@ -213,7 +218,7 @@ export function buscarVarios(s: Servicios, p: Params) {
   })
   const resps = s.http.todas(faltan.map(({ it, t }) => {
     const sc = ctx.contextos[t]?.sc
-    const url = it.ean ? catalogoLegacy.urlEan(t, it.ean, sc) : urlBusqueda(t, { ft: it.q, hasta: 19, sc })
+    const url = it.ean ? catalogoLegacy.urlEan(t, it.ean, sc) : urlBusqueda(t, { ft: texto(it), hasta: 19, sc })
     const seg = ctx.contextos[t]?.segmento
     return { url, cabeceras: { Accept: 'application/json', ...(seg ? { Cookie: `vtex_segment=${seg}` } : {}) } }
   }))
@@ -229,11 +234,11 @@ export function buscarVarios(s: Servicios, p: Params) {
   const resultados = items.map((it) => {
     const porTienda: Partial<Record<TiendaVtex, Opcion<CandidatoConRegion>[]>> = {}
     for (const t of tiendas) {
-      const cands = encontrados.get(`lote:${t}:${it.ean || it.q}`) ?? []
+      const cands = encontrados.get(claveDe(t, it)) ?? []
       porTienda[t] = it.ean
         ? cands.filter((c) => c.ean === it.ean && c.contenido?.unidad === it.unidad).slice(0, 1)
           .map((c) => ({ ...c, puntaje: 100, precioUnidad: precioPorUnidad(c.precio, c.contenido!.valor, it.unidad) ?? 0, seguro: c.precio != null && c.disponible }))
-        : ordenarCandidatos(it.q, it.unidad, cands)
+        : ordenarCandidatos(it.q, it.unidad, cands, 4, it.marca)
     }
     return { id: it.id, porTienda }
   })

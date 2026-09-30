@@ -349,6 +349,16 @@ describe('buscarVarios', () => {
     expect(f.pedidas[0].url).toContain('alternateIds_Ean')
   })
 
+  it('con marca preferida la busca junto al producto y solo esa marca queda segura', () => {
+    const f = crearServicios({ responder: () => ({ status: 200, cuerpo: catalogo([['Arroz Diana 1000 g', 5200, '770']]), setCookie: [] }) })
+    prepararRegion(f)
+    const r = post(f.s, { a: 'buscarVarios', tiendas: ['EXITO'], items: [{ id: 'a', q: 'Arroz', unidad: 'g', marca: 'Diana' }, { id: 'b', q: 'Arroz', unidad: 'g', marca: 'Roa' }] })
+    const data = r.data as { resultados: { porTienda: Record<string, { seguro: boolean }[]> }[] }
+    expect(decodeURIComponent(f.pedidas[0].url)).toMatch(/ft=Arroz(\+| )Diana/)
+    expect(data.resultados[0].porTienda.EXITO[0].seguro).toBe(true)
+    expect(data.resultados[1].porTienda.EXITO[0]?.seguro ?? false).toBe(false)
+  })
+
   it('valida la entrada y limita a 8 productos por llamada', () => {
     const { s } = crearServicios()
     expect(post(s, { a: 'buscarVarios', items: [] }).error?.codigo).toBe('validacion')

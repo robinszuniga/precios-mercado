@@ -1,7 +1,7 @@
 import type { Presentacion, Producto, Region } from '@shared/esquema.ts'
 import type { TiendaVtex } from '@shared/tiendas.ts'
 import type { UnidadBase } from '@shared/unidades.ts'
-import type { Opcion } from '@shared/vtex/ordenar.ts'
+import { esDeMarca, type Opcion } from '@shared/vtex/ordenar.ts'
 import type { Candidato } from '@shared/vtex/parse.ts'
 import { llamar } from './api.ts'
 import { db, guardarMeta, leerMeta } from './db.ts'
@@ -70,7 +70,12 @@ export async function productosSinVincular(): Promise<Producto[]> {
   return productos.filter((p) => p.activo && !revisado.has(p.producto_id))
 }
 
-type Item = { id: string; q?: string; ean?: string; unidad: UnidadBase }
+type Item = { id: string; q?: string; ean?: string; unidad: UnidadBase; marca?: string }
+
+/** Lo que se busca de un producto: su nombre y, si tiene, su marca preferida. */
+export function itemDe(p: Producto): Item {
+  return { id: p.producto_id, q: p.nombre, unidad: p.unidad_base, ...(p.marca ? { marca: p.marca } : {}) }
+}
 
 /** Busca de a 8 productos por llamada. Si el servidor no responde, se detiene y lo dice. */
 export async function buscarLote(items: Item[], tiendas: TiendaVtex[] = TIENDAS_LOTE, onAvance?: (hechos: number, total: number) => void) {
@@ -88,9 +93,12 @@ export async function buscarLote(items: Item[], tiendas: TiendaVtex[] = TIENDAS_
   return { resultados, errores: [...errores], fallo: null as string | null }
 }
 
-/** La opción segura de cada tienda, si la hay. */
-export function seguros(porTienda: PorTienda | undefined): OpcionLote[] {
-  return TIENDAS_LOTE.flatMap((t) => porTienda?.[t]?.filter((o) => o.seguro).slice(0, 1) ?? [])
+/**
+ * La opción segura de cada tienda, si la hay. Con marca preferida, solo si es de esa marca (el servidor ya lo
+ * cuida; esto protege también frente a un script que todavía no conoce las marcas).
+ */
+export function seguros(porTienda: PorTienda | undefined, marca?: string): OpcionLote[] {
+  return TIENDAS_LOTE.flatMap((t) => porTienda?.[t]?.filter((o) => o.seguro && esDeMarca(o, marca)).slice(0, 1) ?? [])
 }
 
 /** Todas las opciones de un producto, de la más a la menos parecida. */
@@ -184,7 +192,7 @@ async function correrAuto(opciones: { forzar?: boolean }): Promise<ResultadoAuto
     await guardarMeta('autoVinculo', { ...estado, ultimo: ahora })
     return { vinculados: 0, dudosos: 0, sinResultado: 0 }
   }
-  const { resultados, fallo } = await buscarLote(pendientes.map((p) => ({ id: p.producto_id, q: p.nombre, unidad: p.unidad_base })))
+  const { resultados, fallo } = await buscarLote(pendientes.map(itemDe))
   const elegidos: Elegido[] = []
   let dudosos = 0
   let sinResultado = 0
@@ -192,7 +200,7 @@ async function correrAuto(opciones: { forzar?: boolean }): Promise<ResultadoAuto
   for (const p of pendientes) {
     const porTienda = resultados.get(p.producto_id)
     if (!porTienda) continue
-    const s = seguros(porTienda)
+    const s = seguros(porTienda, p.marca)
     if (s.length) elegidos.push({ producto: p, opciones: s })
     else {
       revisados[p.producto_id] = ahora
@@ -203,4 +211,36 @@ async function correrAuto(opciones: { forzar?: boolean }): Promise<ResultadoAuto
   const vinculados = await vincular(elegidos)
   await guardarMeta('autoVinculo', fallo ? { ...estado, revisados, fallo: ahora } : { ultimo: ahora, revisados })
   return { vinculados, dudosos, sinResultado }
+}
+
+export interface ResultadoMarca {
+  /** Tiendas donde quedó vinculada la marca preferida. */
+  con: TiendaVtex[]
+  /** Tiendas online donde no apareció esa marca (se deja lo que había). */
+  sin: TiendaVtex[]
+}
+
+/**
+ * Al elegir la marca preferida de un producto: la busca en Olímpica y Éxito y, donde la encuentra sin duda, la
+ * vincula y quita el vínculo a otra marca en esa tienda. Donde no está, deja lo que había (mejor un precio de otra
+ * marca que ninguno). Null si no hay copia en Google o no hubo respuesta.
+ */
+export function vincularMarca(producto: Producto): Promise<ResultadoMarca | null> {
+  return exclusivo(async () => {
+    const c = await conexion()
+    if (!c.url || !c.token || !producto.marca) return null
+    const { resultados, fallo } = await buscarLote([itemDe(producto)])
+    if (fallo) return null
+    const antes = await db.presentaciones.where('producto_id').equals(producto.producto_id).toArray()
+    const con: TiendaVtex[] = []
+    for (const o of seguros(resultados.get(producto.producto_id), producto.marca)) {
+      const nueva = await crearDesdeCandidato(producto, o, o.contenido!.valor, { reactivar: true })
+      if (!nueva) continue
+      con.push(o.tienda)
+      const otras = antes.filter((x) => x.tienda === o.tienda && x.activo && x.sku_id && x.presentacion_id !== nueva.presentacion_id
+        && !esDeMarca({ nombre: x.nombre_en_tienda, marca: x.marca }, producto.marca))
+      if (otras.length) await guardar<Presentacion>('Presentaciones', otras.map((x) => ({ ...x, activo: false })))
+    }
+    return { con, sin: TIENDAS_LOTE.filter((t) => !con.includes(t)) }
+  })
 }

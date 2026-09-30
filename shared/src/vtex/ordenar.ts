@@ -22,14 +22,24 @@ function palabras(texto: string): string[] {
   return claveProducto(texto).split(' ').filter(Boolean)
 }
 
+/** El candidato es de la marca que prefieres: la dice su marca o su nombre ("Arroz Diana 1 kg"). Sin preferencia, cualquiera sirve. */
+export function esDeMarca(c: Pick<Candidato, 'nombre' | 'marca'>, preferida: string | undefined): boolean {
+  const pref = palabras(preferida ?? '')
+  if (!pref.length) return true
+  const suyas = new Set([...palabras(c.marca), ...palabras(c.nombre)])
+  return pref.every((w) => suyas.has(w))
+}
+
 /**
  * Ordena lo que devolvió la tienda para un producto genérico ("Arroz", "Leche entera") y marca la opción
  * segura, si la hay. Solo sirven candidatos con tamaño en la misma unidad (sin eso no hay precio por kg/L/und).
  * Seguro = tiene todas las palabras del producto, ninguna palabra de más (salvo la marca y el tamaño),
- * precio y disponible. Entre varios seguros gana el más relevante para la tienda (su propio orden).
+ * precio y disponible, y es de la marca preferida si hay una. Entre varios seguros gana el más relevante para la tienda (su propio orden).
  */
-export function ordenarCandidatos<C extends Candidato>(nombre: string, unidad: UnidadBase, cands: readonly C[], max = 4): Opcion<C>[] {
-  const buscadas = palabras(nombre).filter((w) => w.length >= 3 || /\d/.test(w))
+export function ordenarCandidatos<C extends Candidato>(nombre: string, unidad: UnidadBase, cands: readonly C[], max = 4, preferida = ''): Opcion<C>[] {
+  const pref = palabras(preferida)
+  // La marca preferida no es parte del producto: "Arroz" + Diana busca arroz y prefiere Diana.
+  const buscadas = palabras(nombre).filter((w) => (w.length >= 3 || /\d/.test(w)) && !pref.includes(w))
   if (!buscadas.length) return []
   const vistos = new Set<string>()
   const out: Opcion<C>[] = []
@@ -44,12 +54,15 @@ export function ordenarCandidatos<C extends Candidato>(nombre: string, unidad: U
     const parecidas = buscadas.filter((b) => !ws.includes(b) && b.length >= 4 && ws.some((w) => w.startsWith(b)))
     if (!exactas.length && !parecidas.length) return
     const cobertura = (exactas.length + parecidas.length * 0.5) / buscadas.length
-    const deMas = ws.filter((w) => !buscadas.includes(w) && !marca.has(w) && !NEUTRAS.test(w) && !INOFENSIVAS.has(w) && w.length > 2).length
+    const deMas = ws.filter((w) => !buscadas.includes(w) && !marca.has(w) && !pref.includes(w) && !NEUTRAS.test(w) && !INOFENSIVAS.has(w) && w.length > 2).length
+    // Con marca preferida, solo esa marca puede ser segura; las otras quedan como opciones, más abajo.
+    const suya = esDeMarca(c, preferida)
     const precioUnidad = precioPorUnidad(c.precio, c.contenido.valor, unidad)
     const conPrecio = precioUnidad != null && c.disponible
     const empiezaIgual = ws[0] === buscadas[0] || (marca.has(ws[0]) && ws[1] === buscadas[0])
-    const puntaje = cobertura * 100 - deMas * 12 + (empiezaIgual ? 15 : 0) + (conPrecio ? 10 : -40) + Math.max(0, 20 - i) / 2
-    out.push({ ...c, puntaje, precioUnidad: precioUnidad ?? 0, seguro: exactas.length === buscadas.length && deMas === 0 && conPrecio && c.contenido.confianza !== 'baja' })
+    const porMarca = pref.length ? (suya ? 30 : -30) : 0
+    const puntaje = cobertura * 100 - deMas * 12 + (empiezaIgual ? 15 : 0) + (conPrecio ? 10 : -40) + porMarca + Math.max(0, 20 - i) / 2
+    out.push({ ...c, puntaje, precioUnidad: precioUnidad ?? 0, seguro: suya && exactas.length === buscadas.length && deMas === 0 && conPrecio && c.contenido.confianza !== 'baja' })
   })
   out.sort((a, b) => b.puntaje - a.puntaje)
   // Solo una opción puede ser la segura: la primera de las seguras.

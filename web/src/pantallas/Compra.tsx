@@ -19,6 +19,7 @@ import { db } from '../datos/db.ts'
 import { agregarALaCompra, asegurarCompra, compraAbierta, guardar, nuevoDetalle } from '../datos/escritura.ts'
 import { ahoraIso } from '../datos/sync.ts'
 import { useTiendasHoy } from '../datos/tiendasHoy.ts'
+import { BotonModoTienda } from '../escaner/ModoTienda.tsx'
 import { EditarPresupuesto } from './Plan.tsx'
 
 function Empezar({ compra, tiendasHoy, alternar }: { compra?: TCompra; tiendasHoy: Tienda[]; alternar: (t: Tienda) => void }) {
@@ -208,6 +209,7 @@ export function Compra() {
         </Tarjeta>
       )}
 
+      <BotonModoTienda className="w-full" />
       <div className="grid grid-cols-2 gap-2">
         <Boton variante="secundario" onClick={() => setDialogo('agregar')}>+ Producto</Boton>
         <Boton variante="secundario" onClick={() => setDialogo({ libre: null })}>+ Algo más</Boton>

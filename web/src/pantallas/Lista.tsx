@@ -6,6 +6,7 @@ import { etiquetaVisible } from '@shared/unidades.ts'
 import { ir } from '../app/ruta.ts'
 import { FormProducto } from '../componentes/FormProducto.tsx'
 import { BotonPegarLista } from '../componentes/PegarLista.tsx'
+import { Novedades } from '../componentes/Novedades.tsx'
 import { AvisoSinVincular } from '../componentes/VincularTodos.tsx'
 import { avisar, Boton, Cargando, Distintivo, Hoja, NombreTienda, pesos, Tarjeta, Titulo, Vacio } from '../componentes/ui.tsx'
 import { opcionesDe, useCatalogo, type Catalogo } from '../datos/consultas.ts'
@@ -136,6 +137,7 @@ export function Lista() {
         <PrimerUso onCrear={() => setCreando(true)} />
       ) : (
         <>
+          <Novedades className="mb-3" />
           <AvisoSinVincular className="mb-3" />
           <input
             type="search"

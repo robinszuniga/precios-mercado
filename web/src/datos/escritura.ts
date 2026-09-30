@@ -34,7 +34,7 @@ export async function guardarConfig(clave: string, valor: string) {
 export function nuevoProducto(p: Partial<Producto> & Pick<Producto, 'nombre'>): Producto {
   return {
     producto_id: nuevoId(), categoria_id: '', unidad_base: 'g', recurrente: false, cantidad_habitual: 1, notas: '',
-    activo: true, updated_at: ahoraIso(), ...p,
+    activo: true, marca: '', updated_at: ahoraIso(), ...p,
   }
 }
 

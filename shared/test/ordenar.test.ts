@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseContenido } from '../src/contenido.ts'
 import type { Candidato } from '../src/vtex/parse.ts'
-import { ordenarCandidatos } from '../src/vtex/ordenar.ts'
+import { esDeMarca, ordenarCandidatos } from '../src/vtex/ordenar.ts'
 
 let n = 0
 function cand(nombre: string, precio: number | null, extra: Partial<Candidato> = {}): Candidato {
@@ -76,5 +76,26 @@ describe('ordenarCandidatos', () => {
     const xs = ordenarCandidatos('Arroz', 'g', [base, base, ...[1, 2, 3, 4, 5].map((i) => cand(`Arroz marca${i} 500 g`, 3000 + i))])
     expect(xs).toHaveLength(4)
     expect(new Set(xs.map((x) => x.skuId)).size).toBe(4)
+  })
+
+  it('con marca preferida, solo esa marca es segura y va primero', () => {
+    const cands = [
+      cand('Arroz Diana 1000 g', 5200, { marca: 'Diana' }),
+      cand('Arroz Roa 1000 g', 4800, { marca: 'Roa' }),
+      cand('Arroz Florhuila 500 g', 2600, { marca: 'Florhuila' }),
+    ]
+    const roa = ordenarCandidatos('Arroz', 'g', cands, 4, 'Roa')
+    expect(roa[0].nombre).toBe('Arroz Roa 1000 g')
+    expect(roa.filter((x) => x.seguro).map((x) => x.nombre)).toEqual(['Arroz Roa 1000 g'])
+    // Si la tienda no tiene tu marca, ninguna otra se vincula sola.
+    expect(ordenarCandidatos('Arroz', 'g', cands, 4, 'Supremo').some((x) => x.seguro)).toBe(false)
+  })
+
+  it('la marca cuenta aunque venga solo en el nombre, o escrita en el nombre del producto', () => {
+    expect(esDeMarca({ nombre: 'Leche entera Alquería 1100 ml', marca: '' }, 'alqueria')).toBe(true)
+    expect(esDeMarca({ nombre: 'Leche entera 1100 ml', marca: 'Colanta' }, 'Alquería')).toBe(false)
+    expect(esDeMarca({ nombre: 'Lo que sea', marca: '' }, '')).toBe(true)
+    const xs = ordenarCandidatos('Arroz Diana', 'g', [cand('Arroz Diana 1000 g', 5200, { marca: 'Diana' })], 4, 'Diana')
+    expect(xs[0].seguro).toBe(true)
   })
 })

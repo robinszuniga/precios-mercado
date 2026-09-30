@@ -114,6 +114,20 @@ internet: al abrir la app (una vez al día) y justo después de pegar tu lista.
    en la tienda) y cierra la compra. Solo los precios que confirmaste quedan como precio de tienda.
 4. **Historial**: cómo cambian los precios de cada producto, el resumen de cada compra y lo gastado en el mes.
 
+Además:
+
+- **Marca preferida**: en *Editar* de un producto escribe la marca que compras (Diana, Alquería…). Los precios de
+  internet se buscan de esa marca y solo esa se vincula sola; si una tienda no la tiene, se queda con lo que había.
+- **Enviar la lista por WhatsApp** (en *Plan*): arma el mensaje por tienda con cantidades y precios, para ti o para
+  quien vaya a comprar.
+- **Novedades** (arriba en *Productos*): lo que bajó o subió 5 % o más en los últimos días (del trabajo diario) y lo
+  que sueles comprar cada tanto y ya te toca, con "+ Agregar". Se calcula en el celular a partir de tus compras cerradas.
+- **Anotar precios en la tienda** (en *Plan* y *Compra*): eliges la tienda, escaneas el código de barras con la
+  cámara y escribes el precio. Un código que ya conoces en otra tienda (la marca es la misma en Olímpica y en D1)
+  se reconoce con su tamaño; uno nuevo lo busca en internet, eliges a cuál de tus productos corresponde y de paso
+  queda su precio online. Chrome de Android trae lector propio; en iPhone se baja una vez un lector de 1 MB desde
+  la misma app. Sin cámara, se escribe el número de debajo de las barras.
+
 Las tiendas se muestran con su logo (el ícono que publica cada una en su página; no se copia al repo). Si no carga,
 se ve su letra: É, O, D1, A.
 

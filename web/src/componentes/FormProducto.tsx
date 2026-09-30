@@ -1,8 +1,23 @@
 import { useState } from 'react'
 import type { Categoria, Producto } from '@shared/esquema.ts'
 import { etiquetaVisible, type UnidadBase } from '@shared/unidades.ts'
+import { INFO_TIENDAS } from '@shared/tiendas.ts'
 import { crearCategoria, guardar, nuevoProducto } from '../datos/escritura.ts'
-import { Boton, Campo, Casilla, leerNumero, Selector } from './ui.tsx'
+import { vincularMarca } from '../datos/vincularLote.ts'
+import { avisar, Boton, Campo, Casilla, leerNumero, Selector } from './ui.tsx'
+
+const lista = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} y ${xs[xs.length - 1]}` : xs[0] ?? '')
+
+/** Tras elegir marca: la busca en internet y dice dónde quedó (en segundo plano; el formulario ya se cerró). */
+async function buscarSuMarca(p: Producto) {
+  const r = await vincularMarca(p)
+  if (!r) return
+  const con = r.con.map((t) => INFO_TIENDAS[t].nombre)
+  const sin = r.sin.map((t) => INFO_TIENDAS[t].nombre)
+  avisar(con.length
+    ? `${p.nombre}: ahora con precio de ${p.marca} en ${lista(con)}.${sin.length ? ` En ${lista(sin)} no la encontré.` : ''}`
+    : `No encontré ${p.marca} en internet para ${p.nombre}. Sigue con el precio que tenía; en la tienda puedes anotarlo.`)
+}
 
 const UNIDADES: { v: UnidadBase; texto: string }[] = [
   { v: 'g', texto: 'Peso (se compara por kg)' },
@@ -19,6 +34,7 @@ export function FormProducto({
   const [unidad, setUnidad] = useState<UnidadBase>(inicial?.unidad_base ?? 'g')
   const [recurrente, setRecurrente] = useState(inicial?.recurrente ?? true)
   const [cantidad, setCantidad] = useState(String(inicial?.cantidad_habitual ?? 1).replace('.', ','))
+  const [marca, setMarca] = useState(inicial?.marca ?? '')
   const [guardando, setGuardando] = useState(false)
 
   async function enviar(e: React.FormEvent) {
@@ -36,8 +52,10 @@ export function FormProducto({
         unidad_base: unidad,
         recurrente,
         cantidad_habitual: leerNumero(cantidad) ?? 1,
+        marca: marca.trim(),
       })
       onListo(p)
+      if (p.marca && p.marca !== (inicial?.marca ?? '')) void buscarSuMarca(p)
     } finally {
       setGuardando(false)
     }
@@ -64,6 +82,14 @@ export function FormProducto({
         value={cantidad}
         onChange={(e) => setCantidad(e.target.value)}
         ayuda="Lo que sueles comprar en cada mercado. Sirve para el plan y el presupuesto."
+      />
+      <Campo
+        etiqueta="Marca que sueles comprar (opcional)"
+        value={marca}
+        onChange={(e) => setMarca(e.target.value)}
+        placeholder="Diana, Alquería, Zenú…"
+        autoComplete="off"
+        ayuda="Los precios de internet se buscan de esa marca. Vacío: la más barata que coincida."
       />
       <Casilla etiqueta="Recurrente: entra solo en cada lista nueva" checked={recurrente} onChange={setRecurrente} />
       <Boton type="submit" className="w-full" disabled={guardando || !nombre.trim() || !categoriaId}>{inicial ? 'Guardar cambios' : 'Crear producto'}</Boton>

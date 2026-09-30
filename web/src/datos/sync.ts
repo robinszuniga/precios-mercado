@@ -1,5 +1,6 @@
 import { TABLAS, type NombreTabla, type PrecioActual } from '@shared/esquema.ts'
 import { isoBogota } from '@shared/fechas.ts'
+import { detectarCambio, type CambioPrecio } from '@shared/novedades.ts'
 import { ganaRemoto } from '@shared/sync.ts'
 import { llamar, type Conexion } from './api.ts'
 import { db, guardarMeta, leerMeta, TABLA_LOCAL, type EntradaOutbox } from './db.ts'
@@ -106,6 +107,22 @@ function actualMasNuevo(local: PrecioActual | undefined, remoto: PrecioActual): 
   return !local || remoto.fecha_verificado >= local.fecha_verificado
 }
 
+const MAX_CAMBIOS_GUARDADOS = 300
+
+/** Anota los precios que cambiaron (para "Novedades") y deja solo los últimos. */
+async function anotarCambios(locales: (PrecioActual | undefined)[], remotos: PrecioActual[]) {
+  const ahora = Date.now()
+  const nuevos: CambioPrecio[] = []
+  remotos.forEach((r, i) => {
+    const c = detectarCambio(locales[i], r)
+    if (c) nuevos.push({ presentacion_id: r.presentacion_id, tienda: r.tienda, ...c, fecha: ahora })
+  })
+  if (!nuevos.length) return
+  await db.cambios.bulkAdd(nuevos)
+  const sobran = (await db.cambios.count()) - MAX_CAMBIOS_GUARDADOS
+  if (sobran > 0) await db.cambios.orderBy('fecha').limit(sobran).delete()
+}
+
 /** Trae lo que cambió en el servidor y lo mezcla: gana el updated_at mayor. */
 export async function traer(c: Conexion, completo = false): Promise<boolean> {
   const desde = completo ? null : await leerMeta<string | null>('cursor', null)
@@ -115,7 +132,7 @@ export async function traer(c: Conexion, completo = false): Promise<boolean> {
     return false
   }
   const tablasLocales = Object.values(TABLA_LOCAL).map((t) => db.table(t!))
-  await db.transaction('rw', [...tablasLocales, db.meta], async () => {
+  await db.transaction('rw', [...tablasLocales, db.meta, db.cambios], async () => {
     for (const [nombre, filas] of Object.entries(r.data.tablas)) {
       const local = TABLA_LOCAL[nombre as NombreTabla]
       if (!local || !filas.length) continue
@@ -129,6 +146,7 @@ export async function traer(c: Conexion, completo = false): Promise<boolean> {
         return ganaRemoto(e as { updated_at: string } | undefined, f as { updated_at: string })
       })
       if (aGuardar.length) await tabla.bulkPut(aGuardar)
+      if (nombre === 'Precios_actuales') await anotarCambios(existentes as (PrecioActual | undefined)[], filas as unknown as PrecioActual[])
     }
     await db.meta.put({ clave: 'cursor', valor: r.data.cursor })
   })

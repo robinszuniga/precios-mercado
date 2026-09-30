@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Producto } from '@shared/esquema.ts'
 import { etiquetaVisible, formatoContenido } from '@shared/unidades.ts'
 import { useMeta } from '../datos/consultas.ts'
-import { autoVincular, buscarLote, exclusivo, opcionesDe, productosSinVincular, seguros, vincular, type Elegido, type OpcionLote } from '../datos/vincularLote.ts'
+import { autoVincular, buscarLote, exclusivo, itemDe, opcionesDe, productosSinVincular, seguros, vincular, type Elegido, type OpcionLote } from '../datos/vincularLote.ts'
 import { avisar, Boton, Hoja, NombreTienda, pesos, Tarjeta } from './ui.tsx'
 
 type Dudoso = { producto: Producto; opciones: OpcionLote[] }
@@ -48,7 +48,7 @@ export function VincularTodos({ onListo }: { onListo: () => void }) {
       const pendientes = await productosSinVincular()
       if (!pendientes.length) { setFase({ tipo: 'listo', texto: 'Todos tus productos ya tienen precio de internet.' }); return }
       const { resultados, fallo } = await buscarLote(
-        pendientes.map((p) => ({ id: p.producto_id, q: p.nombre, unidad: p.unidad_base })),
+        pendientes.map(itemDe),
         undefined,
         (hechos, total) => { if (vivo.current) setFase({ tipo: 'buscando', hechos, total }) },
       )
@@ -59,7 +59,7 @@ export function VincularTodos({ onListo }: { onListo: () => void }) {
       for (const p of pendientes) {
         const porTienda = resultados.get(p.producto_id)
         if (!porTienda) continue
-        const s = seguros(porTienda)
+        const s = seguros(porTienda, p.marca)
         if (s.length) solos.push({ producto: p, opciones: s })
         else if (opcionesDe(porTienda).length) dudosos.push({ producto: p, opciones: opcionesDe(porTienda).slice(0, 4) })
         else sinResultado.push(p)

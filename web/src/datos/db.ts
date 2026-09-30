@@ -2,6 +2,7 @@ import Dexie, { type EntityTable } from 'dexie'
 import type {
   Categoria, Compra, Detalle, FilaConfig, NombreTabla, PrecioActual, PrecioHistorico, Presentacion, Producto, ResumenTienda,
 } from '@shared/esquema.ts'
+import type { CambioPrecio } from '@shared/novedades.ts'
 
 export interface EntradaOutbox {
   seq?: number
@@ -41,6 +42,8 @@ export class BaseLocal extends Dexie {
   outbox!: EntityTable<EntradaOutbox, 'seq'>
   rechazados!: EntityTable<Rechazo, 'id'>
   meta!: EntityTable<Meta, 'clave'>
+  /** Cambios de precio que llegaron del servidor: para "Novedades". Solo en este celular. */
+  cambios!: EntityTable<CambioPrecio, 'id'>
 
   constructor(nombre = 'precios-mercado') {
     super(nombre)
@@ -58,6 +61,7 @@ export class BaseLocal extends Dexie {
       rechazados: '++id',
       meta: 'clave',
     })
+    this.version(2).stores({ cambios: '++id, fecha' })
   }
 }
 

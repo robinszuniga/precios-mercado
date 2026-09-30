@@ -37,7 +37,10 @@ export function DetalleProducto({ id }: { id: string }) {
         <div className="min-w-0">
           <a href="#/lista" className="inline-flex min-h-11 items-center text-marca">← Productos</a>
           <h1 className="text-2xl font-bold">{producto.nombre}</h1>
-          <p className="text-sm text-stone-700">Se compara por {u} · sueles llevar {formatoCantidadVisible(producto.cantidad_habitual, producto.unidad_base)}</p>
+          <p className="text-sm text-stone-700">
+            Se compara por {u} · sueles llevar {formatoCantidadVisible(producto.cantidad_habitual, producto.unidad_base)}
+            {producto.marca ? <> · tu marca: <strong>{producto.marca}</strong></> : ''}
+          </p>
         </div>
         <Boton variante="secundario" onClick={() => setDialogo('editar')}>Editar</Boton>
       </div>

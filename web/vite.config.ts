@@ -44,6 +44,12 @@ export default defineConfig({
         // Solo los logos de las tiendas (imágenes estáticas), para verlos sin señal.
         runtimeCaching: [
           {
+            // El lector de códigos para celulares sin lector propio (iPhone): 1 MB, solo se baja si se usa la cámara.
+            urlPattern: ({ url, sameOrigin }) => sameOrigin && url.pathname.endsWith('.wasm'),
+            handler: 'CacheFirst',
+            options: { cacheName: 'lector-codigos', expiration: { maxEntries: 2 }, cacheableResponse: { statuses: [200] } },
+          },
+          {
             urlPattern: ({ url }) =>
               /(^|\.)(exito\.com|olimpica\.com|vteximg\.com\.br|aratiendas\.com)$/.test(url.hostname) &&
               /\.(ico|png|jpe?g|svg|webp)$/i.test(url.pathname),

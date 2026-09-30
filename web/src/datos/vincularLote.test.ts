@@ -153,3 +153,46 @@ describe('sin duplicados ni sorpresas', () => {
     expect(llamadas).toHaveLength(0)
   })
 })
+
+describe('marca preferida', () => {
+  function servidorMarcas() {
+    const llamadas: Item[][] = []
+    vi.stubGlobal('fetch', vi.fn(async (_u: string, init?: RequestInit) => {
+      const c = JSON.parse(String(init?.body))
+      if (c.a !== 'buscarVarios') return new Response(JSON.stringify({ ok: true, data: { resultados: [], tablas: {}, cursor: 'x' }, error: null, v: 1 }))
+      llamadas.push(c.items)
+      const resultados = (c.items as (Item & { marca?: string })[]).map((it) => {
+        const roa = { ...opcion('OLIMPICA', 'Arroz Roa 1000 g', 4800, 1000, 'g', true), marca: 'Roa' }
+        const diana = { ...opcion('OLIMPICA', 'Arroz Diana 1000 g', 5200, 1000, 'g', true), marca: 'Diana' }
+        // Un script viejo que no conoce marcas marca como segura la primera que coincida (Roa).
+        return { id: it.id, porTienda: { OLIMPICA: it.marca === 'Diana' ? [diana, { ...roa, seguro: false }] : [roa], EXITO: [] } }
+      })
+      return new Response(JSON.stringify({ ok: true, data: { resultados, errores: [] }, error: null, v: 1 }))
+    }))
+    return llamadas
+  }
+
+  it('la búsqueda automática manda la marca y nunca vincula otra marca, aunque el script diga que es segura', async () => {
+    const llamadas = servidorMarcas()
+    await db.productos.clear()
+    await guardar('Productos', nuevoProducto({ nombre: 'Arroz', unidad_base: 'g', marca: 'Supremo' }))
+    const r = await autoVincular()
+    expect(llamadas[0][0]).toMatchObject({ q: 'Arroz', marca: 'Supremo' })
+    expect(r?.vinculados).toBe(0)
+    expect(await db.presentaciones.count()).toBe(0)
+  })
+
+  it('al elegir marca cambia el vínculo de esa tienda a tu marca y quita el de la otra', async () => {
+    servidorMarcas()
+    await db.productos.clear()
+    const [arroz] = await guardar('Productos', nuevoProducto({ nombre: 'Arroz', unidad_base: 'g' }))
+    await autoVincular()
+    expect((await db.presentaciones.toArray()).map((p) => p.nombre_en_tienda)).toEqual(['Arroz Roa 1000 g'])
+
+    const { vincularMarca } = await import('./vincularLote.ts')
+    const [conMarca] = await guardar('Productos', { ...arroz, marca: 'Diana' })
+    expect(await vincularMarca(conMarca)).toEqual({ con: ['OLIMPICA'], sin: ['EXITO'] })
+    const activas = (await db.presentaciones.toArray()).filter((p) => p.activo).map((p) => p.nombre_en_tienda)
+    expect(activas).toEqual(['Arroz Diana 1000 g'])
+  })
+})
