@@ -108,6 +108,8 @@ function actualMasNuevo(local: PrecioActual | undefined, remoto: PrecioActual): 
 }
 
 const MAX_CAMBIOS_GUARDADOS = 300
+/** Un dato que un script viejo no guarda (la marca) se reenvía a lo sumo una vez cada tanto, no en cada sincronización. */
+const REENVIO_OPCIONALES_MS = 12 * 3600_000
 
 /** Anota los precios que cambiaron (para "Novedades"): solo los que de verdad se guardaron, los más grandes primero. */
 async function anotarCambios(guardados: PrecioActual[], anteriores: Map<string, PrecioActual | undefined>) {
@@ -135,6 +137,10 @@ export async function traer(c: Conexion, completo = false): Promise<boolean> {
   const tablasLocales = Object.values(TABLA_LOCAL).map((t) => db.table(t!))
   const reenviar: { tabla: NombreTabla; fila: Record<string, unknown> }[] = []
   await db.transaction('rw', [...tablasLocales, db.meta, db.cambios, db.outbox], async () => {
+    const ahoraMs = Date.now()
+    const enviadas = { ...((await db.meta.get('reenviosOpcionales'))?.valor as Record<string, number> | undefined) }
+    let tocoEnviadas = false
+    for (const k of Object.keys(enviadas)) if (ahoraMs - enviadas[k] >= REENVIO_OPCIONALES_MS) { delete enviadas[k]; tocoEnviadas = true }
     for (const [nombre, filas] of Object.entries(r.data.tablas)) {
       const local = TABLA_LOCAL[nombre as NombreTabla]
       if (!local || !filas.length) continue
@@ -153,6 +159,12 @@ export async function traer(c: Conexion, completo = false): Promise<boolean> {
         // Un script viejo no guarda la marca: no se la quitamos al celular, y se vuelve a enviar cuando se pueda.
         const m = conservarOpcionales(nombre as NombreTabla, e as { updated_at: string } | undefined, f as { updated_at: string })
         if (m.reenviar) {
+          // Ya se reenvió hace poco y el servidor volvió a descartarlo: se deja lo local como está (sin otro envío ni
+          // otro updated_at). Sin esto, con un script viejo cada sincronización repetiría el ciclo para siempre.
+          const clave = `${nombre}:${f[idCol]}`
+          if (enviadas[clave] != null) return
+          enviadas[clave] = ahoraMs
+          tocoEnviadas = true
           const fila = { ...m.fila, updated_at: ahoraIso() }
           aGuardar.push(fila)
           reenviar.push({ tabla: nombre as NombreTabla, fila })
@@ -165,6 +177,7 @@ export async function traer(c: Conexion, completo = false): Promise<boolean> {
       }
     }
     for (const x of reenviar) await encolar('upsert', { cambios: [x] })
+    if (tocoEnviadas) await db.meta.put({ clave: 'reenviosOpcionales', valor: enviadas })
     await db.meta.put({ clave: 'cursor', valor: r.data.cursor })
   })
   return true

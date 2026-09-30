@@ -176,6 +176,25 @@ describe('compra: barra fija, tachado y agregar directo', () => {
   })
 })
 
+describe('pantalla Empezar compra', () => {
+  it('sin barra de acciones, los avisos no suben de más; con la compra en curso sí', async () => {
+    const [p] = await guardar('Productos', nuevoProducto({ nombre: 'Arroz' }))
+    await agregarALaCompra(p, ['D1'])
+    const valor = () => document.documentElement.style.getPropertyValue('--barra-acciones')
+    const { unmount } = render(<Compra />)
+    await screen.findByText('Empezar a comprar')
+    expect(valor()).toBe('')
+    unmount()
+    const c = (await db.compras.toArray())[0]
+    await guardar('Compras', { ...c, estado: 'en_curso' })
+    const otra = render(<Compra />)
+    await screen.findByText('Tu compra de hoy')
+    expect(valor()).toBe('4.25rem')
+    otra.unmount()
+    expect(valor()).toBe('')
+  })
+})
+
 describe('historial', () => {
   it('no celebra el ahorro cuando solo se pudo comparar una parte de la compra', async () => {
     await db.compras.put({
@@ -187,6 +206,17 @@ describe('historial', () => {
     expect(await screen.findByText(/Hasta donde pude comparar, ahorraste/)).toBeInTheDocument()
     expect(screen.queryByText(/¡Ahorraste/)).toBeNull()
     expect(screen.getByRole('link', { name: 'Empezar otra compra' })).toBeInTheDocument()
+  })
+})
+
+describe('señal fantasma (falsa alarma)', () => {
+  it('mientras una sincronización está en marcha (la primera, con muchos cambios) no se dice "sin respuesta"', async () => {
+    await guardarMeta('conexion', { url: 'https://script.google.com/macros/s/x/exec', token: 't' })
+    await guardarMeta('estadoSync', { enCurso: true, ultimoOk: null, error: null })
+    await db.outbox.add({ tipo: 'upsert', payload: { cambios: [] }, intentos: 0, proximo: 0, creado: Date.now() - 60_000 })
+    const { container } = render(<EstadoConexion />)
+    await new Promise((r) => setTimeout(r, 150))
+    expect(container.textContent).toBe('')
   })
 })
 

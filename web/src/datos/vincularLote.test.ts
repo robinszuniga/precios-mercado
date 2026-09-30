@@ -224,3 +224,33 @@ describe('marca preferida', () => {
     expect((await db.meta.get('marcasPendientes'))?.valor).toEqual([p.producto_id])
   })
 })
+
+describe('revisión: script viejo y reintentos', () => {
+  it('si el script no conoce las marcas, la búsqueda automática se repite una vez al día, no cada hora', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_u: string, init?: RequestInit) => {
+      const c = JSON.parse(String(init?.body))
+      const data = c.a === 'buscarVarios'
+        ? { resultados: (c.items as { id: string }[]).map((it) => ({ id: it.id, porTienda: { OLIMPICA: [], EXITO: [] } })), errores: [] } // sin "marcas: true": script viejo
+        : { tablas: {}, cursor: 'x', resultados: [] }
+      return new Response(JSON.stringify({ ok: true, data, error: null, v: 1 }))
+    }))
+    await db.productos.clear()
+    await guardar('Productos', nuevoProducto({ nombre: 'Arroz', unidad_base: 'g', marca: 'Diana' }))
+    await autoVincular()
+    const estado = (await db.meta.get('autoVinculo'))!.valor as { ultimo: number; fallo?: number }
+    expect(estado.ultimo).toBeGreaterThan(0) // quedó como revisión hecha hoy
+    expect(estado.fallo).toBeUndefined() // y no como un fallo de red que se reintenta a la hora
+    expect(await autoVincular()).toBeNull() // la siguiente apertura de la app no vuelve a buscar
+  })
+
+  it('un fallo de red sí se reintenta a la hora', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_u: string, init?: RequestInit) => {
+      const c = JSON.parse(String(init?.body))
+      if (c.a === 'buscarVarios') return new Response('no es json', { status: 502 })
+      return new Response(JSON.stringify({ ok: true, data: { tablas: {}, cursor: 'x', resultados: [] }, error: null, v: 1 }))
+    }))
+    await autoVincular()
+    const estado = (await db.meta.get('autoVinculo'))!.valor as { ultimo: number; fallo?: number }
+    expect(estado.fallo).toBeGreaterThan(0)
+  })
+})

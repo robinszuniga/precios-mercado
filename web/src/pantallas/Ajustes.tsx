@@ -141,6 +141,7 @@ function CopiaGoogle() {
     }
     setProbando(true)
     await guardarMeta('conexion', c)
+    await guardarMeta('reenviosOpcionales', {}) // un script nuevo ya puede guardar lo que el viejo descartaba
     const p = await ping(c.url)
     const proyecto = p.tipo === 'ok' && p.data.proyecto ? ` …${p.data.proyecto}` : ''
     await guardarMeta('proyectoConectado', proyecto.trim())
@@ -224,6 +225,7 @@ function ScriptGoogle() {
     const r = await llamar<InfoActualizacion>(await conexion(), 'actualizarScript', {}, 120_000)
     setOcupado(false)
     if (r.tipo === 'ok') {
+      if (r.data.estado === 'actualizado') await guardarMeta('reenviosOpcionales', {})
       setMensaje(r.data.mensaje)
       await guardarMeta('scriptInfo', {
         version: r.data.estado === 'actualizado' ? r.data.nueva : info?.version ?? null,

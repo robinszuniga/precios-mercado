@@ -33,7 +33,8 @@ export function EstadoConexion() {
   const masViejo = useLiveQuery(async () => (await db.outbox.orderBy('seq').first())?.creado ?? null, [])
   const [ahora, setAhora] = useState(() => Date.now())
   useEffect(() => { const t = setInterval(() => setAhora(Date.now()), 5000); return () => clearInterval(t) }, [])
-  const sinSalir = masViejo != null && ahora - masViejo > ESPERA_COLA_MS
+  // Una sincronización en marcha (por ejemplo la primera, con muchos cambios juntos) no es una señal fantasma.
+  const sinSalir = masViejo != null && ahora - masViejo > ESPERA_COLA_MS && !sync.enCurso
   // La copia en Google es opcional: no se ofrece hasta que hay algo que cuidar (una compra cerrada).
   const hayQueCuidar = (useLiveQuery(() => db.compras.where('estado').equals('cerrada').count(), []) ?? 0) > 0
 

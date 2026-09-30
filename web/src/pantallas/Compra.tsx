@@ -95,10 +95,12 @@ export function Compra() {
     return () => window.removeEventListener('scroll', ver)
   }, [])
   // La barra de acciones fija tapa el borde de abajo: los avisos y la pastilla de señal suben por encima.
+  const hayBarra = datos?.compra?.estado === 'en_curso' // en "Empezar compra" no hay barra de acciones
   useEffect(() => {
+    if (!hayBarra) return
     document.documentElement.style.setProperty('--barra-acciones', '4.25rem')
     return () => { document.documentElement.style.removeProperty('--barra-acciones') }
-  }, [])
+  }, [hayBarra])
   useEffect(() => {
     if (!porAbrir) return
     const listo = porAbrir === 'libre' || datos?.detalles.some((x) => x.detalle_id === porAbrir)

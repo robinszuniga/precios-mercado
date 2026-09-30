@@ -77,6 +77,12 @@ export function itemDe(p: Producto): Item {
   return { id: p.producto_id, q: p.nombre, unidad: p.unidad_base, ...(p.marca ? { marca: p.marca } : {}) }
 }
 
+/**
+ * Un fallo de red o del servidor se reintenta pronto (a la hora); que el script sea viejo no se arregla esperando un rato:
+ * eso se trata como una revisión hecha (una vez al día) y el aviso lo ve la persona al elegir una marca.
+ */
+const fallaLaRed = (f: string | null): boolean => !!f && f !== SCRIPT_SIN_MARCAS
+
 export const SCRIPT_SIN_MARCAS = 'Tu script de Google es una versión vieja y no conoce las marcas: en Ajustes toca “Actualizar ahora”.'
 
 /** Busca de a 8 productos por llamada. Si el servidor no responde, se detiene y lo dice. */
@@ -211,7 +217,7 @@ async function correrAuto(opciones: { forzar?: boolean }): Promise<ResultadoAuto
     await guardarMeta('marcasPendientes', [...pend])
   }
   if (!pendientes.length) {
-    await guardarMeta('autoVinculo', falloMarca ? { ...estado, fallo: ahora } : { ...estado, ultimo: ahora })
+    await guardarMeta('autoVinculo', fallaLaRed(falloMarca) ? { ...estado, fallo: ahora } : { ...estado, ultimo: ahora })
     return { vinculados: 0, dudosos: 0, sinResultado: 0 }
   }
   const { resultados, fallo: falloBusqueda, sinMarcas } = await buscarLote(pendientes.map(itemDe))
@@ -232,7 +238,7 @@ async function correrAuto(opciones: { forzar?: boolean }): Promise<ResultadoAuto
     }
   }
   const vinculados = await vincular(elegidos)
-  await guardarMeta('autoVinculo', fallo ? { ...estado, revisados, fallo: ahora } : { ultimo: ahora, revisados })
+  await guardarMeta('autoVinculo', fallaLaRed(fallo) ? { ...estado, revisados, fallo: ahora } : { ultimo: ahora, revisados })
   return { vinculados, dudosos, sinResultado }
 }
 

@@ -115,7 +115,8 @@ let contadorHojas = 0
 let hojasAbiertas = 0
 const oyentesHoja = new Set<() => void>()
 function contarHoja(delta: number) {
-  hojasAbiertas += delta
+  // Nunca por debajo de cero: un descuento de más dejaría la app bloqueada (inert) sin ninguna hoja a la vista.
+  hojasAbiertas = Math.max(0, hojasAbiertas + delta)
   oyentesHoja.forEach((f) => f())
   // Con una hoja abierta, lo de atrás no recibe foco ni toques ni lo lee un lector de pantalla (la hoja y los avisos
   // van fuera de #raiz, en el <body>).
