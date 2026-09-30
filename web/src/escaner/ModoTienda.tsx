@@ -206,7 +206,7 @@ export function BotonModoTienda({ className = '', variante = 'secundario', compa
   return (
     <>
       {compacto ? (
-        <Boton variante={variante} className={`min-w-11 px-3 text-xl ${className}`} aria-label="Anotar precios en la tienda" title="Anotar precios en la tienda" onClick={() => setAbierto(true)}>📷</Boton>
+        <Boton variante={variante} className={`min-w-11 shrink-0 px-2.5 text-lg ${className}`} aria-label="Anotar precios en la tienda" title="Anotar precios en la tienda" onClick={() => setAbierto(true)}>📷</Boton>
       ) : (
         <Boton variante={variante} className={className} onClick={() => setAbierto(true)}>📷 Anotar precios en la tienda</Boton>
       )}

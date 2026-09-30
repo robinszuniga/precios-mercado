@@ -13,6 +13,9 @@
   --color-olimpica: #be123c;
   --color-d1: #7f1d1d;
   --color-ara: #c2410c;
+  /* Lo más chico de la app: 13 px en vez de 12 (se lee mejor con sol y en la góndola). */
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.15rem;
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --animate-subir: subir 0.18s ease-out;
   --animate-aparecer: aparecer 0.15s ease-out;

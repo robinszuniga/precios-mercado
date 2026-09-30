@@ -13,6 +13,7 @@ import { Lista } from '../pantallas/Lista.tsx'
 import { Plan } from '../pantallas/Plan.tsx'
 import { DetalleProducto } from '../pantallas/Producto.tsx'
 import { AvisoVersion } from './AvisoVersion.tsx'
+import { EstadoConexion } from './EstadoConexion.tsx'
 import { InstalarEnIphone } from './InstalarEnIphone.tsx'
 import { useRuta, type Ruta } from './ruta.ts'
 
@@ -31,65 +32,6 @@ const PESTANAS: { vista: Ruta['vista']; hash: string; texto: string; icono: Reac
   { vista: 'historico', hash: '#/historico', texto: 'Historial', icono: <Icono><path d="M3 3v18h18" /><path d="m7 15 4-4 3 3 5-6" /></Icono> },
   { vista: 'ajustes', hash: '#/ajustes', texto: 'Ajustes', icono: <Icono><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1" /><circle cx="15" cy="6" r="2" /><circle cx="9" cy="12" r="2" /><circle cx="17" cy="18" r="2" /></Icono> },
 ]
-
-function useEnLinea() {
-  const [en, setEn] = useState(() => navigator.onLine)
-  useEffect(() => {
-    const a = () => setEn(true)
-    const b = () => setEn(false)
-    window.addEventListener('online', a)
-    window.addEventListener('offline', b)
-    return () => { window.removeEventListener('online', a); window.removeEventListener('offline', b) }
-  }, [])
-  return en
-}
-
-const DIAS_AVISO_SIN_COPIA = 14
-const ERROR_DE_RED = /fetch|network|abort|timeout|señal|JSON|no es JSON|desconocid/i
-
-function EstadoConexion() {
-  const enLinea = useEnLinea()
-  const pendientes = useLiveQuery(() => db.outbox.count(), []) ?? 0
-  const conexion = useMeta<{ url: string; token: string }>('conexion', { url: '', token: '' })
-  const sync = useMeta<EstadoSync>('estadoSync', { enCurso: false, ultimoOk: null, error: null })
-  const cerradoEl = useMeta<number | null>('avisoSinCopiaCerrado', null)
-  const sinBackend = !conexion.url || !conexion.token
-  // La copia en Google es opcional: no se ofrece hasta que hay algo que cuidar (una compra cerrada).
-  const hayQueCuidar = (useLiveQuery(() => db.compras.where('estado').equals('cerrada').count(), []) ?? 0) > 0
-
-  if (sinBackend) {
-    if (!hayQueCuidar || (cerradoEl && Date.now() - cerradoEl < DIAS_AVISO_SIN_COPIA * 86400000)) return null
-    return (
-      <div role="status" className="flex items-center justify-between gap-2 bg-stone-100 px-4 text-sm text-stone-800">
-        <a href="#/ajustes" className="min-h-11 flex-1 py-3">Opcional: guarda una copia de tus datos en tu cuenta de Google · <span className="font-semibold underline">Ver cómo</span></a>
-        <button type="button" aria-label="Cerrar aviso" className="grid size-11 place-items-center text-lg" onClick={() => void guardarMeta('avisoSinCopiaCerrado', Date.now())}>×</button>
-      </div>
-    )
-  }
-  // La señal va y viene en el súper: ese aviso flota abajo a la izquierda, sobre la barra, y no empuja la lista ni tapa el saldo (si la moviera,
-  // un toque caería en el producto de al lado). Solo un error de verdad, que no parpadea, ocupa su franja.
-  let pastilla: string | null = null
-  if (!enLinea) pastilla = `Sin señal${pendientes ? ` · ${pendientes} por enviar` : ''}`
-  else if (sync.error && ERROR_DE_RED.test(sync.error)) pastilla = 'Señal inestable · se envía solo'
-  if (pastilla) {
-    return (
-      <a
-        href="#/ajustes"
-        role="status"
-        className="fixed left-3 z-30 rounded-full bg-stone-800/90 px-3 py-1.5 text-xs font-medium text-white shadow"
-        style={{ bottom: 'calc(env(safe-area-inset-bottom) + 4.25rem + var(--barra-acciones, 0rem))' }}
-      >
-        {pastilla}
-      </a>
-    )
-  }
-  if (!sync.error) return null
-  return (
-    <div role="status">
-      <a href="#/ajustes" className="block min-h-11 bg-red-100 px-4 py-3 text-center text-sm text-red-900">No se pudo sincronizar: {sync.error}</a>
-    </div>
-  )
-}
 
 function usePendientesCompra(): number {
   return useLiveQuery(async () => {
@@ -136,12 +78,12 @@ export function App() {
                 key={p.vista}
                 href={p.hash}
                 aria-current={activa ? 'page' : undefined}
-                className={`relative flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs ${activa ? 'font-semibold text-marca' : 'text-stone-600'}`}
+                className={`relative flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-0.5 [font-size:min(0.8125rem,3.4vw)] ${activa ? 'font-semibold text-marca' : 'text-stone-600'}`}
               >
                 <span className={`rounded-full px-4 py-0.5 ${activa ? 'bg-marca-suave' : ''}`}>{p.icono}</span>
-                {p.texto}
+                <span className="max-w-full truncate">{p.texto}</span>
                 {p.vista === 'compra' && pendientes > 0 && (
-                  <span className="absolute top-1 left-1/2 ml-2 min-w-5 rounded-full bg-marca px-1 text-center text-[11px] font-bold text-white" aria-label={`${pendientes} por comprar`}>
+                  <span className="absolute top-1 left-1/2 ml-2 min-w-5 rounded-full bg-marca px-1 text-center text-xs font-bold text-white" aria-label={`${pendientes} por comprar`}>
                     {pendientes}
                   </span>
                 )}

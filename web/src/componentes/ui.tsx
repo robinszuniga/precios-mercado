@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type Ref, type SelectHTMLAttributes } from 'react'
 import { formatoCop } from '@shared/dinero.ts'
 import type { Distintivo as TipoDistintivo } from '@shared/precioEfectivo.ts'
@@ -116,6 +117,10 @@ const oyentesHoja = new Set<() => void>()
 function contarHoja(delta: number) {
   hojasAbiertas += delta
   oyentesHoja.forEach((f) => f())
+  // Con una hoja abierta, lo de atrás no recibe foco ni toques ni lo lee un lector de pantalla (la hoja y los avisos
+  // van fuera de #raiz, en el <body>).
+  const raiz = typeof document !== 'undefined' ? document.getElementById('raiz') : null
+  if (raiz) { if (hojasAbiertas > 0) raiz.setAttribute('inert', '') ; else raiz.removeAttribute('inert') }
 }
 
 /**
@@ -168,7 +173,7 @@ export function Hoja({ abierta, titulo, onCerrar, children, protegida = false }:
   }, [abierta])
 
   if (!abierta) return null
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-40 flex animate-aparecer items-end justify-center bg-black/40 motion-reduce:animate-none"
       style={teclado ? { paddingBottom: teclado } : undefined}
@@ -190,7 +195,8 @@ export function Hoja({ abierta, titulo, onCerrar, children, protegida = false }:
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -369,7 +375,7 @@ export function Avisos() {
   // Con una hoja abierta van arriba, en el espacio libre sobre la hoja: abajo taparían sus botones y un toque del
   // pulgar desharía lo anterior sin querer.
   const lugar = hayHoja ? { top: 'calc(env(safe-area-inset-top) + 0.75rem)' } : { bottom: 'calc(env(safe-area-inset-bottom) + 4.75rem + var(--barra-acciones, 0rem))' }
-  return (
+  return createPortal(
     <div className="pointer-events-none fixed inset-x-0 z-50 mx-auto flex max-w-lg flex-col gap-2 px-4" style={lugar} data-lugar={hayHoja ? 'arriba' : 'abajo'} role="status" aria-live="polite">
       {lista.map((a) => (
         <div key={a.id} className="pointer-events-auto flex animate-subir items-center justify-between gap-3 rounded-xl bg-tinta px-4 py-2 text-sm text-white shadow-lg motion-reduce:animate-none">
@@ -385,7 +391,8 @@ export function Avisos() {
           )}
         </div>
       ))}
-    </div>
+    </div>,
+    document.body,
   )
 }
 

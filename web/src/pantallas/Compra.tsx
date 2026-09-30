@@ -324,8 +324,9 @@ export function Compra() {
       >
         <div className="mx-auto flex max-w-lg items-center gap-2">
           <BotonModoTienda compacto />
-          <Boton variante="secundario" className="flex-1 px-2" onClick={() => setDialogo('agregar')}>+ Agregar</Boton>
-          <Boton className="flex-[1.4] px-2" onClick={() => setDialogo('cerrar')} disabled={enCarrito.length === 0}>
+          {/* Con letra grande del sistema los textos no se parten ni se salen de la pantalla: se achican un poco. */}
+          <Boton variante="secundario" className="min-w-0 flex-1 px-2 text-[0.9375rem] whitespace-nowrap" onClick={() => setDialogo('agregar')}>+ Agregar</Boton>
+          <Boton className="min-w-0 flex-[1.4] px-2 text-[0.9375rem] whitespace-nowrap" onClick={() => setDialogo('cerrar')} disabled={enCarrito.length === 0}>
             Terminar{enCarrito.length > 0 ? ` (${enCarrito.length})` : ''}
           </Boton>
         </div>

@@ -9,6 +9,7 @@ import { Compra } from '../pantallas/Compra.tsx'
 import { Historico } from '../pantallas/Historico.tsx'
 import { Lista } from '../pantallas/Lista.tsx'
 import { Plan } from '../pantallas/Plan.tsx'
+import { EstadoConexion } from './EstadoConexion.tsx'
 import { InstalarEnIphone } from './InstalarEnIphone.tsx'
 
 beforeEach(async () => {
@@ -186,5 +187,25 @@ describe('historial', () => {
     expect(await screen.findByText(/Hasta donde pude comparar, ahorraste/)).toBeInTheDocument()
     expect(screen.queryByText(/¡Ahorraste/)).toBeNull()
     expect(screen.getByRole('link', { name: 'Empezar otra compra' })).toBeInTheDocument()
+  })
+})
+
+describe('señal fantasma', () => {
+  async function conCola(hace: number) {
+    await guardarMeta('conexion', { url: 'https://script.google.com/macros/s/x/exec', token: 't' })
+    await db.outbox.add({ tipo: 'upsert', payload: { cambios: [] }, intentos: 1, proximo: Date.now() + 60_000, creado: Date.now() - hace })
+  }
+
+  it('si lo último que marcaste lleva más de 15 segundos sin salir, lo dice', async () => {
+    await conCola(20_000)
+    render(<EstadoConexion />)
+    expect(await screen.findByText(/1 por enviar · sin respuesta de Google/)).toBeInTheDocument()
+  })
+
+  it('si acaba de quedar en la cola, no alarma', async () => {
+    await conCola(3_000)
+    const { container } = render(<EstadoConexion />)
+    await new Promise((r) => setTimeout(r, 150))
+    expect(container.textContent).toBe('')
   })
 })

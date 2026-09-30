@@ -20,7 +20,7 @@ function FilaProducto({ p, cat, ahora, enLista, onAlternar }: { p: Producto; cat
   const { mejor } = opcionesDe(cat, p, ahora)
   const u = etiquetaVisible(p.unidad_base)
   return (
-    <li className="flex items-center gap-1 py-1">
+    <li className="flex flex-wrap items-center gap-x-1 py-1">
       <button
         type="button"
         aria-label={p.recurrente ? `${p.nombre}: quitar de recurrentes` : `${p.nombre}: marcar como recurrente`}
@@ -33,7 +33,7 @@ function FilaProducto({ p, cat, ahora, enLista, onAlternar }: { p: Producto; cat
       >
         {p.recurrente ? '★' : '☆'}
       </button>
-      <a href={`#/producto/${encodeURIComponent(p.producto_id)}`} className="min-w-0 flex-1 rounded-xl px-1 py-1.5 active:bg-stone-100">
+      <a href={`#/producto/${encodeURIComponent(p.producto_id)}`} className="min-w-[8.5rem] flex-1 rounded-xl px-1 py-1.5 active:bg-stone-100">
         <div className="truncate font-medium">{p.nombre}</div>
         {mejor ? (
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm">

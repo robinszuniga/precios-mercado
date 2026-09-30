@@ -167,3 +167,13 @@ las respuestas como fixtures.
 Si `probarTiendas` dice que Éxito/Olímpica bloquean a Google (403 o páginas de desafío), el plan B es que una GitHub
 Action consulte los precios cada día y los escriba en el Sheet a través del mismo API (`upsert` de observaciones).
 El conector ya está separado en `shared/src/vtex/` para eso.
+
+## Accesibilidad y letra grande
+
+- Lo más chico de la app es de 13 px; con la letra grande del sistema (hasta 150 %) los botones no se salen de la
+  pantalla, los nombres de los productos conservan ancho y la barra de abajo entra completa.
+- Con una hoja abierta (anotar precio, agregar, etc.) lo de atrás queda inerte: el lector de pantalla y el teclado solo
+  ven la hoja. Los avisos con “Deshacer” siguen a mano.
+- Si lo último que enviaste lleva más de 15 segundos sin salir (señal “fantasma”: hay conexión pero no responde Google),
+  aparece “N por enviar · sin respuesta de Google”.
+
