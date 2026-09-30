@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import { beforeAll, describe, expect, it } from 'vitest'
@@ -35,7 +36,17 @@ describe('bundle de Apps Script', () => {
 interface Estado {
   props: Map<string, string>
   cache: Map<string, string>
-  release: { version: string; permisos?: string[]; codigo: string } | null
+  /** Segundos de vida con los que se guardó cada clave de la caché. */
+  ttl: Map<string, number>
+  release: {
+    version: string
+    permisos?: string[] | null
+    codigo: string
+    /** Por defecto, la huella real del código; se puede falsear o quitar (null). */
+    sha256?: string | null
+    /** Host al que redirige la descarga (por defecto, donde GitHub guarda los archivos de sus releases). */
+    redirigirA?: string
+  } | null
   bajadas: string[]
 }
 
@@ -61,14 +72,28 @@ function ejecucion(e: Estado, codigoSuelto?: string) {
         deleteProperty: (k: string) => { e.props.delete(k) },
       }),
     },
-    CacheService: { getScriptCache: () => ({ get: (k: string) => e.cache.get(k) ?? null, put: (k: string, v: string) => { e.cache.set(k, v) } }) },
+    CacheService: { getScriptCache: () => ({ get: (k: string) => e.cache.get(k) ?? null, put: (k: string, v: string, seg: number) => { e.cache.set(k, v); e.ttl.set(k, seg) } }) },
+    Utilities: {
+      DigestAlgorithm: { SHA_256: 'SHA_256' },
+      Charset: { UTF_8: 'UTF_8' },
+      computeDigest: (_a: string, texto: string) => [...createHash('sha256').update(texto, 'utf8').digest()].map((b) => (b > 127 ? b - 256 : b)),
+    },
     UrlFetchApp: {
+      // Como GitHub: el enlace de descarga del release redirige (302) al host donde están los archivos.
       fetch: (url: string) => {
-        const archivo = url.split('/').pop()!
-        e.bajadas.push(archivo)
         const r = e.release
-        const cuerpo = !r ? null : archivo === 'version.json' ? JSON.stringify({ version: r.version, permisos: r.permisos ?? MANIFIESTO.oauthScopes }) : archivo === 'Code.js' ? r.codigo : null
-        return { getResponseCode: () => (cuerpo == null ? 404 : 200), getContentText: () => cuerpo ?? 'Not Found' }
+        const archivo = url.split('/').pop()!
+        const host = /^https:\/\/([^/]+)\//.exec(url)?.[1] ?? ''
+        if (host === 'github.com') {
+          e.bajadas.push(archivo)
+          if (!r) return { getResponseCode: () => 404, getContentText: () => 'Not Found', getHeaders: () => ({}) }
+          return { getResponseCode: () => 302, getContentText: () => '', getHeaders: () => ({ Location: `https://${r.redirigirA ?? 'release-assets.githubusercontent.com'}/releases/${archivo}` }) }
+        }
+        const sha = r?.sha256 === undefined ? (r ? createHash('sha256').update(r.codigo, 'utf8').digest('hex') : null) : r.sha256
+        const info: Record<string, unknown> = { version: r?.version, permisos: r?.permisos === undefined ? MANIFIESTO.oauthScopes : r.permisos }
+        if (sha != null) info.sha256 = sha
+        const cuerpo = !r ? null : archivo === 'version.json' ? JSON.stringify(info) : archivo === 'Code.js' ? r.codigo : null
+        return { getResponseCode: () => (cuerpo == null ? 404 : 200), getContentText: () => cuerpo ?? 'Not Found', getHeaders: () => ({}) }
       },
     },
     ContentService: { createTextOutput: (t: string) => ({ t, setMimeType() { return this } }), MimeType: { JSON: 'json' } },
@@ -86,13 +111,13 @@ describe('cargador del script', () => {
   beforeAll(() => {
     codigo = readFileSync(`${dir}dist/Code.js`, 'utf8')
   })
-  const nuevo = (release: Estado['release']): Estado => ({ props: new Map([['TOKEN', 'secreto']]), cache: new Map(), release, bajadas: [] })
+  const nuevo = (release: Estado['release']): Estado => ({ props: new Map([['TOKEN', 'secreto']]), cache: new Map(), ttl: new Map(), release, bajadas: [] })
 
   it('la primera vez baja el código, lo guarda en trozos de menos de 9 kB y responde con la app real', () => {
     const e = nuevo({ version: 'gas-v9', codigo })
     const r = ping(ejecucion(e).doGet({}))
     expect(r.ok).toBe(true)
-    expect(r.data).toMatchObject({ app: 'precios-mercado', configurado: true, cargador: 1, proyecto: 'abc123' })
+    expect(r.data).toMatchObject({ app: 'precios-mercado', configurado: true, cargador: 2, proyecto: 'abc123' })
     expect(e.bajadas).toEqual(['version.json', 'Code.js'])
     expect(JSON.parse(e.props.get('PM_CODIGO')!)).toMatchObject({ version: 'gas-v9', largo: codigo.length })
     expect(JSON.parse(e.props.get('ACTUALIZACION')!)).toMatchObject({ estado: 'actualizado', nueva: 'gas-v9' })
@@ -127,7 +152,7 @@ describe('cargador del script', () => {
     ejecucion(e).doGet({})
     e.release = { version: 'gas-v10', codigo }
     const r = ping(ejecucion(e).doPost({ postData: { contents: JSON.stringify({ a: 'actualizarScript', t: 'secreto', v: 1 }) } }))
-    expect(r.data).toMatchObject({ estado: 'actualizado', actual: 'gas-v9', nueva: 'gas-v10', cargador: 1 })
+    expect(r.data).toMatchObject({ estado: 'actualizado', actual: 'gas-v9', nueva: 'gas-v10', cargador: 2 })
   })
 
   it('un Code.js roto o ajeno no reemplaza al que funciona', () => {
@@ -172,4 +197,64 @@ describe('cargador del script', () => {
     for (const f of globales) expect(typeof ctx[f], f).toBe('function')
     expect(ctx.PM_PERMISOS).toEqual(MANIFIESTO.oauthScopes)
   })
+
+  describe('endurecimiento (v2)', () => {
+    function instalada() {
+      const e = nuevo({ version: 'gas-v9', codigo })
+      ejecucion(e).doGet({})
+      e.cache.clear()
+      e.ttl.clear()
+      e.bajadas = []
+      return e
+    }
+
+    it('no instala un código sin huella, ni uno cuya huella no coincide', () => {
+      const e = instalada()
+      for (const sha256 of [null, '0'.repeat(64), 'no-es-una-huella']) {
+        e.release = { version: 'gas-v10', codigo, sha256 }
+        const r = ejecucion(e).actualizarme() as { estado: string; mensaje: string }
+        expect(r.estado).toBe('error')
+        expect(r.mensaje).toMatch(/huella/)
+        expect(JSON.parse(e.props.get('PM_CODIGO')!).version).toBe('gas-v9')
+      }
+    })
+
+    it('nunca baja de versión: un release viejo marcado "latest" no reemplaza al instalado', () => {
+      const e = instalada()
+      e.release = { version: 'gas-v8', codigo: MINI }
+      const r = ejecucion(e).actualizarme() as { estado: string; mensaje: string }
+      expect(r.estado).toBe('al_dia')
+      expect(r.mensaje).toMatch(/más viejo/)
+      expect(JSON.parse(e.props.get('PM_CODIGO')!).version).toBe('gas-v9')
+    })
+
+    it('si la descarga redirige a otro sitio que no es de GitHub, no la sigue', () => {
+      const e = instalada()
+      e.release = { version: 'gas-v10', codigo, redirigirA: 'evil.example.com' }
+      const r = ejecucion(e).actualizarme() as { estado: string; mensaje: string }
+      expect(r.estado).toBe('error')
+      expect(r.mensaje).toMatch(/otro sitio/)
+    })
+
+    it('un version.json sin permisos como lista o sin versión válida se rechaza', () => {
+      const e = instalada()
+      e.release = { version: 'gas-v10', codigo, permisos: null }
+      expect(ejecucion(e).actualizarme()).toMatchObject({ estado: 'error' })
+      e.release = { version: 'latest', codigo }
+      expect(ejecucion(e).actualizarme()).toMatchObject({ estado: 'error' })
+    })
+
+    it('tras un fallo reintenta en 10 minutos, no en 6 horas; tras un acierto espera 6 horas', () => {
+      const e = instalada()
+      e.release = { version: 'gas-v10', codigo, sha256: '0'.repeat(64) }
+      ejecucion(e).doGet({})
+      expect(e.ttl.get('PM_REVISADO')).toBe(600)
+      e.cache.clear()
+      e.release = { version: 'gas-v10', codigo }
+      ejecucion(e).doGet({})
+      expect(e.ttl.get('PM_REVISADO')).toBe(21600)
+      expect(JSON.parse(e.props.get('PM_CODIGO')!).version).toBe('gas-v10')
+    })
+  })
 })
+

@@ -7,7 +7,7 @@
  * No necesita la API de Apps Script ni volver a implementar: la URL /exec y el token no cambian nunca.
  */
 
-var PM_CARGADOR = 1
+var PM_CARGADOR = 2
 var PM_REPO = 'robinszuniga/precios-mercado'
 var PM_BASE = 'https://github.com/' + PM_REPO + '/releases/latest/download/'
 // Los permisos de appsscript.json: una versión que pida otros no se instala sola (Google no la dejaría correr).
@@ -20,6 +20,10 @@ var PM_PERMISOS = [
 // Cada propiedad guarda hasta 9 kB; 2800 caracteres caben aunque todos ocupen 3 bytes.
 var PM_TROZO = 2800
 var PM_REVISAR_CADA_S = 6 * 60 * 60
+// Tras un fallo (GitHub caído, versión dañada) se reintenta pronto, no hasta dentro de 6 horas.
+var PM_REINTENTO_S = 10 * 60
+// Hosts a los que GitHub puede redirigir la descarga de un release.
+var PM_HOSTS = /(^|\.)(github\.com|githubusercontent\.com)$/
 var pmApp__ = null
 var pmResultado__ = null // lo que dio revisar en esta ejecución (no se baja dos veces)
 
@@ -101,12 +105,25 @@ function pmLeer_(todas) {
 function pmRevisarSiToca_() {
   try {
     var cache = CacheService.getScriptCache()
-    if (cache.get('PM_REVISADO')) return
-    cache.put('PM_REVISADO', '1', PM_REVISAR_CADA_S)
-    pmActualizar_()
+    if (cache.get('PM_REVISADO') || cache.get('PM_REVISANDO')) return
+    // Mientras una ejecución revisa, las demás no repiten la descarga.
+    cache.put('PM_REVISANDO', '1', 60)
+    var r = pmActualizar_()
+    cache.put('PM_REVISADO', '1', r.estado === 'error' ? PM_REINTENTO_S : PM_REVISAR_CADA_S)
   } catch (e) {
     // Revisar nunca tumba una petición de la app.
   }
+}
+
+/** El número de "gas-v12" (12), o null si no tiene esa forma. */
+function pmNumero_(v) {
+  var m = /^gas-v(\d+)$/.exec(String(v || ''))
+  return m ? Number(m[1]) : null
+}
+
+function pmSha256_(texto) {
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, texto, Utilities.Charset.UTF_8)
+  return bytes.map(function (b) { return ('0' + (b & 0xff).toString(16)).slice(-2) }).join('')
 }
 
 /** Baja la última versión publicada si es distinta de la guardada. Deja el resultado en ACTUALIZACION. */
@@ -125,15 +142,21 @@ function pmActualizar_() {
   try {
     var info = JSON.parse(pmBajar_('version.json'))
     nueva = info.version
-    if (!nueva) throw new Error('version.json no dice la versión')
+    if (pmNumero_(nueva) == null) throw new Error('version.json no dice una versión válida')
     if (nueva === actual) return fin('al_dia', 'Al día (' + nueva + ').')
-    var faltan = (info.permisos || []).filter(function (x) { return PM_PERMISOS.indexOf(x) < 0 })
+    // Nunca se baja de versión sola: un release viejo marcado como "latest" no reemplaza a uno más nuevo.
+    if (pmNumero_(actual) != null && pmNumero_(nueva) < pmNumero_(actual)) return fin('al_dia', 'Al día (' + actual + '); el release publicado (' + nueva + ') es más viejo y no se instala.')
+    if (!Array.isArray(info.permisos)) throw new Error('version.json no dice los permisos')
+    if (!/^[0-9a-f]{64}$/.test(String(info.sha256 || ''))) throw new Error('version.json no trae la huella (sha256) del código')
+    var faltan = info.permisos.filter(function (x) { return PM_PERMISOS.indexOf(x) < 0 })
     if (faltan.length) {
       return fin('necesita_permiso', 'La versión ' + nueva + ' necesita permisos nuevos: en Apps Script reemplaza appsscript.json por el de esa versión y ejecuta "actualizarme".')
     }
     var codigo = pmBajar_('Code.js')
     // Que sea de verdad esta app y que arranque, antes de reemplazar la que funciona.
     if (codigo.indexOf(PM_REPO) < 0 || !/function doPost\(/.test(codigo)) throw new Error('el Code.js bajado no parece de esta app')
+    // Es el archivo que se publicó con esa versión (version.json y Code.js se bajan por separado y podrían no ser del mismo release).
+    if (pmSha256_(codigo) !== info.sha256) throw new Error('la huella del Code.js no coincide con la de version.json')
     pmEvaluar_(codigo)
     pmGuardar_(props, todas, codigo, nueva)
     return fin('actualizado', actual ? 'Actualizado de ' + actual + ' a ' + nueva + '.' : 'Instalada la versión ' + nueva + '.')
@@ -143,9 +166,23 @@ function pmActualizar_() {
 }
 
 function pmBajar_(archivo) {
-  var r = UrlFetchApp.fetch(PM_BASE + archivo, { muteHttpExceptions: true, followRedirects: true })
-  if (r.getResponseCode() !== 200) throw new Error(archivo + ': HTTP ' + r.getResponseCode())
-  return r.getContentText('UTF-8')
+  var url = PM_BASE + archivo
+  // Se siguen las redirecciones a mano, y solo si van a GitHub (o a donde GitHub guarda los archivos de sus releases).
+  for (var salto = 0; salto < 4; salto++) {
+    var host = /^https:\/\/([^\/]+)\//.exec(url)
+    if (!host || !PM_HOSTS.test(host[1])) throw new Error(archivo + ': la descarga apunta a otro sitio (' + (host ? host[1] : url) + ')')
+    var r = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: false })
+    var codigo = r.getResponseCode()
+    if (codigo >= 300 && codigo < 400) {
+      var h = r.getHeaders() || {}
+      url = h.Location || h.location
+      if (!url) throw new Error(archivo + ': redirección sin destino')
+      continue
+    }
+    if (codigo !== 200) throw new Error(archivo + ': HTTP ' + codigo)
+    return r.getContentText('UTF-8')
+  }
+  throw new Error(archivo + ': demasiadas redirecciones')
 }
 
 function pmGuardar_(props, todas, codigo, version) {

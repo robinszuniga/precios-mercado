@@ -1,6 +1,7 @@
 // Empaqueta apps-script/src + shared en un único dist/Code.js sin import/export (Apps Script no usa módulos).
 // Las funciones que ve el editor y los triggers se declaran al final como funciones globales.
 import { build } from 'esbuild'
+import { createHash } from 'node:crypto'
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 
 // Deben ser las mismas funciones que declara el cargador (cargador/Cargador.js).
@@ -29,5 +30,7 @@ copyFileSync(`${dir}appsscript.json`, `${dir}dist/appsscript.json`)
 // Lo único que se pega en Apps Script: baja y ejecuta el Code.js del último release.
 copyFileSync(`${dir}cargador/Cargador.js`, `${dir}dist/Cargador.js`)
 // Lo que lee el cargador para saber si hay algo nuevo y si pide permisos nuevos.
-writeFileSync(`${dir}dist/version.json`, JSON.stringify({ version, permisos }, null, 2))
+// sha256: la huella del Code.js; el cargador no instala un código que no coincida.
+const sha256 = createHash('sha256').update(readFileSync(`${dir}dist/Code.js`)).digest('hex')
+writeFileSync(`${dir}dist/version.json`, JSON.stringify({ version, permisos, sha256 }, null, 2))
 console.log(`apps-script/dist/Code.js listo (${version})`)

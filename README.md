@@ -59,8 +59,20 @@ implementar: la URL `/exec` y el token no cambian. Si GitHub no responde, sigue 
 
 Una versión que pida permisos nuevos no se instala sola: *Ajustes → Script de Google* lo avisa.
 
+**Cargador v2** (opcional; el v1 sigue funcionando). Se pega igual que el primero y agrega:
+la huella sha256 del `Code.js` (no se instala un código que no coincida con la de `version.json`), nunca baja de
+versión sola, solo sigue redirecciones a GitHub y reintenta a los 10 minutos si algo falló (el v1 espera 6 horas).
+Se sabe cuál tienes en *Ajustes → Script de Google* o en el registro de `actualizarme`.
+
+**Volver a una versión anterior.** El cargador nunca baja de número: para deshacer una versión, se corrige el código
+en el repositorio y se publica una versión *mayor* (gas-v6 con lo de gas-v4). Si el script quedó inservible, pega el
+`Code.js` de un release bueno en `Código.gs` (como en la primera instalación).
+
 > El cargador ejecuta lo que se publique en los releases de este repositorio: quien pueda publicar aquí puede cambiar
-> el código que corre con tu cuenta de Google. Protege tu cuenta de GitHub (2FA).
+> el código que corre con tu cuenta de Google. Por eso conviene: verificación en dos pasos con llave de acceso en
+> GitHub, activar *Settings → Releases → Enable release immutability* y no renombrar tu usuario de GitHub (otro podría
+> registrar el nombre viejo). El flujo que publica el script compila sin permiso de escritura y solo un segundo
+> trabajo, que no ejecuta código del proyecto, crea el release.
 
 ### 2. La app en el celular
 
