@@ -7,6 +7,7 @@ import { ir } from '../app/ruta.ts'
 import { FormProducto } from '../componentes/FormProducto.tsx'
 import { BotonPegarLista } from '../componentes/PegarLista.tsx'
 import { Novedades } from '../componentes/Novedades.tsx'
+import { BotonModoTienda } from '../escaner/ModoTienda.tsx'
 import { AvisoSinVincular } from '../componentes/VincularTodos.tsx'
 import { avisar, Boton, Cargando, Distintivo, Hoja, NombreTienda, pesos, Tarjeta, Titulo, Vacio } from '../componentes/ui.tsx'
 import { opcionesDe, useCatalogo, type Catalogo } from '../datos/consultas.ts'
@@ -63,10 +64,13 @@ function PrimerUso({ onCrear }: { onCrear: () => void }) {
   const [creando, setCreando] = useState(false)
   return (
     <Tarjeta className="space-y-3">
-      <h2 className="text-lg font-semibold">Empieza en 3 pasos</h2>
+      <h2 className="text-lg font-semibold">Empieza aquí</h2>
+      <p className="text-stone-700">
+        Compara cuánto cuesta tu mercado en <strong>Éxito, Olímpica, D1 y Ara</strong> y te dice dónde comprar cada cosa más barato.
+      </p>
       <ol className="list-decimal space-y-2 pl-5 text-stone-700">
         <li><strong>Pasa tu lista</strong> (cópiala de WhatsApp o Notas y pégala) o crea tus productos. Los marcados con ★ entran solos en cada compra.</li>
-        <li><strong>Anota precios</strong> cuando vayas a D1 o Ara (Olímpica y Éxito se pueden traer de internet).</li>
+        <li><strong>Anota precios</strong> cuando estés en la tienda: toca el producto y escribe lo que ves en la góndola.</li>
         <li><strong>Antes de salir, mira el Plan</strong>: te dice dónde comprar cada cosa.</li>
       </ol>
       <BotonPegarLista variante="primario" className="w-full" texto="Pegar mi lista (WhatsApp, Notas…)" />
@@ -83,7 +87,7 @@ function PrimerUso({ onCrear }: { onCrear: () => void }) {
       >
         Empezar con una lista típica
       </Boton>
-      <Boton variante="secundario" className="w-full" onClick={onCrear}>Crear mi primer producto</Boton>
+      <button type="button" className="min-h-11 w-full text-center text-marca underline" onClick={onCrear}>o crea tu primer producto a mano</button>
     </Tarjeta>
   )
 }
@@ -114,6 +118,7 @@ export function Lista() {
 
   if (!cat) return <Cargando />
   const hayProductos = cat.productos.some((p) => p.activo)
+  const hayPrecios = [...cat.actualesDe.values()].some((xs) => xs.some((a) => a.precio != null && a.precio > 0))
 
   async function alternar(p: Producto) {
     if (enLista.has(p.producto_id)) {
@@ -137,6 +142,13 @@ export function Lista() {
         <PrimerUso onCrear={() => setCreando(true)} />
       ) : (
         <>
+          {!hayPrecios && (
+            <Tarjeta className="mb-3 space-y-2">
+              <h2 className="font-semibold">Siguiente paso: los precios</h2>
+              <p className="text-sm text-stone-700">Ya tienes tu lista. Cuando estés en la tienda, anota lo que cuesta cada cosa: así la app te dice dónde comprar más barato.</p>
+              <BotonModoTienda className="w-full" variante="primario" />
+            </Tarjeta>
+          )}
           <Novedades className="mb-3" />
           <AvisoSinVincular className="mb-3" />
           <input
@@ -145,7 +157,7 @@ export function Lista() {
             onChange={(e) => setQ(e.target.value)}
             placeholder="Buscar producto…"
             aria-label="Buscar producto"
-            className="mb-2 w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5 outline-none focus:border-marca focus:ring-2 focus:ring-marca/30"
+            className="mb-2 min-h-11 w-full rounded-xl border border-stone-400 bg-white px-3 py-2.5 outline-none focus:border-marca focus:ring-2 focus:ring-marca/30"
           />
           <div className="mb-3 flex gap-2" role="group" aria-label="Filtrar">
             {(['todos', 'compra'] as const).map((f) => (
@@ -165,7 +177,7 @@ export function Lista() {
           <div className="space-y-3">
             {grupos.map((g) => (
               <Tarjeta key={g.id || 'sin'} className="px-2">
-                <h2 className="px-1 text-sm font-semibold tracking-wide text-stone-600 uppercase">{g.nombre}</h2>
+                {(g.id || grupos.length > 1) && <h2 className="px-1 text-sm font-semibold tracking-wide text-stone-600 uppercase">{g.nombre}</h2>}
                 <ul className="divide-y divide-stone-100">
                   {g.productos.map((p) => (
                     <FilaProducto key={p.producto_id} p={p} cat={cat} ahora={ahora} enLista={enLista.has(p.producto_id)} onAlternar={() => void alternar(p)} />
@@ -176,15 +188,18 @@ export function Lista() {
           </div>
         </>
       )}
-      <button
-        type="button"
-        onClick={() => setCreando(true)}
-        aria-label="Nuevo producto"
-        className="fixed right-4 z-20 grid size-14 place-items-center rounded-full bg-marca text-3xl text-white shadow-lg active:bg-teal-800"
-        style={{ bottom: 'calc(env(safe-area-inset-bottom) + 5rem)' }}
-      >
-        +
-      </button>
+      {/* Con la lista vacía ya hay un botón para crear el primero: este taparía el de pegar la lista. */}
+      {hayProductos && (
+        <button
+          type="button"
+          onClick={() => setCreando(true)}
+          aria-label="Nuevo producto"
+          className="fixed right-4 z-20 grid size-14 place-items-center rounded-full bg-marca text-3xl text-white shadow-lg active:bg-teal-800"
+          style={{ bottom: 'calc(env(safe-area-inset-bottom) + 5rem)' }}
+        >
+          +
+        </button>
+      )}
       <Hoja abierta={creando} titulo="Nuevo producto" onCerrar={() => setCreando(false)} protegida>
         <FormProducto
           nombreInicial={q}

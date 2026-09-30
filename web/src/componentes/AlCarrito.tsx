@@ -10,7 +10,7 @@ import { db } from '../datos/db.ts'
 import { guardar, nuevaPresentacion } from '../datos/escritura.ts'
 import { ahoraIso } from '../datos/sync.ts'
 import { describirPresentacion, precioAtipico } from './RegistrarPrecio.tsx'
-import { avisar, Boton, Campo, hace, leerNumero, Pasos, pesos, Selector } from './ui.tsx'
+import { avisar, Boton, Campo, hace, leerNumero, pesos, PieFijo, Selector } from './ui.tsx'
 
 export interface Sugerencia {
   tienda: Tienda
@@ -57,7 +57,8 @@ export function AlCarrito({ d, producto, cat, sugerencia, tiendasHoy, onListo }:
   const [tocado, setTocado] = useState(d.precio_confirmado ?? false)
   const [marca, setMarca] = useState('')
   const [tamano, setTamano] = useState('')
-  const [necesidad, setNecesidad] = useState(d.necesidad ?? producto.cantidad_habitual ?? 1)
+  // La cantidad que se necesitaba se queda como estaba (se cambia en el Plan): aquí solo cuenta cuánto llevas.
+  const necesidad = d.necesidad ?? producto.cantidad_habitual ?? 1
   const [confirmando, setConfirmando] = useState(false)
   const ocupado = useRef(false)
 
@@ -124,24 +125,13 @@ export function AlCarrito({ d, producto, cat, sugerencia, tiendasHoy, onListo }:
     onListo()
   }
 
-  async function cambiarNecesidad(v: number) {
-    setNecesidad(v)
-    await guardar('Compras_detalle', { ...(await actual()), necesidad: v })
-  }
-
   const u = etiquetaVisible(producto.unidad_base)
   return (
     <form onSubmit={enviar} className="space-y-3">
-      {d.estado === 'pendiente' && (
-        <div className="flex items-center justify-between gap-2 rounded-xl bg-white p-2 ring-1 ring-stone-200">
-          <span className="text-sm text-stone-700">Esta vez necesito</span>
-          <Pasos valor={necesidad} paso={producto.unidad_base === 'unidad' ? 1 : 0.5} minimo={0.5} etiqueta="cantidad" sufijo={u} onCambio={(v) => void cambiarNecesidad(v)} />
-        </div>
-      )}
       <Selector etiqueta="Tienda" value={tienda} onChange={(e) => cambiarTienda(e.target.value as Tienda)}>
         {TIENDAS.map((t) => <option key={t} value={t}>{INFO_TIENDAS[t].nombre}</option>)}
       </Selector>
-      <Selector etiqueta="Lo que tomaste" value={pres ? presId : '__nueva'} onChange={(e) => cambiarPresentacion(e.target.value)}>
+      <Selector etiqueta="Marca y tamaño" value={pres ? presId : '__nueva'} onChange={(e) => cambiarPresentacion(e.target.value)}>
         {deTienda.map((p) => <option key={p.presentacion_id} value={p.presentacion_id}>{describirPresentacion(p, producto)}</option>)}
         <option value="__nueva">+ Otra marca o tamaño…</option>
       </Selector>
@@ -152,10 +142,12 @@ export function AlCarrito({ d, producto, cat, sugerencia, tiendasHoy, onListo }:
         </div>
       )}
       <div className="grid grid-cols-2 gap-2">
-        <Campo etiqueta={esGranel ? `Cantidad (${u})` : 'Paquetes'} inputMode="decimal" value={cantidad} onChange={(e) => setCantidad(e.target.value)} />
+        <Campo etiqueta={esGranel ? `Cuánto llevas (${u})` : 'Cuántos llevas'} inputMode="decimal" enterKeyHint="next" value={cantidad} onChange={(e) => setCantidad(e.target.value)} />
         <Campo
-          etiqueta={esGranel ? `Precio por ${u}` : 'Precio c/u'}
+          etiqueta={esGranel ? `Precio por ${u}` : 'Precio de cada uno'}
           inputMode="numeric"
+          enterKeyHint="done"
+          data-autofocus
           value={precio}
           onChange={(e) => { setPrecio(e.target.value); setTocado(true); setConfirmando(false) }}
           placeholder="Ej: 4.500"
@@ -171,7 +163,10 @@ export function AlCarrito({ d, producto, cat, sugerencia, tiendasHoy, onListo }:
           {esGranel && <span className="block text-xs font-normal text-stone-600">{formatoCantidadVisible(nCantidad, producto.unidad_base)} × {pesos(nPrecio)}/{u}</span>}
         </p>
       ) : null}
-      <Boton type="submit" className="w-full" disabled={!nCantidad || !nPrecio}>{confirmando && atipico ? `Sí, es ${pesos(nPrecio)}` : 'Al carrito'}</Boton>
+      <PieFijo>
+        {(!nCantidad || !nPrecio) && <p className="text-center text-xs text-stone-600">{!nPrecio ? 'Escribe el precio para seguir.' : 'Escribe cuántos llevas.'}</p>}
+        <Boton type="submit" className="w-full" disabled={!nCantidad || !nPrecio}>{confirmando && atipico ? `Sí, es ${pesos(nPrecio)}` : 'Al carrito'}</Boton>
+      </PieFijo>
       <div className="flex gap-2">
         {d.estado === 'en_carrito' && (
           <Boton variante="secundario" className="flex-1" onClick={async () => {
@@ -234,12 +229,14 @@ export function ItemLibre({ compraId, onListo, crear, existente }: {
       }}
     >
       {!existente && <p className="text-sm text-stone-600">Algo que no está en tu catálogo (un antojo, algo de una vez). Cuenta para el presupuesto.</p>}
-      <Campo etiqueta="Qué es" value={nombre} onChange={(e) => setNombre(e.target.value)} autoFocus={!existente} />
+      <Campo etiqueta="Qué es" value={nombre} onChange={(e) => setNombre(e.target.value)} autoFocus={!existente} enterKeyHint="next" />
       <div className="grid grid-cols-2 gap-2">
-        <Campo etiqueta="Cantidad" inputMode="decimal" value={cantidad} onChange={(e) => setCantidad(e.target.value)} />
-        <Campo etiqueta="Precio c/u" inputMode="numeric" value={precio} onChange={(e) => setPrecio(e.target.value)} placeholder="Ej: 3.500" />
+        <Campo etiqueta="Cuántos llevas" inputMode="decimal" enterKeyHint="next" value={cantidad} onChange={(e) => setCantidad(e.target.value)} />
+        <Campo etiqueta="Precio de cada uno" inputMode="numeric" enterKeyHint="done" data-autofocus value={precio} onChange={(e) => setPrecio(e.target.value)} placeholder="Ej: 3.500" />
       </div>
-      <Boton type="submit" className="w-full" disabled={!nombre.trim() || !nP || !nC}>{existente ? 'Guardar' : 'Al carrito'}</Boton>
+      <PieFijo>
+        <Boton type="submit" className="w-full" disabled={!nombre.trim() || !nP || !nC}>{existente ? 'Guardar' : 'Al carrito'}</Boton>
+      </PieFijo>
       {existente && (
         <Boton variante="fantasma" className="w-full text-peligro" onClick={async () => {
           const antes = { ...existente }

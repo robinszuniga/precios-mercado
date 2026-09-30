@@ -79,7 +79,7 @@ export function ActualizarPrecios() {
   if (!c.url || !c.token) {
     return (
       <a href="#/ajustes" className="block min-h-11 rounded-xl border border-dashed border-stone-300 px-3 py-2.5 text-sm text-stone-700">
-        Para traer precios de Éxito y Olímpica, conecta la copia en Google <span className="text-marca">→ Ajustes</span>
+        Opcional: para traer solos los precios de Éxito y Olímpica hay que conectar una copia en Google <span className="text-marca">→ Ajustes</span>
       </a>
     )
   }

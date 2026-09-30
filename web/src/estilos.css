@@ -49,6 +49,17 @@
     overscroll-behavior-y: contain;
   }
 
+  /* Varios toques seguidos en "+" no acercan la pantalla en iOS. */
+  html {
+    touch-action: manipulation;
+  }
+
+  /* El texto de ejemplo tiene que verse distinto del escrito, pero legible (contraste AA). */
+  ::placeholder {
+    color: var(--color-stone-500);
+    opacity: 1;
+  }
+
   input,
   select,
   textarea {

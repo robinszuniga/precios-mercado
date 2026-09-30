@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, useSyncExternalStore, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react'
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type Ref, type SelectHTMLAttributes } from 'react'
 import { formatoCop } from '@shared/dinero.ts'
 import type { Distintivo as TipoDistintivo } from '@shared/precioEfectivo.ts'
 import { INFO_TIENDAS, type Tienda } from '@shared/tiendas.ts'
@@ -27,14 +27,22 @@ export function BotonIcono({ etiqueta, className = '', children, ...p }: ButtonH
   )
 }
 
-const CLASE_CAMPO = 'w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5 outline-none focus:border-marca focus:ring-2 focus:ring-marca/30'
+const CLASE_CAMPO = 'min-h-11 w-full rounded-xl border border-stone-400 bg-white px-3 py-2.5 outline-none focus:border-marca focus:ring-2 focus:ring-marca/30'
 
-export function Campo({ etiqueta, ayuda, aviso, className = '', ...p }: InputHTMLAttributes<HTMLInputElement> & { etiqueta: string; ayuda?: ReactNode; aviso?: ReactNode }) {
+export function Campo({ etiqueta, ayuda, aviso, className = '', inputRef, ...p }: InputHTMLAttributes<HTMLInputElement> & { etiqueta: string; ayuda?: ReactNode; aviso?: ReactNode; inputRef?: Ref<HTMLInputElement> }) {
   const id = useId()
   return (
     <div className={className}>
       <label htmlFor={id} className="mb-1 block text-sm text-stone-700">{etiqueta}</label>
-      <input id={id} aria-describedby={ayuda || aviso ? `${id}-ayuda` : undefined} className={CLASE_CAMPO} {...p} />
+      <input
+        ref={inputRef}
+        id={id}
+        aria-describedby={ayuda || aviso ? `${id}-ayuda` : undefined}
+        className={CLASE_CAMPO}
+        // Al tocar un número ya escrito se selecciona entero: se corrige escribiendo encima, sin borrar dígito a dígito.
+        onFocus={(e) => { if (p.inputMode === 'numeric' || p.inputMode === 'decimal') e.currentTarget.select() }}
+        {...p}
+      />
       {(ayuda || aviso) && (
         <span id={`${id}-ayuda`} className={`mt-1 block text-xs ${aviso ? 'font-medium text-alerta' : 'text-stone-600'}`}>{aviso ?? ayuda}</span>
       )}
@@ -147,14 +155,31 @@ export function Hoja({ abierta, titulo, onCerrar, children, protegida = false }:
     }
   }, [abierta])
 
+  const [teclado, setTeclado] = useState(0)
+  useEffect(() => {
+    // iOS no achica la ventana cuando sale el teclado: se mide lo que tapa y la hoja sube esa altura.
+    const vv = window.visualViewport
+    if (!abierta || !vv) return
+    const medir = () => setTeclado(Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)))
+    medir()
+    vv.addEventListener('resize', medir)
+    vv.addEventListener('scroll', medir)
+    return () => { vv.removeEventListener('resize', medir); vv.removeEventListener('scroll', medir); setTeclado(0) }
+  }, [abierta])
+
   if (!abierta) return null
   return (
-    <div className="fixed inset-0 z-40 flex animate-aparecer items-end justify-center bg-black/40 motion-reduce:animate-none" onClick={() => { if (!protegida) onCerrar() }}>
+    <div
+      className="fixed inset-0 z-40 flex animate-aparecer items-end justify-center bg-black/40 motion-reduce:animate-none"
+      style={teclado ? { paddingBottom: teclado } : undefined}
+      onClick={() => { if (!protegida) onCerrar() }}
+    >
       <div
         ref={caja}
         role="dialog"
         aria-modal="true"
         aria-labelledby={idTitulo}
+        style={teclado ? { maxHeight: `calc(100dvh - 5.5rem - ${teclado}px)` } : undefined}
         className="abajo-seguro max-h-[calc(100dvh-5.5rem)] w-full max-w-lg animate-subir overflow-y-auto rounded-t-3xl bg-fondo px-4 pt-2 motion-reduce:animate-none"
         onClick={(e) => e.stopPropagation()}
       >
@@ -167,6 +192,11 @@ export function Hoja({ abierta, titulo, onCerrar, children, protegida = false }:
       </div>
     </div>
   )
+}
+
+/** El botón principal de una hoja: queda siempre a la vista, aunque el teclado ocupe media pantalla. */
+export function PieFijo({ children }: { children: ReactNode }) {
+  return <div className="sticky bottom-0 -mx-4 space-y-2 bg-fondo px-4 pt-2 pb-2 shadow-[0_-10px_8px_-8px_rgba(0,0,0,0.18)]">{children}</div>
 }
 
 export function Tarjeta({ children, className = '' }: { children: ReactNode; className?: string }) {
@@ -327,9 +357,10 @@ const emitir = () => oyentes.forEach((f) => f())
 
 export function avisar(texto: string, deshacer?: () => void | Promise<void>) {
   const aviso = { id: siguiente++, texto, deshacer }
-  avisos = [...avisos.slice(-1), aviso]
+  // Uno solo a la vez: dos avisos apilados tapaban la zona del pulgar y las filas siguientes.
+  avisos = [aviso]
   emitir()
-  setTimeout(() => { avisos = avisos.filter((a) => a.id !== aviso.id); emitir() }, deshacer ? 6000 : 3000)
+  setTimeout(() => { avisos = avisos.filter((a) => a.id !== aviso.id); emitir() }, deshacer ? 5000 : 3000)
 }
 
 export function Avisos() {

@@ -81,10 +81,17 @@ export function Plan() {
       )}
       {compra && items.length === 0 && libres.length === 0 && <Vacio>La compra está vacía. Agrega productos desde la pestaña Productos.</Vacio>}
 
-      {items.length > 0 && (
+      {items.length > 0 && plan.grupos.length === 0 && (
+        <Tarjeta className="space-y-2">
+          <h2 className="font-semibold">Aún no hay precios</h2>
+          <p className="text-sm text-stone-700">Anota el precio de algunos productos (en la tienda, o por internet si conectaste Google) y aquí verás dónde conviene comprar cada cosa.</p>
+        </Tarjeta>
+      )}
+      {items.length > 0 && plan.grupos.length > 0 && (
         <Tarjeta className="space-y-1">
           <p className="text-sm text-stone-700">Total con este plan ({plan.grupos.length} {plan.grupos.length === 1 ? 'tienda' : 'tiendas'})</p>
           <p className="text-3xl font-bold">{pesos(plan.total)}</p>
+          {plan.sinPrecio.length > 0 && <p className="text-sm text-stone-700">Sin contar {plan.sinPrecio.length === 1 ? nombre(plan.sinPrecio[0]) : `${plan.sinPrecio.length} productos`} que aún no {plan.sinPrecio.length === 1 ? 'tiene' : 'tienen'} precio.</p>}
           {plan.ahorro != null && plan.mejorUnica && (
             <p className={`font-medium ${plan.ahorro > 0 ? 'text-ok' : 'text-stone-700'}`}>
               {plan.ahorro > 0
@@ -157,7 +164,7 @@ export function Plan() {
         </Tarjeta>
       )}
 
-      {items.length > 0 && plan.todoEn.length > 1 && (
+      {items.length > 0 && plan.grupos.length > 0 && plan.todoEn.length > 1 && (
         <Tarjeta className="space-y-2 text-sm">
           <h2 className="text-base font-semibold">Si compraras todo en una sola tienda</h2>
           {plan.todoEn.map((x) => (

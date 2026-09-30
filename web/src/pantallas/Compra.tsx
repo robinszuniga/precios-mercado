@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { normalizar } from '@shared/contenido.ts'
 import type { Compra as TCompra, Detalle } from '@shared/esquema.ts'
 import { formatoNumero } from '@shared/dinero.ts'
@@ -12,10 +12,10 @@ import { ir } from '../app/ruta.ts'
 import { AlCarrito, ItemLibre, sugeridoConfiable, type Sugerencia } from '../componentes/AlCarrito.tsx'
 import { BarraPresupuesto } from '../componentes/BarraPresupuesto.tsx'
 import { describirPresentacion } from '../componentes/RegistrarPrecio.tsx'
-import { avisar, Boton, Campo, Cargando, ChipTienda, Hoja, leerNumero, NombreTienda, pesos, Tarjeta, Titulo, Vacio } from '../componentes/ui.tsx'
+import { avisar, Boton, Campo, Cargando, ChipTienda, hace, Hoja, leerNumero, NombreTienda, pesos, Tarjeta, Titulo, Vacio } from '../componentes/ui.tsx'
 import { cerrarCompra } from '../datos/cierre.ts'
-import { comparadorPasillo, itemsDelPlan, useCatalogo, type Catalogo } from '../datos/consultas.ts'
-import { db } from '../datos/db.ts'
+import { comparadorPasillo, itemsDelPlan, useCatalogo, useMeta, type Catalogo } from '../datos/consultas.ts'
+import { db, guardarMeta } from '../datos/db.ts'
 import { agregarALaCompra, asegurarCompra, compraAbierta, guardar, nuevoDetalle } from '../datos/escritura.ts'
 import { ahoraIso } from '../datos/sync.ts'
 import { useTiendasHoy } from '../datos/tiendasHoy.ts'
@@ -71,6 +71,9 @@ export function Compra() {
   const [tiendasHoy, alternar] = useTiendasHoy()
   const [dialogo, setDialogo] = useState<Dialogo>(null)
   const [cerrando, setCerrando] = useState(false)
+  /** En qué tienda estoy ahora: esa va arriba y abierta; las otras, plegadas. Vacío = todas. */
+  const aqui = useMeta<Tienda | ''>('estoyEn', '')
+  const ultimaMarca = useRef(0)
   const datos = useLiveQuery(async () => {
     const compra = await compraAbierta()
     const detalles = compra ? (await db.detalle.where('compra_id').equals(compra.compra_id).toArray()).filter((d) => !d.borrado) : []
@@ -100,13 +103,27 @@ export function Compra() {
   }
   const ordenGrupos = [...tiendasHoy.filter((t) => porTienda.has(t)), ...TIENDAS.filter((t) => !tiendasHoy.includes(t) && porTienda.has(t)), ...(porTienda.has('') ? [''] : [])]
   const nombre = (d: Detalle) => (d.producto_id ? cat.producto.get(d.producto_id)?.nombre ?? '?' : d.nombre_libre)
+  const estoyEn = ordenGrupos.filter((t): t is Tienda => t !== '')
+  const estaAqui = aqui && estoyEn.includes(aqui) ? aqui : ''
+  const vista = estaAqui ? [estaAqui, ...ordenGrupos.filter((t) => t !== estaAqui)] : ordenGrupos
+  /** Hace cuánto se vio el precio sugerido, si ya es viejo: un toque lo daría por bueno sin mirar la góndola. */
+  const edadViejaDe = (d: Detalle): number | null => {
+    const s = sugerencias.get(d.detalle_id)
+    const e = s ? precioEfectivo(cat.actualesDe.get(s.presentacion.presentacion_id) ?? [], cat.cfg.vigencias, ahora).efectivo : null
+    return e && e.edadDias >= 7 ? e.edadDias : null
+  }
 
   /** Si el precio sugerido ya es de tienda y reciente, un toque en el círculo basta. */
   async function marcarRapido(d: Detalle) {
+    // Al marcar, el siguiente producto sube a ese mismo lugar: un segundo toque enseguida marcaría el que no era.
+    if (Date.now() - ultimaMarca.current < 400) return
     const s = sugerencias.get(d.detalle_id)
     const e = s ? precioEfectivo(cat!.actualesDe.get(s.presentacion.presentacion_id) ?? [], cat!.cfg.vigencias, ahora).efectivo : null
-    if (!s || !e || !sugeridoConfiable(e)) { setDialogo({ detalle: d }); return }
+    // Un precio de más de una semana no se da por bueno con un toque: se abre la hoja para verlo y confirmarlo.
+    if (!s || !e || !sugeridoConfiable(e) || e.edadDias >= 7) { setDialogo({ detalle: d }); return }
     const antes = { ...d }
+    ultimaMarca.current = Date.now()
+    navigator.vibrate?.(15)
     await guardar('Compras_detalle', {
       ...d, tienda: s.tienda, presentacion_id: s.presentacion.presentacion_id, cantidad: s.paquetes, precio_unitario: e.precio,
       subtotal: subtotal(s.paquetes, e.precio), estado: 'en_carrito', precio_confirmado: true,
@@ -120,12 +137,19 @@ export function Compra() {
 
   return (
     <section className="space-y-3">
-      <Titulo sub={`${enCarrito.length} de ${total} en el carrito`}>
-        Comprando en {tiendasHoy.map((t) => INFO_TIENDAS[t].nombre).join(' y ')}
-      </Titulo>
+      <Titulo sub={`${enCarrito.length} de ${total} en el carrito`}>Tu compra de hoy</Titulo>
       <div className="sticky top-0 z-20 -mx-4 bg-fondo/95 px-4 pt-1 pb-2 backdrop-blur">
         <BarraPresupuesto estado={estado} onEditar={() => setDialogo('presupuesto')} compacta />
       </div>
+      {estoyEn.length > 1 && (
+        <div>
+          <p className="mb-1 text-sm text-stone-700">¿En qué tienda estás?</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" aria-pressed={!estaAqui} onClick={() => void guardarMeta('estoyEn', '')} className={`min-h-11 rounded-full border px-3 py-2 text-sm ${!estaAqui ? 'border-marca bg-marca-suave font-medium text-teal-900' : 'border-stone-300 bg-white text-stone-600'}`}>Todas</button>
+            {estoyEn.map((t) => <ChipTienda key={t} tienda={t} activo={estaAqui === t} onClick={() => void guardarMeta('estoyEn', estaAqui === t ? '' : t)} />)}
+          </div>
+        </div>
+      )}
       <details className="text-sm">
         <summary className="min-h-11 cursor-pointer py-2 text-marca">Cambiar tiendas de hoy</summary>
         <div className="flex flex-wrap gap-2 pb-2">{TIENDAS.map((t) => <ChipTienda key={t} tienda={t} activo={tiendasHoy.includes(t)} onClick={() => alternar(t)} />)}</div>
@@ -133,12 +157,12 @@ export function Compra() {
 
       {detalles.length === 0 && <Vacio>La compra está vacía. Agrega productos abajo o desde la pestaña Productos.</Vacio>}
 
-      {ordenGrupos.map((t) => {
+      {vista.map((t) => {
         let pasilloPrevio = ''
-        return (
-          <Tarjeta key={t || 'sin'} className="px-2">
-            <h2 className="mb-1 px-1 text-sm font-semibold">{t ? <NombreTienda tienda={t as Tienda} tam={22} /> : 'Sin precio conocido'}</h2>
-            <ul>
+        const plegado = !!estaAqui && t !== estaAqui
+        const titulo = t ? <NombreTienda tienda={t as Tienda} tam={22} /> : 'Sin precio conocido'
+        const lista = (
+          <ul>
               {porTienda.get(t)!.map((d) => {
                 const s = sugerencias.get(d.detalle_id)
                 const p = cat.producto.get(d.producto_id)
@@ -155,20 +179,38 @@ export function Compra() {
                         className="grid size-11 shrink-0 place-items-center rounded-full active:bg-stone-100"
                         onClick={() => void marcarRapido(d)}
                       >
-                        <span aria-hidden className="size-6 rounded-full border-2 border-stone-400" />
+                        <span aria-hidden className="size-7 rounded-full border-2 border-stone-500" />
                       </button>
                       <button type="button" className="flex min-h-14 min-w-0 flex-1 items-center gap-2 py-2 text-left active:bg-stone-100" onClick={() => setDialogo({ detalle: d })}>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate font-medium">{nombre(d)}</span>
                           {s && p && <span className="block truncate text-sm text-stone-700">{s.presentacion.granel ? formatoCantidadVisible(s.paquetes, p.unidad_base) : `${s.paquetes} ×`} {describirPresentacion(s.presentacion, p)}</span>}
+                          {edadViejaDe(d) != null && <span className="block text-xs font-medium text-alerta">Precio visto {hace(edadViejaDe(d)!)}: confírmalo</span>}
                         </span>
-                        {s && <span className="shrink-0 text-sm text-stone-700"><abbr title="aproximadamente" className="no-underline">≈</abbr> {pesos(s.costo)}</span>}
+                        {s && <span className="shrink-0 text-base font-semibold text-stone-800"><abbr title="aproximadamente" className="no-underline">≈</abbr> {pesos(s.costo)}</span>}
                       </button>
                     </div>
                   </li>
                 )
               })}
-            </ul>
+          </ul>
+        )
+        // Las tiendas donde no estoy se pliegan en un renglón con su cuenta (el resumen va directo dentro de <details>).
+        if (plegado) {
+          return (
+            <details key={t || 'sin'} className="rounded-2xl bg-white ring-1 ring-stone-200">
+              <summary className="flex min-h-11 cursor-pointer items-center justify-between px-3 text-sm font-semibold">
+                <span>{titulo}</span>
+                <span className="font-normal text-stone-600">{porTienda.get(t)!.length} pendientes ▸</span>
+              </summary>
+              <div className="px-2 pb-2">{lista}</div>
+            </details>
+          )
+        }
+        return (
+          <Tarjeta key={t || 'sin'} className="px-2">
+            <h2 className="mb-1 px-1 text-sm font-semibold">{titulo}</h2>
+            {lista}
           </Tarjeta>
         )
       })}

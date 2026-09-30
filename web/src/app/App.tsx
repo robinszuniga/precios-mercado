@@ -13,6 +13,7 @@ import { Lista } from '../pantallas/Lista.tsx'
 import { Plan } from '../pantallas/Plan.tsx'
 import { DetalleProducto } from '../pantallas/Producto.tsx'
 import { AvisoVersion } from './AvisoVersion.tsx'
+import { InstalarEnIphone } from './InstalarEnIphone.tsx'
 import { useRuta, type Ruta } from './ruta.ts'
 
 function Icono({ children }: { children: ReactNode }) {
@@ -53,17 +54,19 @@ function EstadoConexion() {
   const sync = useMeta<EstadoSync>('estadoSync', { enCurso: false, ultimoOk: null, error: null })
   const cerradoEl = useMeta<number | null>('avisoSinCopiaCerrado', null)
   const sinBackend = !conexion.url || !conexion.token
+  // La copia en Google es opcional: no se ofrece hasta que hay algo que cuidar (una compra cerrada).
+  const hayQueCuidar = (useLiveQuery(() => db.compras.where('estado').equals('cerrada').count(), []) ?? 0) > 0
 
   if (sinBackend) {
-    if (cerradoEl && Date.now() - cerradoEl < DIAS_AVISO_SIN_COPIA * 86400000) return null
+    if (!hayQueCuidar || (cerradoEl && Date.now() - cerradoEl < DIAS_AVISO_SIN_COPIA * 86400000)) return null
     return (
-      <div role="status" className="flex items-center justify-between gap-2 bg-yellow-100 px-4 text-sm text-yellow-900">
-        <a href="#/ajustes" className="min-h-11 flex-1 py-3">Tus datos solo están en este celular · <span className="font-semibold underline">Guardar copia en Google</span></a>
+      <div role="status" className="flex items-center justify-between gap-2 bg-stone-100 px-4 text-sm text-stone-800">
+        <a href="#/ajustes" className="min-h-11 flex-1 py-3">Opcional: guarda una copia de tus datos en tu cuenta de Google · <span className="font-semibold underline">Ver cómo</span></a>
         <button type="button" aria-label="Cerrar aviso" className="grid size-11 place-items-center text-lg" onClick={() => void guardarMeta('avisoSinCopiaCerrado', Date.now())}>×</button>
       </div>
     )
   }
-  // La señal va y viene en el súper: ese aviso flota arriba a la derecha y no empuja la lista (si la moviera,
+  // La señal va y viene en el súper: ese aviso flota abajo a la izquierda, sobre la barra, y no empuja la lista ni tapa el saldo (si la moviera,
   // un toque caería en el producto de al lado). Solo un error de verdad, que no parpadea, ocupa su franja.
   let pastilla: string | null = null
   if (!enLinea) pastilla = `Sin señal${pendientes ? ` · ${pendientes} por enviar` : ''}`
@@ -73,8 +76,8 @@ function EstadoConexion() {
       <a
         href="#/ajustes"
         role="status"
-        className="fixed right-3 z-30 rounded-full bg-stone-800/90 px-3 py-1.5 text-xs font-medium text-white shadow"
-        style={{ top: 'calc(env(safe-area-inset-top) + 0.5rem)' }}
+        className="fixed left-3 z-30 rounded-full bg-stone-800/90 px-3 py-1.5 text-xs font-medium text-white shadow"
+        style={{ bottom: 'calc(env(safe-area-inset-bottom) + 4.25rem)' }}
       >
         {pastilla}
       </a>
@@ -112,6 +115,7 @@ export function App() {
   useVinculoAutomatico()
   return (
     <div className="mx-auto min-h-dvh max-w-lg">
+      <InstalarEnIphone />
       <EstadoConexion />
       <AvisoVersion />
       <main className="pb-seguro px-4 pt-4">

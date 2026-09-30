@@ -8,7 +8,7 @@ import { useMeta } from '../datos/consultas.ts'
 import { guardarMeta } from '../datos/db.ts'
 import { guardar, nuevaPresentacion, registrarPrecioManual } from '../datos/escritura.ts'
 import { ahoraIso } from '../datos/sync.ts'
-import { avisar, Boton, Campo, Casilla, hace, leerNumero, pesos, Selector } from './ui.tsx'
+import { avisar, Boton, Campo, Casilla, hace, leerNumero, pesos, PieFijo, Selector } from './ui.tsx'
 
 export function describirPresentacion(p: Presentacion, producto: Producto): string {
   // Sin marca, el nombre de la tienda ya trae el tamaño ("Arroz 1000 g"): se quita para no repetirlo después.
@@ -73,6 +73,9 @@ export function RegistrarPrecio({
 
   // La última tienda llega un instante después (base local): si el usuario no ha elegido otra, se usa esa.
   const eligio = useRef(false)
+  const campoPrecio = useRef<HTMLInputElement>(null)
+  // El precio es lo que se escribe: el cursor llega ahí solo (también cuando este formulario aparece dentro de otra pantalla).
+  useEffect(() => { campoPrecio.current?.focus({ preventScroll: true }) }, [])
   const guardando = useRef(false)
   useEffect(() => {
     if (tiendaInicial || eligio.current || !ultima || ultima === tienda) return
@@ -116,6 +119,23 @@ export function RegistrarPrecio({
   if (confirmando && atipico) aviso = `Antes costaba ${pesos(anterior!.precio)}. ¿Seguro que es ${pesos(valor)}?`
   else if (confirmando && sinTamano) aviso = `Sin tamaño no puedo comparar por ${etiquetaVisible(producto.unidad_base)}. ¿Guardar igual?`
 
+  const campoMarca = nueva && (
+    <>
+      <Campo etiqueta="Marca (opcional)" value={marca} onChange={(e) => setMarca(e.target.value)} placeholder="Diana, marca propia…" enterKeyHint="next" />
+      <Casilla etiqueta={`Se vende a granel (precio por ${etiquetaVisible(producto.unidad_base)})`} checked={granel} onChange={setGranel} />
+      {!granel && (
+        <Campo
+          etiqueta="Tamaño del paquete"
+          value={tamano}
+          onChange={(e) => { setTamano(e.target.value); setConfirmando(false) }}
+          placeholder={producto.unidad_base === 'g' ? 'Ej: 500 g, 1 kg' : producto.unidad_base === 'ml' ? 'Ej: 1 L, 900 ml' : 'Ej: 30 und'}
+          enterKeyHint="done"
+          ayuda={tamano ? (tamanoOk ? `= ${formatoContenido(c!.valor, producto.unidad_base)}` : 'No entiendo ese tamaño. Escríbelo como 500 g, 1 kg, 1 L o 30 und.') : undefined}
+        />
+      )}
+    </>
+  )
+
   return (
     <form onSubmit={enviar} className="space-y-3">
       <Selector etiqueta="Tienda" value={tienda} onChange={(e) => cambiarTienda(e.target.value as Tienda)}>
@@ -125,29 +145,16 @@ export function RegistrarPrecio({
         {deTienda.map((p) => <option key={p.presentacion_id} value={p.presentacion_id}>{describirPresentacion(p, producto)}</option>)}
         <option value="__nueva">+ Otra marca o tamaño…</option>
       </Selector>
-      {nueva && (
-        <>
-          <Campo etiqueta="Marca" value={marca} onChange={(e) => setMarca(e.target.value)} placeholder="Diana, marca propia…" />
-          <Casilla etiqueta={`Se vende a granel (precio por ${etiquetaVisible(producto.unidad_base)})`} checked={granel} onChange={setGranel} />
-          {!granel && (
-            <Campo
-              etiqueta="Tamaño del paquete"
-              value={tamano}
-              onChange={(e) => { setTamano(e.target.value); setConfirmando(false) }}
-              placeholder={producto.unidad_base === 'g' ? 'Ej: 500 g, 1 kg' : producto.unidad_base === 'ml' ? 'Ej: 1 L, 900 ml' : 'Ej: 30 und'}
-              ayuda={tamano ? (tamanoOk ? `= ${formatoContenido(c!.valor, producto.unidad_base)}` : 'No entiendo ese tamaño. Escríbelo como 500 g, 1 kg, 1 L o 30 und.') : undefined}
-            />
-          )}
-        </>
-      )}
       <Campo
-        etiqueta={granel || pres?.granel ? `Precio por ${etiquetaVisible(producto.unidad_base)}` : 'Precio del paquete'}
+        etiqueta={granel || pres?.granel ? `Precio por ${etiquetaVisible(producto.unidad_base)}` : '¿Cuánto vale en la tienda?'}
         inputMode="numeric"
+        enterKeyHint={nueva ? 'next' : 'done'}
+        inputRef={campoPrecio}
         value={precio}
         onChange={(e) => { setPrecio(e.target.value); setConfirmando(false) }}
         placeholder="Ej: 4.500"
         required
-        data-autofocus={nueva ? undefined : true}
+        data-autofocus
         aviso={aviso}
         ayuda={
           valor || anterior ? (
@@ -158,9 +165,13 @@ export function RegistrarPrecio({
           ) : undefined
         }
       />
-      <Boton type="submit" className="w-full" disabled={!valor}>
-        {confirmando && atipico ? `Sí, es ${pesos(valor)}` : confirmando && sinTamano ? 'Guardar sin tamaño' : 'Guardar precio'}
-      </Boton>
+      {campoMarca}
+      <PieFijo>
+        {!valor && <p className="text-center text-xs text-stone-600">Escribe el precio para guardar.</p>}
+        <Boton type="submit" className="w-full" disabled={!valor}>
+          {confirmando && atipico ? `Sí, es ${pesos(valor)}` : confirmando && sinTamano ? 'Guardar sin tamaño' : 'Guardar precio'}
+        </Boton>
+      </PieFijo>
     </form>
   )
 }

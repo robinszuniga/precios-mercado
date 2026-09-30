@@ -318,7 +318,7 @@ function Dispositivo() {
         <summary className="min-h-11 cursor-pointer py-2 text-marca">Instalar la app en el celular</summary>
         <ul className="list-disc space-y-1 pl-5 text-stone-700">
           <li><strong>Android (Chrome):</strong> menú ⋮ → Instalar app.</li>
-          <li><strong>iPhone (Safari):</strong> botón Compartir → Agregar a inicio.</li>
+          <li><strong>iPhone (Safari):</strong> botón Compartir (cuadrito con flecha) → “Añadir a pantalla de inicio”.</li>
           <li>Instala primero y configura desde la app instalada: en iPhone no comparte datos con Safari.</li>
         </ul>
       </details>

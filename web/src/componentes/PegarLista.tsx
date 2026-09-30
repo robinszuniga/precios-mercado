@@ -6,7 +6,7 @@ import { useMeta } from '../datos/consultas.ts'
 import { db } from '../datos/db.ts'
 import { crearDesdeLista, deshacerReemplazo } from '../datos/escritura.ts'
 import { useTiendasHoy } from '../datos/tiendasHoy.ts'
-import { avisar, Boton, BotonIcono, Casilla, Hoja, leerNumero } from './ui.tsx'
+import { avisar, Boton, BotonIcono, Casilla, Hoja, leerNumero, PieFijo } from './ui.tsx'
 import { buscarPreciosSolo } from './VincularTodos.tsx'
 
 type Fila = {
@@ -41,7 +41,7 @@ function FilaLista({ f, onCambio, onQuitar }: { f: Fila; onCambio: (f: Fila) => 
           id={`${id}-n`}
           value={f.nombre}
           onChange={(e) => onCambio({ ...f, nombre: e.target.value })}
-          className="min-w-0 flex-1 rounded-lg border border-stone-300 bg-white px-2 py-2 font-medium"
+          className="min-h-11 min-w-0 flex-1 rounded-lg border border-stone-400 bg-white px-2 py-2 font-medium"
         />
         <BotonIcono etiqueta={`Quitar ${f.nombre}`} className="text-xl text-stone-600" onClick={onQuitar}>×</BotonIcono>
       </div>
@@ -53,7 +53,7 @@ function FilaLista({ f, onCambio, onQuitar }: { f: Fila; onCambio: (f: Fila) => 
           value={f.cantidad}
           onChange={(e) => onCambio({ ...f, cantidad: e.target.value })}
           aria-invalid={cantidadMala}
-          className={`w-20 rounded-lg border bg-white px-2 py-2 text-right tabular-nums ${cantidadMala ? 'border-peligro' : 'border-stone-300'}`}
+          className={`min-h-11 w-20 rounded-lg border bg-white px-2 py-2 text-right tabular-nums ${cantidadMala ? 'border-peligro' : 'border-stone-400'}`}
         />
         <label htmlFor={`${id}-u`} className="sr-only">Unidad de {f.nombre}</label>
         <select
@@ -61,14 +61,14 @@ function FilaLista({ f, onCambio, onQuitar }: { f: Fila; onCambio: (f: Fila) => 
           value={f.unidad_base}
           disabled={!!f.existente}
           onChange={(e) => onCambio({ ...f, unidad_base: e.target.value as UnidadBase, aviso: '' })}
-          className="rounded-lg border border-stone-300 bg-white px-2 py-2 disabled:bg-stone-100"
+          className="min-h-11 rounded-lg border border-stone-400 bg-white px-2 py-2 disabled:bg-stone-100"
         >
           {(['g', 'ml', 'unidad'] as const).map((u) => <option key={u} value={u}>{etiquetaVisible(u)}</option>)}
         </select>
         {f.existente && <span className="text-xs font-medium text-teal-800">Ya lo tienes: se actualiza</span>}
       </div>
       {f.aviso && <p className="text-xs font-medium text-alerta">{f.aviso}</p>}
-      {f.original && <p className="truncate text-xs text-stone-500">Decía: “{f.original}”</p>}
+      {f.original && <p className="truncate text-xs text-stone-600">Decía: “{f.original}”</p>}
     </li>
   )
 }
@@ -147,15 +147,15 @@ export function PegarLista({ onListo }: { onListo: () => void }) {
     return (
       <div className="space-y-3">
         <p className="text-sm text-stone-700">
-          Encontré <strong>{filas.length}</strong> productos
+          Encontré <strong>{filas.length}</strong> {filas.length === 1 ? 'producto' : 'productos'}
           {filas.some((f) => f.existente) && <> ({filas.filter((f) => f.existente).length} ya los tenías)</>}.
-          {porRevisar > 0 && <> Revisa los <span className="font-semibold text-alerta">{porRevisar} marcados</span>.</>}
+          {porRevisar > 0 && <> Revisa {porRevisar === 1 ? 'el' : 'los'} <span className="font-semibold text-alerta">{porRevisar} {porRevisar === 1 ? 'marcado' : 'marcados'}</span>.</>}
           {' '}Las cantidades van en kg, L o unidades.
         </p>
         {filas.length === 0 && <p className="text-stone-700">No encontré productos. Vuelve y revisa el texto.</p>}
         {grupos.map((g) => (
           <section key={g || 'sin'}>
-            <h3 className="text-sm font-semibold tracking-wide text-stone-600 uppercase">{g || 'Sin pasillo'}</h3>
+            {(g || grupos.length > 1) && <h3 className="text-sm font-semibold tracking-wide text-stone-600 uppercase">{g || 'Otros'}</h3>}
             <ul className="divide-y divide-stone-100">
               {filas.filter((f) => f.pasillo === g).map((f) => (
                 <FilaLista key={f.clave} f={f} onCambio={cambiar} onQuitar={() => setFilas(filas.filter((x) => x.clave !== f.clave))} />
@@ -176,12 +176,14 @@ export function PegarLista({ onListo }: { onListo: () => void }) {
             </p>
           )}
         </div>
-        <div className="flex gap-2 pb-2">
-          <Boton variante="secundario" className="flex-1" onClick={() => setFilas(null)}>Atrás</Boton>
-          <Boton className="flex-[2]" disabled={!validas || filas.length === 0 || guardando} onClick={() => void guardarTodo()}>
-            {guardando ? 'Guardando…' : `Guardar ${filas.length} producto${filas.length === 1 ? '' : 's'}`}
-          </Boton>
-        </div>
+        <PieFijo>
+          <div className="flex gap-2">
+            <Boton variante="secundario" className="flex-1" onClick={() => setFilas(null)}>Atrás</Boton>
+            <Boton className="flex-[2]" disabled={!validas || filas.length === 0 || guardando} onClick={() => void guardarTodo()}>
+              {guardando ? 'Guardando…' : `Guardar ${filas.length} producto${filas.length === 1 ? '' : 's'}`}
+            </Boton>
+          </div>
+        </PieFijo>
       </div>
     )
   }
@@ -201,7 +203,7 @@ export function PegarLista({ onListo }: { onListo: () => void }) {
           onChange={(e) => setCrudo(e.target.value)}
           rows={9}
           placeholder={EJEMPLO}
-          className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5 outline-none focus:border-marca focus:ring-2 focus:ring-marca/30"
+          className="w-full rounded-xl border border-stone-400 bg-white px-3 py-2.5 outline-none focus:border-marca focus:ring-2 focus:ring-marca/30"
         />
       </div>
       <input

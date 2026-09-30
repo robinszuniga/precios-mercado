@@ -108,6 +108,7 @@ function ResumenCompra({ cat, compraId }: { cat: Catalogo; compraId: string }) {
   const comprados = detalles.filter((d) => !d.borrado && d.estado === 'en_carrito')
   const completas = resumen.filter((r) => r.completo).sort((a, b) => a.total_hipotetico - b.total_hipotetico)
   const parciales = resumen.filter((r) => !r.completo).sort((a, b) => b.items_con_precio - a.items_con_precio)
+  const compraCompleta = compra.items_comparados == null || compra.items_total == null || compra.items_comparados >= compra.items_total
   const sobro = compra.presupuesto != null && compra.total_final != null ? compra.presupuesto - compra.total_final : null
   return (
     <div className="space-y-3">
@@ -116,12 +117,15 @@ function ResumenCompra({ cat, compraId }: { cat: Catalogo; compraId: string }) {
       <Tarjeta className="space-y-1">
         {ref && compra.ahorro != null && (
           <>
-            <p className={`text-2xl font-bold ${compra.ahorro >= 0 ? 'text-ok' : 'text-peligro'}`}>
-              {compra.ahorro >= 0 ? `¡Ahorraste ${pesos(compra.ahorro)}!` : `Gastaste ${pesos(-compra.ahorro)} de más`}
+            {/* Celebrar el ahorro solo si se pudo comparar todo lo comprado: con datos parciales no se puede afirmar. */}
+            <p className={`text-2xl font-bold ${!compraCompleta ? 'text-stone-800' : compra.ahorro >= 0 ? 'text-ok' : 'text-peligro'}`}>
+              {!compraCompleta
+                ? `Hasta donde pude comparar, ${compra.ahorro >= 0 ? `ahorraste ${pesos(compra.ahorro)}` : `gastaste ${pesos(-compra.ahorro)} de más`}`
+                : compra.ahorro >= 0 ? `¡Ahorraste ${pesos(compra.ahorro)}!` : `Gastaste ${pesos(-compra.ahorro)} de más`}
             </p>
             <p className="text-sm text-stone-700">
               frente a comprar todo en {INFO_TIENDAS[ref].nombre}
-              {compra.items_comparados != null && compra.items_total != null && compra.items_comparados < compra.items_total && ` (comparado sobre ${compra.items_comparados} de ${compra.items_total} productos)`}
+              {!compraCompleta && ` (comparado sobre ${compra.items_comparados} de ${compra.items_total} productos: a los demás les faltaba precio)`}
             </p>
           </>
         )}
@@ -154,6 +158,7 @@ function ResumenCompra({ cat, compraId }: { cat: Catalogo; compraId: string }) {
           )}
         </Tarjeta>
       )}
+      <a href="#/compra" className="flex min-h-11 items-center justify-center rounded-xl bg-marca px-4 font-medium text-white active:bg-teal-800">Empezar otra compra</a>
       <Tarjeta>
         <h2 className="mb-1 font-semibold">Lo que compraste</h2>
         <ul className="divide-y divide-stone-100 text-sm">

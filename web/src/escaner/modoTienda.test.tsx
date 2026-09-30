@@ -67,7 +67,7 @@ describe('modo tienda', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Listo' }))
     expect(await screen.findByText(/¿Cuál de tus productos es\?/)).toHaveTextContent('Arroz Diana 1000 g')
     fireEvent.click(screen.getByRole('button', { name: /^Arroz/ }))
-    fireEvent.change(await screen.findByLabelText('Precio del paquete'), { target: { value: '4.900' } })
+    fireEvent.change(await screen.findByLabelText('¿Cuánto vale en la tienda?'), { target: { value: '4.900' } })
     fireEvent.click(screen.getByRole('button', { name: 'Guardar precio' }))
     await waitFor(async () => {
       const d1 = (await db.presentaciones.toArray()).find((p) => p.tienda === 'D1')!
@@ -90,9 +90,9 @@ describe('modo tienda', () => {
     fireEvent.click(await screen.findByRole('button', { name: /^Arroz/ }))
     // Empieza en "otra marca o tamaño", no sobre Diana.
     expect(await screen.findByLabelText('Marca y tamaño')).toHaveValue('__nueva')
-    fireEvent.change(screen.getByLabelText('Marca', { exact: true }), { target: { value: 'Roa' } })
+    fireEvent.change(screen.getByLabelText('Marca (opcional)'), { target: { value: 'Roa' } })
     fireEvent.change(screen.getByLabelText('Tamaño del paquete'), { target: { value: '500 g' } })
-    fireEvent.change(screen.getByLabelText('Precio del paquete'), { target: { value: '3.500' } })
+    fireEvent.change(screen.getByLabelText('¿Cuánto vale en la tienda?'), { target: { value: '3.500' } })
     fireEvent.click(screen.getByRole('button', { name: 'Guardar precio' }))
     await waitFor(async () => expect((await db.presentaciones.toArray()).find((p) => p.marca === 'Roa')?.ean).toBe('7702511000021'))
     expect((await db.preciosActuales.where('presentacion_id').equals(diana.presentacion_id).first())?.precio).toBe(4900)

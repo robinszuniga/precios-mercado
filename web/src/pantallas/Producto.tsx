@@ -102,7 +102,7 @@ export function DetalleProducto({ id }: { id: string }) {
         <Boton onClick={() => setDialogo({ precio: {} })}>Anotar precio</Boton>
         <Boton variante="secundario" onClick={() => (conBackend ? setDialogo('vincular') : ir('ajustes'))}>Buscar online</Boton>
       </div>
-      {!conBackend && <p className="text-xs text-stone-600">Para buscar en Éxito, Olímpica y D1 hace falta conectar la copia en Google (Ajustes).</p>}
+      {!conBackend && <p className="text-xs text-stone-600">Buscar precios por internet es opcional y necesita conectar una copia en Google (Ajustes). Sin eso, anota el precio que ves en la tienda.</p>}
 
       <Tarjeta>
         <h2 className="mb-1 font-semibold">Marcas y tamaños</h2>
