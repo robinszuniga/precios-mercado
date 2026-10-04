@@ -1,13 +1,11 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './app/App.tsx'
-import { arrancarSincronizacion } from './datos/sync.ts'
+import { Acceso } from './app/Acceso.tsx'
 import './estilos.css'
 
 createRoot(document.getElementById('raiz')!).render(
   <StrictMode>
-    <App />
+    <Acceso><App /></Acceso>
   </StrictMode>,
 )
-
-arrancarSincronizacion()

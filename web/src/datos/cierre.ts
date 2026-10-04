@@ -55,7 +55,14 @@ export async function cerrarCompra(compra: Compra): Promise<ResultadoCierre> {
     }
     await db.compras.put(cerrada)
     if (resultado.filas.length) await db.resumen.bulkPut(resultado.filas)
-    await encolar('cerrarCompra', { compra: cerrada, detalle: detalles, observaciones: obs, resumen: resultado.filas })
+    await encolar('cerrarCompra', {
+      compra: cerrada,
+      detalle: detalles,
+      observaciones: obs,
+      resumen: resultado.filas,
+      preciosActuales: r.actuales,
+      preciosHistorial: r.historial,
+    })
   })
   sincronizarPronto()
   return resultado

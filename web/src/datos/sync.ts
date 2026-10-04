@@ -4,6 +4,7 @@ import { detectarCambio, type CambioPrecio } from '@shared/novedades.ts'
 import { conservarOpcionales, ganaRemoto } from '@shared/sync.ts'
 import { llamar, type Conexion } from './api.ts'
 import { db, guardarMeta, leerMeta, TABLA_LOCAL, type EntradaOutbox } from './db.ts'
+import { supabase } from './supabase.ts'
 
 export interface EstadoSync {
   enCurso: boolean
@@ -52,8 +53,92 @@ async function rechazar(entradas: EntradaOutbox[], mensaje: string) {
 
 type ResultadoFila = { id: string; r: string; msg?: string; tabla?: NombreTabla; fila?: Record<string, unknown> }
 
-/** Envía la cola en orden. Devuelve false si hay un problema de configuración que no se arregla reintentando. */
-async function vaciarOutbox(c: Conexion): Promise<boolean> {
+const TABLA_CLOUD: Partial<Record<NombreTabla, { tabla: string; id: string }>> = {
+  Config: { tabla: 'config', id: 'clave' },
+  Categorias: { tabla: 'categorias', id: 'categoria_id' },
+  Productos: { tabla: 'productos', id: 'producto_id' },
+  Presentaciones: { tabla: 'presentaciones', id: 'presentacion_id' },
+  Precios: { tabla: 'precios_historial', id: 'precio_id' },
+  Precios_actuales: { tabla: 'precios_actuales', id: 'clave' },
+  Compras: { tabla: 'compras', id: 'compra_id' },
+  Compras_detalle: { tabla: 'compras_detalle', id: 'detalle_id' },
+  Compras_resumen: { tabla: 'compras_resumen', id: 'clave' },
+  Observaciones: { tabla: 'observaciones', id: 'obs_id' },
+}
+
+function filaCloud(tabla: NombreTabla, fila: Record<string, unknown>) {
+  const destino = TABLA_CLOUD[tabla]
+  if (!destino) throw new Error(`No se puede sincronizar la tabla ${tabla}.`)
+  const permitidas = new Set(Object.keys(TABLAS[tabla].cols).filter((col) => col !== '_srv'))
+  const limpia: Record<string, unknown> = {}
+  for (const [clave, valor] of Object.entries(fila)) if (permitidas.has(clave)) limpia[clave] = valor
+  // Postgres espera NULL para fechas vacías; el modelo local usa '' en campos opcionales.
+  if (limpia.fecha_cierre === '') limpia.fecha_cierre = null
+  return { destino, fila: limpia }
+}
+
+async function guardarFilasCloud(cambios: { tabla: NombreTabla; fila: Record<string, unknown> }[]) {
+  if (!supabase) throw new Error('La base de datos no está configurada.')
+  const grupos = new Map<string, { id: string; filas: Record<string, unknown>[] }>()
+  for (const cambio of cambios) {
+    const { destino, fila } = filaCloud(cambio.tabla, cambio.fila)
+    const grupo = grupos.get(destino.tabla) ?? { id: destino.id, filas: [] }
+    grupo.filas.push(fila)
+    grupos.set(destino.tabla, grupo)
+  }
+  for (const [tabla, grupo] of grupos) {
+    const { error } = await supabase.from(tabla).upsert(grupo.filas, { onConflict: `user_id,${grupo.id}` })
+    if (error) throw new Error(error.message)
+  }
+}
+
+async function guardarEventoCloud(entrada: EntradaOutbox) {
+  if (entrada.tipo === 'upsert') {
+    const cambios = (entrada.payload.cambios ?? []) as { tabla: NombreTabla; fila: Record<string, unknown> }[]
+    await guardarFilasCloud(cambios)
+    return
+  }
+  const compra = entrada.payload.compra as Record<string, unknown>
+  const detalle = entrada.payload.detalle as Record<string, unknown>[]
+  const observaciones = entrada.payload.observaciones as Record<string, unknown>[]
+  const resumen = entrada.payload.resumen as Record<string, unknown>[]
+  const preciosActuales = entrada.payload.preciosActuales as Record<string, unknown>[]
+  const preciosHistorial = entrada.payload.preciosHistorial as Record<string, unknown>[]
+  const cambios: { tabla: NombreTabla; fila: Record<string, unknown> }[] = [
+    { tabla: 'Compras', fila: compra },
+    ...detalle.map((fila) => ({ tabla: 'Compras_detalle' as const, fila })),
+    ...observaciones.map((fila) => ({ tabla: 'Observaciones' as const, fila })),
+    ...resumen.map((fila) => ({ tabla: 'Compras_resumen' as const, fila })),
+    ...preciosActuales.map((fila) => ({ tabla: 'Precios_actuales' as const, fila })),
+    ...preciosHistorial.map((fila) => ({ tabla: 'Precios' as const, fila })),
+  ]
+  await guardarFilasCloud(cambios)
+}
+
+/** Envía la cola. La sesión autenticada y RLS identifican la cuenta; el cliente nunca elige el propietario. */
+async function vaciarOutbox(): Promise<boolean> {
+  if (!supabase) return false
+  for (;;) {
+    const listas = (await db.outbox.orderBy('seq').toArray()).filter((e) => e.proximo <= Date.now())
+    if (!listas.length) return true
+    const primera = listas[0]
+    const lote = primera.tipo === 'cerrarCompra' ? [primera] : listas.filter((e) => e.tipo === 'upsert').slice(0, MAX_CAMBIOS_LOTE)
+    const seqs = lote.map((e) => e.seq!)
+    try {
+      for (const entrada of lote) await guardarEventoCloud(entrada)
+      await db.outbox.bulkDelete(seqs)
+    } catch (e) {
+      const mensaje = e instanceof Error ? e.message : String(e)
+      if (/JWT|token|auth|permission|row-level|violates row-level/i.test(mensaje)) await estado({ error: 'Tu sesión venció o no tiene acceso a tus datos. Inicia sesión de nuevo.' })
+      await posponer(seqs, mensaje)
+      return false
+    }
+  }
+}
+
+/** Compatibilidad del adaptador anterior. Acceso.tsx bloquea la app si no existe Supabase, así que no se usa en producción. */
+async function vaciarOutboxAppsScript(c: Conexion): Promise<boolean> {
+  if (!c.url || !c.token) return false
   for (;;) {
     const listas = (await db.outbox.orderBy('seq').toArray()).filter((e) => e.proximo <= Date.now())
     if (!listas.length) return true
@@ -82,8 +167,6 @@ async function vaciarOutbox(c: Conexion): Promise<boolean> {
     const seqs = lote.map((e) => e.seq!)
     if (r.tipo === 'ok') {
       const errores = r.data.resultados.filter((x) => x.r === 'error')
-      // El servidor tenía una versión más nueva (otro celular, o este con el reloj atrasado): se toma esa, si no
-      // el celular se quedaría con la suya para siempre (el cursor de "traer" ya pasó esa fila).
       const vigentes = r.data.resultados.filter((x) => x.r === 'antiguo' && x.tabla && x.fila && TABLA_LOCAL[x.tabla])
       await db.transaction('rw', [db.outbox, db.rechazados, ...vigentes.map((x) => db.table(TABLA_LOCAL[x.tabla!]!))], async () => {
         for (const x of errores) await db.rechazados.add({ tabla: accion, filaId: x.id, mensaje: x.msg ?? 'error', fecha: Date.now() })
@@ -128,6 +211,7 @@ async function anotarCambios(guardados: PrecioActual[], anteriores: Map<string, 
 
 /** Trae lo que cambió en el servidor y lo mezcla: gana el updated_at mayor. */
 export async function traer(c: Conexion, completo = false): Promise<boolean> {
+  if (supabase) return traerCloud(completo)
   const desde = completo ? null : await leerMeta<string | null>('cursor', null)
   const r = await llamar<{ tablas: Record<string, Record<string, unknown>[]>; cursor: string }>(c, 'pull', { desde })
   if (r.tipo !== 'ok') {
@@ -183,6 +267,64 @@ export async function traer(c: Conexion, completo = false): Promise<boolean> {
   return true
 }
 
+/** Descarga por páginas los registros de la cuenta autenticada y los combina con IndexedDB. */
+async function traerCloud(completo = false): Promise<boolean> {
+  if (!supabase) return false
+  const tablasLocales = Object.entries(TABLA_LOCAL).filter(([nombre]) => !!TABLA_CLOUD[nombre as NombreTabla])
+  const todas: { local: string; tablaCloud: string; remoto: Record<string, unknown>[]; cursor: string | null }[] = []
+  for (const [nombre, local] of tablasLocales) {
+    const destino = TABLA_CLOUD[nombre as NombreTabla]!
+    const cursorPrevio = completo ? null : await leerMeta<string | null>(`cursorCloud:${destino.tabla}`, null)
+    const filas: Record<string, unknown>[] = []
+    let cursorMayor: string | null = null
+    for (let desde = 0; ; desde += 500) {
+      let consulta = supabase.from(destino.tabla).select('*')
+      if (cursorPrevio) consulta = consulta.gt('updated_at', cursorPrevio)
+      const { data, error } = await consulta.order('updated_at').order(destino.id).range(desde, desde + 499)
+      if (error) { await estado({ error: error.message }); return false }
+      const pagina = (data ?? []) as Record<string, unknown>[]
+      filas.push(...pagina)
+      for (const fila of pagina) {
+        const marca = fila.updated_at as string
+        if (!cursorMayor || marca > cursorMayor) cursorMayor = marca
+      }
+      if (pagina.length < 500) break
+    }
+    todas.push({ local: local!, tablaCloud: destino.tabla, remoto: filas, cursor: cursorMayor })
+  }
+
+  const instancias = todas.map(({ local }) => db.table(local))
+  await db.transaction('rw', [...instancias, db.meta], async () => {
+    for (const { local, tablaCloud, remoto, cursor } of todas) {
+      const tabla = db.table(local)
+      for (let i = 0; i < remoto.length; i += 500) {
+        const lote = remoto.slice(i, i + 500).map((fila) => {
+          const { user_id: _userId, ...propia } = fila
+          if (propia.fecha_cierre == null) propia.fecha_cierre = ''
+          return propia
+        })
+        const llave = tabla.schema.primKey.name
+        const actuales = await tabla.bulkGet(lote.map((f) => f[llave] as string))
+        const aceptar: Record<string, unknown>[] = []
+        lote.forEach((fila, j) => {
+          const previo = actuales[j] as Record<string, unknown> | undefined
+          if (local === 'preciosActuales') {
+            if (actualMasNuevo(previo as unknown as PrecioActual, fila as unknown as PrecioActual)) aceptar.push(fila)
+          } else if (local === 'historial' || !('updated_at' in fila)) aceptar.push(fila)
+          else if (ganaRemoto(previo as { updated_at: string } | undefined, fila as { updated_at: string })) aceptar.push(fila)
+        })
+        if (aceptar.length) await tabla.bulkPut(aceptar)
+      }
+      if (cursor) {
+        // Cada tabla avanza por separado. El solape captura escrituras concurrentes mientras se leen otras tablas.
+        const cursorConSolape = new Date(new Date(cursor).getTime() - 2000).toISOString()
+        await db.meta.put({ clave: `cursorCloud:${tablaCloud}`, valor: cursorConSolape })
+      }
+    }
+  })
+  return true
+}
+
 let enCurso: Promise<void> | null = null
 
 /** Envía lo pendiente y trae lo nuevo. Si ya hay una sincronización corriendo, espera esa. */
@@ -190,12 +332,12 @@ export function sincronizar(opciones: { completo?: boolean } = {}): Promise<void
   if (enCurso) return enCurso
   enCurso = (async () => {
     try {
-      const c = await conexion()
-      if (!c.url || !c.token) return
+      const c = supabase ? null : await conexion()
+      if (!supabase && (!c?.url || !c.token)) return
       await estado({ enCurso: true })
       try {
-        const ok = await vaciarOutbox(c)
-        if (ok && (await traer(c, opciones.completo))) await estado({ ultimoOk: Date.now(), error: null })
+        const ok = supabase ? await vaciarOutbox() : await vaciarOutboxAppsScript(c!)
+        if (ok && (supabase ? await traerCloud(opciones.completo) : await traer(c!, opciones.completo))) await estado({ ultimoOk: Date.now(), error: null })
       } catch (e) {
         await estado({ error: String(e) })
       } finally {
@@ -218,12 +360,25 @@ export function sincronizarPronto() {
 }
 
 /** Sin Background Sync en iOS: se sincroniza al abrir, al volver la señal, al volver a primer plano y cada minuto. */
-export function arrancarSincronizacion() {
+export function arrancarSincronizacion(): () => void {
   void sincronizar()
-  window.addEventListener('online', () => void sincronizar())
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void sincronizar() })
-  setInterval(() => { if (document.visibilityState === 'visible') void sincronizar() }, 60_000)
+  const alConectar = () => void sincronizar()
+  const alVolver = () => { if (document.visibilityState === 'visible') void sincronizar() }
+  window.addEventListener('online', alConectar)
+  document.addEventListener('visibilitychange', alVolver)
+  const intervalo = setInterval(() => { if (document.visibilityState === 'visible') void sincronizar() }, 60_000)
   void navigator.storage?.persist?.()
+  return () => {
+    window.removeEventListener('online', alConectar)
+    document.removeEventListener('visibilitychange', alVolver)
+    clearInterval(intervalo)
+    if (temporizador) { clearTimeout(temporizador); temporizador = null }
+  }
+}
+
+/** Evita que una respuesta atrasada de la cuenta anterior se aplique a la siguiente IndexedDB. */
+export async function esperarSincronizacion() {
+  await enCurso
 }
 
 export function ahoraIso(): string {

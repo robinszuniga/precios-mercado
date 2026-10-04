@@ -3,10 +3,9 @@ import { mismoEan, normalizarEan } from '@shared/ean.ts'
 import type { Presentacion, Producto } from '@shared/esquema.ts'
 import { claveProducto } from '@shared/importarLista.ts'
 import type { Tienda, TiendaVtex } from '@shared/tiendas.ts'
-import { llamar } from './api.ts'
+import { llamarVtex } from './apiVtex.ts'
 import { db } from './db.ts'
 import { guardar, nuevaPresentacion } from './escritura.ts'
-import { conexion } from './sync.ts'
 import { crearDesdeCandidato, TIENDAS_LOTE, type Cand } from './vincularLote.ts'
 
 const TIEMPO_BUSQUEDA_MS = 8000
@@ -51,10 +50,8 @@ export async function resolverCodigo(ean: string, tienda: Tienda): Promise<Resue
   if (aqui) return { tipo: 'conocido', producto: producto.get(aqui.producto_id)!, presentacion: aqui }
   if (iguales[0]) return { tipo: 'conocido', producto: producto.get(iguales[0].producto_id)!, presentacion: await copiarA(tienda, iguales[0]) }
 
-  const c = await conexion()
-  if (!c.url || !c.token) return { tipo: 'elegir', ean: codigo, sugerencia: null }
   // En la tienda la señal es mala: si internet no responde pronto, se sigue sin la sugerencia.
-  const r = await llamar<{ candidatos: Cand[] }>(c, 'buscarEnTienda', { tienda: '*', ean: codigo }, TIEMPO_BUSQUEDA_MS)
+  const r = await llamarVtex<{ candidatos: Cand[] }>('buscarEnTienda', { tienda: '*', ean: codigo }, TIEMPO_BUSQUEDA_MS)
   const cands = r.tipo === 'ok' ? (r.data.candidatos ?? []).filter((x) => mismoEan(x.ean, codigo)) : []
   const mejor = cands.find((x) => x.contenido) ?? cands[0]
   return { tipo: 'elegir', ean: codigo, sugerencia: mejor ? { nombre: mejor.nombre, marca: mejor.marca, candidatos: cands } : null }

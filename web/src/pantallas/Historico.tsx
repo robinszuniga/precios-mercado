@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { normalizar } from '@shared/contenido.ts'
 import type { PrecioHistorico, Producto } from '@shared/esquema.ts'
 import { formatoNumero } from '@shared/dinero.ts'
@@ -8,10 +8,9 @@ import { INFO_TIENDAS, TIENDAS, esTienda } from '@shared/tiendas.ts'
 import { etiquetaVisible, precioPorUnidad } from '@shared/unidades.ts'
 import { fechaCorta, Grafico, MuestraLinea, type Serie } from '../componentes/Grafico.tsx'
 import { Cargando, NombreTienda, pesos, Tarjeta, Titulo, Vacio } from '../componentes/ui.tsx'
-import { llamar } from '../datos/api.ts'
 import { useCatalogo, type Catalogo } from '../datos/consultas.ts'
 import { db } from '../datos/db.ts'
-import { ahoraIso, conexion } from '../datos/sync.ts'
+import { ahoraIso } from '../datos/sync.ts'
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
 
@@ -25,13 +24,6 @@ function HistoricoProducto({ cat, producto }: { cat: Catalogo; producto: Product
   const presentaciones = cat.presentacionesDe.get(producto.producto_id) ?? []
   const ids = presentaciones.map((p) => p.presentacion_id)
   const filas = useLiveQuery(() => db.historial.where('presentacion_id').anyOf(ids).toArray(), [ids.join(',')]) ?? []
-
-  useEffect(() => {
-    void (async () => {
-      const r = await llamar<{ filas: PrecioHistorico[] }>(await conexion(), 'historialPrecios', { productoId: producto.producto_id })
-      if (r.tipo === 'ok' && r.data.filas.length) await db.historial.bulkPut(r.data.filas)
-    })()
-  }, [producto.producto_id])
 
   const series = useMemo<Serie[]>(() => {
     const pres = new Map(presentaciones.map((p) => [p.presentacion_id, p]))

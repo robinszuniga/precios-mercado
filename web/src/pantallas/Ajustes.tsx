@@ -1,15 +1,17 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import type { RegionGuardada } from '@shared/config.ts'
 import { formatoNumero } from '@shared/dinero.ts'
+import { TABLAS, type NombreTabla } from '@shared/esquema.ts'
+import { validarFila } from '@shared/seguridad.ts'
 import { INFO_TIENDAS, TIENDAS_VTEX, type TiendaVtex } from '@shared/tiendas.ts'
 import { BotonPegarLista } from '../componentes/PegarLista.tsx'
 import { avisar, Boton, Campo, Cargando, ErrorTexto, leerNumero, NombreTienda, Tarjeta, Titulo } from '../componentes/ui.tsx'
-import { llamar, ping, type Conexion } from '../datos/api.ts'
+import { llamarVtex } from '../datos/apiVtex.ts'
 import { useCatalogo, useMeta } from '../datos/consultas.ts'
 import { db, guardarMeta } from '../datos/db.ts'
 import { guardar, guardarConfig } from '../datos/escritura.ts'
-import { conexion, sincronizar, type EstadoSync } from '../datos/sync.ts'
+import { sincronizar, type EstadoSync } from '../datos/sync.ts'
 
 function hora(ms: number | null) {
   if (!ms) return 'nunca'
@@ -120,159 +122,26 @@ function Archivados() {
   )
 }
 
-function CopiaGoogle() {
-  const guardada = useMeta<Conexion>('conexion', { url: '', token: '' })
-  const sync = useMeta<EstadoSync>('estadoSync', { enCurso: false, ultimoOk: null, error: null })
-  const pendientes = useLiveQuery(() => db.outbox.count(), []) ?? 0
-  const proyectoConectado = useMeta<string>('proyectoConectado', '')
-  const [url, setUrl] = useState('')
-  const [token, setToken] = useState('')
-  const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null)
-  const [probando, setProbando] = useState(false)
-  useEffect(() => { setUrl(guardada.url); setToken(guardada.token) }, [guardada.url, guardada.token])
-  const conectada = !!guardada.url && !!guardada.token
-
-  async function probar() {
-    const c = { url: url.trim(), token: token.trim() }
-    // El token solo viaja a una aplicación web de Google: una dirección de otro sitio no se guarda ni se prueba.
-    if (!/^https:\/\/script\.google\.com\/(?:a\/macros\/[\w.-]+|macros)\/s\/[\w-]+\/exec$/.test(c.url)) {
-      setResultado({ ok: false, texto: 'Esa dirección no parece la de una aplicación web de Google. Debe verse como https://script.google.com/macros/s/…/exec' })
-      return
-    }
-    setProbando(true)
-    await guardarMeta('conexion', c)
-    await guardarMeta('reenviosOpcionales', {}) // un script nuevo ya puede guardar lo que el viejo descartaba
-    const p = await ping(c.url)
-    const proyecto = p.tipo === 'ok' && p.data.proyecto ? ` …${p.data.proyecto}` : ''
-    await guardarMeta('proyectoConectado', proyecto.trim())
-    if (p.tipo !== 'ok' || p.data.app !== 'precios-mercado') {
-      setResultado({ ok: false, texto: p.tipo === 'desconocido' ? 'No responde. Revisa que la dirección termine en /exec y que el acceso sea “Cualquier persona”.' : 'Esa dirección no es la de tu copia en Google.' })
-    } else if (p.data.configurado === false) {
-      setResultado({
-        ok: false,
-        texto: `Esa dirección es de un proyecto de Apps Script sin configurar (proyecto${proyecto}). Copia la URL del proyecto donde ejecutaste “inicializarHoja”: Implementar → Gestionar implementaciones. El registro de “inicializarHoja” dice el proyecto y su URL.`,
-      })
-    } else {
-      const d = await llamar<{ pestanasFaltantes: string[]; version?: string; cargador?: number | null; actualizacion?: InfoActualizacion | null }>(c, 'diag')
-      if (d.tipo === 'ok') {
-        await guardarMeta('scriptInfo', { version: d.data.version ?? null, cargador: d.data.cargador ?? null, actualizacion: d.data.actualizacion ?? null })
-        setResultado(d.data.pestanasFaltantes.length
-          ? { ok: false, texto: `Conectado, pero al Sheet le faltan pestañas. En Apps Script ejecuta “inicializarHoja”.` }
-          : { ok: true, texto: `✔ Conectado${proyecto ? ` al proyecto${proyecto}` : ''}. Copiando tus datos…` })
-        await guardarMeta('estadoSync', { enCurso: false, ultimoOk: null, error: null })
-        await sincronizar({ completo: true })
-      } else setResultado({ ok: false, texto: d.tipo === 'error' && d.codigo === 'token_invalido' ? 'La clave no coincide. Cópiala otra vez del registro de “inicializarHoja”.' : d.tipo === 'error' ? d.mensaje : 'Sin respuesta. ¿Hay señal?' })
-    }
-    setProbando(false)
-  }
-
-  return (
-    <Tarjeta className="space-y-3">
-      {conectada ? (
-        sync.error ? (
-          <p className="text-sm font-medium text-peligro">✘ No se está guardando en Google: {sync.error}</p>
-        ) : sync.ultimoOk ? (
-          <p className="text-sm">
-            <span className="font-semibold text-ok">✔ Copia activa{proyectoConectado ? ` (proyecto ${proyectoConectado})` : ''}.</span> Última vez: {hora(sync.ultimoOk)}
-            {pendientes > 0 && ` · ${pendientes} cambios por enviar`}
-          </p>
-        ) : (
-          <p className="text-sm text-stone-700">Todavía no se ha guardado nada en Google. Toca “Guardar y probar”.</p>
-        )
-      ) : (
-        <p className="text-sm text-stone-700">
-          Opcional. Guarda tus datos en un Google Sheet tuyo (por si pierdes el celular) y trae los precios de Éxito y Olímpica.
-          Los pasos están en la guía: <a className="text-marca underline" href="https://github.com/robinszuniga/precios-mercado#puesta-en-marcha-una-sola-vez" target="_blank" rel="noreferrer">cómo crear la copia</a>.
-        </p>
-      )}
-      <Campo etiqueta="Dirección de la aplicación web (termina en /exec)" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://script.google.com/macros/s/…/exec" inputMode="url" autoComplete="off" />
-      <Campo etiqueta="Clave (token)" value={token} onChange={(e) => setToken(e.target.value)} type="password" autoComplete="off" ayuda="Sale en el registro al ejecutar “inicializarHoja”. Solo se guarda en este celular." />
-      <Boton className="w-full" onClick={probar} disabled={probando || !url || !token}>{probando ? 'Probando…' : 'Guardar y probar'}</Boton>
-      {resultado && (resultado.ok ? <p role="status" className="text-sm font-medium text-ok">{resultado.texto}</p> : <ErrorTexto>{resultado.texto}</ErrorTexto>)}
-      {conectada && <Boton variante="secundario" className="w-full" onClick={() => void sincronizar()}>Sincronizar ahora</Boton>}
-    </Tarjeta>
-  )
-}
-
-interface InfoActualizacion {
-  estado: 'al_dia' | 'actualizado' | 'necesita_permiso' | 'sin_cargador' | 'error'
-  nueva: string | null
-  mensaje: string
-  fecha: string
-  cargador?: number | null
-}
-
-interface InfoScript {
-  version: string | null
-  /** Versión del cargador pegado en Apps Script; null = se pegó el código completo (no se actualiza solo). */
-  cargador?: number | null
-  actualizacion: InfoActualizacion | null
-}
-
-const GUIA_CARGADOR = 'https://github.com/robinszuniga/precios-mercado#actualizaciones-del-script-autom%C3%A1ticas'
-
-/** Versión del script de Google y su actualización automática (desde las versiones publicadas en GitHub). */
-function ScriptGoogle() {
-  const guardada = useMeta<Conexion>('conexion', { url: '', token: '' })
-  const info = useMeta<InfoScript | null>('scriptInfo', null)
-  const [mensaje, setMensaje] = useState('')
-  const [ocupado, setOcupado] = useState(false)
-  if (!guardada.url || !guardada.token) return null
-
-  async function actualizar() {
-    setOcupado(true)
-    setMensaje('Buscando una versión nueva…')
-    const r = await llamar<InfoActualizacion>(await conexion(), 'actualizarScript', {}, 120_000)
-    setOcupado(false)
-    if (r.tipo === 'ok') {
-      if (r.data.estado === 'actualizado') await guardarMeta('reenviosOpcionales', {})
-      setMensaje(r.data.mensaje)
-      await guardarMeta('scriptInfo', {
-        version: r.data.estado === 'actualizado' ? r.data.nueva : info?.version ?? null,
-        cargador: r.data.cargador ?? info?.cargador ?? null,
-        actualizacion: r.data,
-      })
-    } else setMensaje(r.tipo === 'error' ? r.mensaje : 'Sin respuesta. ¿Hay señal?')
-  }
-
-  const a = info?.actualizacion
-  // Sin cargador (se pegó el código completo) no hay nada que actualizar desde aquí: se explica cómo dejarlo solo.
-  const sinCargador = !!info?.version && info.cargador == null
-  const problema = !sinCargador && a && (a.estado === 'necesita_permiso' || a.estado === 'error')
+function ServicioVtex() {
   return (
     <Tarjeta className="space-y-2 text-sm">
-      <h3 className="text-base font-semibold">Script de Google</h3>
-      <p className="text-stone-700">
-        Versión {info?.version ?? '— (toca “Guardar y probar”)'}.
-        {!sinCargador && info?.version && ' Se actualiza solo: cada mañana y al usar la app.'}
-      </p>
-      {sinCargador && (
-        <p className="font-medium text-alerta">
-          Para que se actualice solo, pega el cargador en Apps Script (una sola vez).{' '}
-          <a className="text-marca underline" href={GUIA_CARGADOR} target="_blank" rel="noreferrer">Cómo hacerlo</a>
-        </p>
-      )}
-      {problema && <p className="font-medium text-alerta">{a.mensaje}</p>}
-      {!sinCargador && (
-        <Boton variante="secundario" className="w-full" onClick={() => void actualizar()} disabled={ocupado}>
-          {ocupado ? 'Actualizando…' : 'Actualizar ahora'}
-        </Boton>
-      )}
-      {mensaje && <p role="status" className="text-stone-700">{mensaje}</p>}
+      <h3 className="font-semibold">Precios de internet</h3>
+      <p className="text-stone-700">Buscamos los productos en los catálogos online de Éxito y Olímpica; D1 se incluye cuando publica precios para tu región. No necesitas crear una hoja de Google ni copiar una clave. Los precios dependen de la tienda y pueden cambiar; si una tienda no publica el precio, puedes anotarlo aquí.</p>
     </Tarjeta>
   )
 }
-
 function Regiones() {
   const cat = useCatalogo()
-  const conexionActiva = useMeta<Conexion>('conexion', { url: '', token: '' })
   const [msg, setMsg] = useState('')
   if (!cat) return null
   async function probar(t: TiendaVtex) {
     setMsg(`Consultando ${INFO_TIENDAS[t].nombre}…`)
-    const r = await llamar<{ region: RegionGuardada | null }>(await conexion(), 'probarRegion', { tienda: t })
-    setMsg(r.tipo === 'ok' ? `${INFO_TIENDAS[t].nombre}: ${r.data.region?.localizada ? 'atiende Riohacha' : 'no atiende Riohacha (precio nacional)'}` : r.tipo === 'error' ? r.mensaje : 'Sin respuesta')
-    void sincronizar()
+    const r = await llamarVtex<{ region: RegionGuardada | null; autoD1: boolean }>('probarRegion', { tienda: t })
+    if (r.tipo === 'ok' && r.data.region) {
+      await guardarConfig(`region.${t}`, JSON.stringify(r.data.region))
+      if (t === 'D1') await guardarConfig('tienda_auto.D1', r.data.autoD1 ? 'si' : 'no')
+      setMsg(`${INFO_TIENDAS[t].nombre}: ${r.data.region.localizada ? 'atiende Riohacha' : 'precio nacional'}`)
+    } else setMsg(r.tipo === 'error' ? r.mensaje : 'Sin respuesta. Inténtalo de nuevo con conexión.')
   }
   return (
     <Tarjeta className="space-y-1 text-sm">
@@ -284,7 +153,7 @@ function Regiones() {
               <NombreTienda tienda={t} tam={18} />
               <span className="text-stone-700">{!g ? '· sin probar' : g.localizada ? '· precio de Riohacha' : t === 'D1' ? '· no atiende Riohacha: lo anotas tú' : '· precio nacional'}</span>
             </span>
-            {conexionActiva.url && <Boton variante="fantasma" onClick={() => void probar(t)}>Probar</Boton>}
+            <Boton variante="fantasma" onClick={() => void probar(t)}>Probar</Boton>
           </div>
         )
       })}
@@ -296,10 +165,13 @@ function Regiones() {
 
 function Dispositivo() {
   const [persistente, setPersistente] = useState<boolean | null>(null)
+  const [importando, setImportando] = useState(false)
+  const [resultadoRespaldo, setResultadoRespaldo] = useState<{ ok: boolean; texto: string } | null>(null)
+  const entradaRespaldo = useRef<HTMLInputElement>(null)
   useEffect(() => { void navigator.storage?.persisted?.().then(setPersistente) }, [])
   async function respaldo() {
     const datos: Record<string, unknown> = {}
-    for (const t of ['config', 'categorias', 'productos', 'presentaciones', 'preciosActuales', 'compras', 'detalle', 'resumen', 'historial', 'outbox']) {
+    for (const t of TABLAS_RESPALDO) {
       datos[t] = await db.table(t).toArray()
     }
     const blob = new Blob([JSON.stringify({ app: 'precios-mercado', fecha: new Date().toISOString(), datos }, null, 1)], { type: 'application/json' })
@@ -312,10 +184,86 @@ function Dispositivo() {
     await guardarMeta('ultimoRespaldo', Date.now())
     avisar('Respaldo descargado')
   }
+
+  async function importar(e: ChangeEvent<HTMLInputElement>) {
+    const archivo = e.target.files?.[0]
+    // Permite volver a elegir el mismo archivo si se corrige o falla la importación.
+    e.target.value = ''
+    if (!archivo) return
+    setImportando(true)
+    setResultadoRespaldo(null)
+    try {
+      if (archivo.size > 25 * 1024 * 1024) throw new Error('El archivo supera el límite de 25 MB.')
+      const copia: unknown = JSON.parse(await archivo.text())
+      if (!esRegistro(copia) || copia.app !== 'precios-mercado' || !esRegistro(copia.datos)) {
+        throw new Error('El archivo no parece un respaldo de Precios de Mercado.')
+      }
+
+      const tablas = TABLAS_RESPALDO.filter((nombre) => nombre in copia.datos)
+      if (!tablas.length) throw new Error('El respaldo no contiene datos que esta versión pueda importar.')
+
+      const filas = new Map<string, Record<string, unknown>[]>()
+      let total = 0
+      for (const nombre of tablas) {
+        const valor = copia.datos[nombre]
+        if (!Array.isArray(valor)) throw new Error(`La tabla “${nombre}” no tiene un formato válido.`)
+        const tabla = db.table(nombre)
+        const clave = tabla.schema.primKey.name
+        const lista = valor.map((fila) => {
+          const valida = validarFila(ESQUEMA_RESPALDO[nombre], fila, false)
+          if (!esRegistro(fila)) throw new Error(`Fila inválida en “${nombre}”: debe ser un objeto.`)
+          const opcionales = COLUMNAS_RESPALDO_OPCIONALES[nombre]
+          const faltante = Object.keys(TABLAS[ESQUEMA_RESPALDO[nombre]].cols)
+            .find((col) => col !== '_srv' && !opcionesTiene(opcionales, col) && !(col in fila))
+          if (fila[clave] == null || !['string', 'number'].includes(typeof fila[clave]) || faltante || !valida.ok) {
+            const detalle = faltante ? `falta la columna ${faltante}` : valida.ok ? 'clave inválida' : valida.error
+            throw new Error(`Fila inválida en “${nombre}”: ${detalle}.`)
+          }
+          return fila
+        })
+        filas.set(nombre, lista)
+        total += lista.length
+      }
+      if (total === 0) throw new Error('El respaldo está vacío.')
+
+      const confirmacion = window.confirm(
+        `Se combinarán ${total} registros con los datos de esta cuenta. Si una fila tiene la misma clave, la del archivo la reemplazará; las demás se conservan. Al confirmar, los datos se sincronizarán con tu cuenta. ¿Continuar?`,
+      )
+      if (!confirmacion) return
+
+      const tablasLocales = tablas.map((nombre) => db.table(nombre))
+      await db.transaction('rw', ...tablasLocales, db.outbox, async () => {
+        for (const nombre of tablas) await db.table(nombre).bulkPut(filas.get(nombre)!)
+        for (const nombre of tablas) {
+          const cambios = filas.get(nombre)!.map((fila) => ({ tabla: ESQUEMA_RESPALDO[nombre], fila }))
+          for (let i = 0; i < cambios.length; i += 100) {
+            await db.outbox.add({ tipo: 'upsert', payload: { cambios: cambios.slice(i, i + 100) }, intentos: 0, proximo: 0, creado: Date.now() })
+          }
+        }
+      })
+      sincronizarPronto()
+      setResultadoRespaldo({ ok: true, texto: `Listo: se importaron ${total} registros. Se sincronizarán con tu cuenta.` })
+    } catch (error) {
+      setResultadoRespaldo({ ok: false, texto: error instanceof Error ? error.message : 'No se pudo leer el respaldo.' })
+    } finally {
+      setImportando(false)
+    }
+  }
+
   return (
     <Tarjeta className="space-y-2 text-sm">
       <p>{persistente ? '✔ El celular protege estos datos.' : persistente === false ? 'El celular podría borrar estos datos si le falta espacio. Instala la app para protegerlos.' : ''}</p>
       <Boton variante="secundario" className="w-full" onClick={() => void respaldo()}>Descargar respaldo (archivo)</Boton>
+      <input ref={entradaRespaldo} className="hidden" type="file" accept="application/json,.json" onChange={(e) => void importar(e)} />
+      <Boton variante="secundario" className="w-full" onClick={() => entradaRespaldo.current?.click()} disabled={importando}>
+        {importando ? 'Importando…' : 'Importar respaldo (archivo)'}
+      </Boton>
+      <p className="text-stone-600">
+        Combina los datos de la copia con los de esta cuenta. Las filas importadas también se sincronizan con tu nube.
+      </p>
+      {resultadoRespaldo && (resultadoRespaldo.ok
+        ? <p role="status" className="font-medium text-ok">{resultadoRespaldo.texto}</p>
+        : <ErrorTexto>{resultadoRespaldo.texto}</ErrorTexto>)}
       <details>
         <summary className="min-h-11 cursor-pointer py-2 text-marca">Instalar la app en el celular</summary>
         <ul className="list-disc space-y-1 pl-5 text-stone-700">
@@ -328,18 +276,37 @@ function Dispositivo() {
   )
 }
 
+const TABLAS_RESPALDO = ['config', 'categorias', 'productos', 'presentaciones', 'preciosActuales', 'compras', 'detalle', 'resumen', 'historial'] as const
+type TablaRespaldo = typeof TABLAS_RESPALDO[number]
+
+const ESQUEMA_RESPALDO: Record<TablaRespaldo, NombreTabla> = {
+  config: 'Config',
+  categorias: 'Categorias',
+  productos: 'Productos',
+  presentaciones: 'Presentaciones',
+  preciosActuales: 'Precios_actuales',
+  compras: 'Compras',
+  detalle: 'Compras_detalle',
+  resumen: 'Compras_resumen',
+  historial: 'Precios',
+}
+
+const COLUMNAS_RESPALDO_OPCIONALES: Partial<Record<TablaRespaldo, readonly string[]>> = {
+  productos: ['marca'],
+  detalle: ['precio_confirmado'],
+}
+
+function opcionesTiene(opcionales: readonly string[] | undefined, columna: string): boolean {
+  return opcionales?.includes(columna) ?? false
+}
+
+function esRegistro(valor: unknown): valor is Record<string, unknown> {
+  return typeof valor === 'object' && valor !== null && !Array.isArray(valor)
+}
+
 function Avanzado() {
-  const [d, setD] = useState<Record<string, unknown> | null>(null)
-  const [msg, setMsg] = useState('')
   const rechazados = useLiveQuery(() => db.rechazados.toArray(), []) ?? []
   const sync = useMeta<EstadoSync>('estadoSync', { enCurso: false, ultimoOk: null, error: null })
-  async function cargar() {
-    const r = await llamar<Record<string, unknown>>(await conexion(), 'diag')
-    if (r.tipo === 'ok') setD(r.data)
-    else setMsg(r.tipo === 'error' ? r.mensaje : r.motivo)
-  }
-  const log = (d?.log as { fecha: string; nivel: string; mensaje: string }[] | undefined) ?? []
-  const job = d?.job as { estado: string; fin: string | null; errores: string[] } | null | undefined
   return (
     <details className="rounded-2xl bg-white p-3 text-sm ring-1 ring-stone-200">
       <summary className="min-h-11 cursor-pointer py-2 font-semibold">Avanzado (diagnóstico)</summary>
@@ -352,19 +319,7 @@ function Avanzado() {
             <Boton variante="fantasma" onClick={() => void db.rechazados.clear()}>Borrar la lista</Boton>
           </div>
         )}
-        <div className="flex gap-2">
-          <Boton variante="secundario" className="flex-1" onClick={() => void sincronizar({ completo: true })}>Bajar todo de nuevo</Boton>
-          <Boton variante="secundario" className="flex-1" onClick={() => void cargar()}>Ver servidor</Boton>
-        </div>
-        {msg && <ErrorTexto>{msg}</ErrorTexto>}
-        {d && (
-          <>
-            <p>Tareas programadas: {(d.triggers as string[]).join(', ') || 'ninguna'}</p>
-            {job && <p>Última actualización de precios: {job.estado} {job.fin?.slice(0, 16).replace('T', ' ')} {job.errores.length ? `· ${job.errores.length} errores` : ''}</p>}
-            {job?.errores.slice(-5).map((e, i) => <p key={i} className="text-xs text-peligro">{e}</p>)}
-            <ul className="space-y-1 text-xs">{log.map((l, i) => <li key={i}>{l.fecha.slice(5, 16).replace('T', ' ')} [{l.nivel}] {l.mensaje}</li>)}</ul>
-          </>
-        )}
+        <Boton variante="secundario" className="w-full" onClick={() => void sincronizar({ completo: true })}>Bajar mis datos de nuevo</Boton>
       </div>
     </details>
   )
@@ -386,9 +341,8 @@ export function Ajustes() {
         <Pasillos />
         <Archivados />
       </Seccion>
-      <Seccion titulo="Copia en Google y precios de internet">
-        <CopiaGoogle />
-        <ScriptGoogle />
+      <Seccion titulo="Tus datos y precios de internet">
+        <ServicioVtex />
         <Regiones />
       </Seccion>
       <Seccion titulo="Este celular">

@@ -84,7 +84,7 @@ export function Plan() {
       {items.length > 0 && plan.grupos.length === 0 && (
         <Tarjeta className="space-y-2">
           <h2 className="font-semibold">Aún no hay precios</h2>
-          <p className="text-sm text-stone-700">Anota el precio de algunos productos (en la tienda, o por internet si conectaste Google) y aquí verás dónde conviene comprar cada cosa.</p>
+          <p className="text-sm text-stone-700">Anota el precio de algunos productos en la tienda o búscalo en internet; aquí verás dónde conviene comprar cada cosa.</p>
         </Tarjeta>
       )}
       {items.length > 0 && plan.grupos.length > 0 && (

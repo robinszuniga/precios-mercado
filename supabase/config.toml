@@ -1,0 +1,4 @@
+project_id = "ptsqflcptsgocqianklh"
+
+[functions.vtex]
+verify_jwt = true

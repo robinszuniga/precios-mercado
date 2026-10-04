@@ -1,94 +1,100 @@
-import { useEffect, useRef, useState } from 'react'
-import { llamar } from '../datos/api.ts'
-import { useMeta } from '../datos/consultas.ts'
-import { conexion, sincronizar } from '../datos/sync.ts'
+import { useState } from 'react'
+import type { Presentacion } from '@shared/esquema.ts'
+import { useCatalogo } from '../datos/consultas.ts'
+import { db } from '../datos/db.ts'
+import { observacion, registrarObservaciones, guardar } from '../datos/escritura.ts'
+import { llamarVtex } from '../datos/apiVtex.ts'
 import { Boton } from './ui.tsx'
 
-interface JobPublico {
-  id: string
-  estado: 'en_cola' | 'corriendo' | 'terminado' | 'error'
-  total: number
-  hechos: number
-  actualizados: number
-  errores: string[]
+interface ResultadoPrecio {
+  presentacion_id: string
+  tienda: Presentacion['tienda']
+  region: 'RIOHACHA' | 'DEFAULT'
+  precio: number | null
+  precio_lista: number | null
+  disponible: boolean
+  ean: string
+  sku_id: string
+  vtex_product_id: string
+  fecha_observado: string
+  error?: string
 }
 
-/** Dispara la actualización en el servidor (tarda: corre en segundo plano) y consulta el avance cada 5 s. */
+const LOTE = 8
+
+/** Actualiza solo las presentaciones de esta cuenta; cada tanda se autoriza con la sesión Supabase. */
 export function ActualizarPrecios() {
-  const c = useMeta<{ url: string; token: string }>('conexion', { url: '', token: '' })
-  const [job, setJob] = useState<JobPublico | null>(null)
-  const [mensaje, setMensaje] = useState('')
+  const catalogo = useCatalogo()
   const [ocupado, setOcupado] = useState(false)
-  const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const montado = useRef(true)
-
-  useEffect(() => {
-    montado.current = true
-    return () => {
-      montado.current = false
-      if (temporizador.current) clearTimeout(temporizador.current)
-    }
-  }, [])
-
-  /**
-   * Pregunta cada 5 s cómo va, una pregunta a la vez (la siguiente se programa al llegar la respuesta) y solo
-   * mientras la pantalla está abierta. Tras 10 min deja de preguntar: el trabajo sigue en el servidor.
-   */
-  function seguir(vueltas = 0) {
-    if (!montado.current) return
-    temporizador.current = setTimeout(async () => {
-      const r = await llamar<{ job: JobPublico | null }>(await conexion(), 'estadoJob')
-      if (!montado.current) return
-      const j = r.tipo === 'ok' ? r.data.job : null
-      if (j) setJob(j)
-      if (j && (j.estado === 'terminado' || j.estado === 'error')) {
-        setOcupado(false)
-        setMensaje(j.estado === 'terminado'
-          ? `Listo: ${j.actualizados} precios cambiaron${j.errores.length ? `, ${j.errores.length} con problemas (ver Ajustes)` : ''}.`
-          : 'La actualización falló. Revisa el diagnóstico en Ajustes.')
-        void sincronizar()
-        return
-      }
-      if (vueltas >= 120) {
-        setOcupado(false)
-        setMensaje('Sigue trabajando en Google: los precios llegarán solos.')
-        return
-      }
-      seguir(vueltas + 1)
-    }, 5000)
-  }
+  const [mensaje, setMensaje] = useState('')
 
   async function iniciar() {
+    if (!catalogo) return
     setOcupado(true)
-    setMensaje('')
-    const r = await llamar<{ job: JobPublico }>(await conexion(), 'actualizarPrecios')
-    if (!montado.current) return
-    if (r.tipo === 'ok') {
-      setJob(r.data.job)
-      seguir()
-      return
+    setMensaje('Buscando precios en las tiendas…')
+    try {
+      const todas = await db.presentaciones.toArray()
+      const pendientes = todas.filter((p) => p.activo && p.auto && (p.sku_id || p.ean)
+        && (p.tienda === 'EXITO' || p.tienda === 'OLIMPICA' || (p.tienda === 'D1' && catalogo.cfg.autoD1)))
+      let actualizadas = 0
+      let errores = 0
+      for (let i = 0; i < pendientes.length; i += LOTE) {
+        const lote = pendientes.slice(i, i + LOTE)
+        setMensaje(`Consultando ${Math.min(i + lote.length, pendientes.length)} de ${pendientes.length} productos…`)
+        const r = await llamarVtex<{ resultados: ResultadoPrecio[] }>('actualizarVinculadas', {
+          presentaciones: lote.map(({ presentacion_id, tienda, sku_id, ean }) => ({ presentacion_id, tienda, sku_id, ean })),
+        })
+        if (r.tipo !== 'ok') {
+          errores += lote.length
+          if (r.tipo === 'error' && r.codigo === 'rate_limit') break
+          continue
+        }
+        for (const resultado of r.data.resultados) {
+          const p = lote.find((x) => x.presentacion_id === resultado.presentacion_id)
+          if (!p) continue
+          if (resultado.error) {
+            errores++
+            await guardar<Presentacion>('Presentaciones', { ...p, ultimo_error: `${new Date().toISOString().slice(0, 10)} ${resultado.error}` })
+            continue
+          }
+          const actualizada = {
+            ...p,
+            sku_id: resultado.sku_id || p.sku_id,
+            vtex_product_id: resultado.vtex_product_id || p.vtex_product_id,
+            ultimo_error: '',
+          }
+          if (actualizada.sku_id !== p.sku_id || actualizada.vtex_product_id !== p.vtex_product_id || p.ultimo_error) {
+            await guardar<Presentacion>('Presentaciones', actualizada)
+          }
+          await registrarObservaciones([observacion({
+            presentacion: actualizada,
+            precio: resultado.precio,
+            precioLista: resultado.precio_lista,
+            disponible: resultado.disponible,
+            origen: 'online',
+            fuente: 'auto',
+            region: resultado.region,
+            id: `auto:${p.presentacion_id}:${resultado.fecha_observado.slice(0, 13)}`,
+          })])
+          actualizadas++
+        }
+      }
+      setMensaje(actualizadas || errores
+        ? `Listo: ${actualizadas} precios consultados${errores ? `; ${errores} no se pudieron actualizar` : ''}.`
+        : 'No hay presentaciones online para actualizar todavía.')
+    } catch {
+      setMensaje('No pude actualizar los precios. Revisa tu conexión e inténtalo de nuevo.')
+    } finally {
+      setOcupado(false)
     }
-    setOcupado(false)
-    if (r.tipo === 'error' && r.codigo === 'rate_limit') {
-      setMensaje('Los precios se actualizaron hace muy poco.')
-      void sincronizar()
-    } else setMensaje(r.tipo === 'error' ? r.mensaje : 'Sin señal: los precios online se actualizan cuando haya conexión.')
   }
 
-  const avance = job && job.total ? Math.round((job.hechos / job.total) * 100) : 0
-  if (!c.url || !c.token) {
-    return (
-      <a href="#/ajustes" className="block min-h-11 rounded-xl border border-dashed border-stone-300 px-3 py-2.5 text-sm text-stone-700">
-        Opcional: para traer solos los precios de Éxito y Olímpica hay que conectar una copia en Google <span className="text-marca">→ Ajustes</span>
-      </a>
-    )
-  }
   return (
     <div className="space-y-1">
-      <Boton variante="secundario" className="w-full" onClick={iniciar} disabled={ocupado}>
-        {ocupado ? `Actualizando precios online… ${job?.total ? `${avance} %` : ''}` : '↻ Traer precios de Éxito y Olímpica'}
+      <Boton variante="secundario" className="w-full" onClick={() => void iniciar()} disabled={ocupado || !catalogo}>
+        {ocupado ? mensaje || 'Actualizando precios online…' : '↻ Traer precios de Éxito, Olímpica y D1'}
       </Boton>
-      {mensaje && <p className="text-center text-sm text-stone-700" role="status">{mensaje}</p>}
+      {!ocupado && mensaje && <p className="text-center text-sm text-stone-700" role="status">{mensaje}</p>}
     </div>
   )
 }

@@ -322,7 +322,7 @@ const TEXTO_DISTINTIVO: Record<TipoDistintivo, string> = {
   online_nac: 'precio nacional',
 }
 
-/** El texto lleva toda la información (no solo el color): "en tienda · 45 d" cuando el precio es viejo. */
+/** La etiqueta muestra origen y antigüedad del dato; el color además avisa si el precio de tienda ya está viejo. */
 export function Distintivo({ tipo, amarillo, dias }: { tipo: TipoDistintivo; amarillo?: boolean; dias?: number }) {
   const color = amarillo
     ? 'bg-yellow-100 text-yellow-900'
@@ -331,8 +331,10 @@ export function Distintivo({ tipo, amarillo, dias }: { tipo: TipoDistintivo; ama
       : tipo === 'online'
         ? 'bg-sky-100 text-sky-800'
         : 'bg-stone-200 text-stone-700'
-  const texto = amarillo && dias != null ? `${TEXTO_DISTINTIVO[tipo]} · ${dias} d` : TEXTO_DISTINTIVO[tipo]
-  return <span className={`whitespace-nowrap rounded-md px-1.5 py-0.5 text-xs ${color}`}>{texto}</span>
+  const edad = dias == null ? '' : dias === 0 ? '<1 d' : `${dias} d`
+  const texto = edad ? `${TEXTO_DISTINTIVO[tipo]} · ${edad}` : TEXTO_DISTINTIVO[tipo]
+  const titulo = dias == null ? undefined : dias === 0 ? 'Actualizado hace menos de 1 día' : `Actualizado hace ${dias} día${dias === 1 ? '' : 's'}`
+  return <span title={titulo} className={`whitespace-nowrap rounded-md px-1.5 py-0.5 text-xs ${color}`}>{texto}</span>
 }
 
 export function LeyendaDistintivos() {

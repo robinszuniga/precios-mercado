@@ -2,7 +2,6 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useRef, useState } from 'react'
 import type { Producto } from '@shared/esquema.ts'
 import { etiquetaVisible, formatoContenido } from '@shared/unidades.ts'
-import { useMeta } from '../datos/consultas.ts'
 import { autoVincular, buscarLote, exclusivo, itemDe, opcionesDe, productosSinVincular, seguros, vincular, type Elegido, type OpcionLote } from '../datos/vincularLote.ts'
 import { avisar, Boton, Hoja, NombreTienda, pesos, Tarjeta } from './ui.tsx'
 
@@ -157,12 +156,11 @@ export function VincularTodos({ onListo }: { onListo: () => void }) {
   )
 }
 
-/** Aviso con botón: "N productos sin precio de internet · Buscar precios". Solo con la copia en Google activa. */
+/** Aviso con botón: "N productos sin precio de internet · Buscar precios". */
 export function AvisoSinVincular({ className = '' }: { className?: string }) {
-  const c = useMeta<{ url: string; token: string }>('conexion', { url: '', token: '' })
   const n = useLiveQuery(async () => (await productosSinVincular()).length, [], 0)
   const [abierta, setAbierta] = useState(false)
-  if (!c.url || !c.token || !n) return null
+  if (!n) return null
   return (
     <>
       <Tarjeta className={`flex items-center justify-between gap-2 ${className}`}>

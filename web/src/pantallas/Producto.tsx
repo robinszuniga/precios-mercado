@@ -8,7 +8,7 @@ import { FormProducto } from '../componentes/FormProducto.tsx'
 import { describirPresentacion, RegistrarPrecio } from '../componentes/RegistrarPrecio.tsx'
 import { avisar, Boton, Cargando, Distintivo, hace, Hoja, LeyendaDistintivos, LogoTienda, NombreTienda, pesos, Tarjeta, Vacio } from '../componentes/ui.tsx'
 import { Vincular } from '../componentes/Vincular.tsx'
-import { opcionesDe, useCatalogo, useMeta } from '../datos/consultas.ts'
+import { opcionesDe, useCatalogo } from '../datos/consultas.ts'
 import { guardar } from '../datos/escritura.ts'
 import { ahoraIso } from '../datos/sync.ts'
 
@@ -16,7 +16,6 @@ type Dialogo = null | 'editar' | 'vincular' | { precio: { tienda?: Tienda; prese
 
 export function DetalleProducto({ id }: { id: string }) {
   const cat = useCatalogo()
-  const conexion = useMeta<{ url: string; token: string }>('conexion', { url: '', token: '' })
   const [dialogo, setDialogo] = useState<Dialogo>(null)
   if (!cat) return <Cargando />
   const producto = cat.producto.get(id)
@@ -26,7 +25,6 @@ export function DetalleProducto({ id }: { id: string }) {
   const presentaciones = (cat.presentacionesDe.get(id) ?? []).filter((p) => p.activo)
   const u = etiquetaVisible(producto.unidad_base)
   const cerrar = () => setDialogo(null)
-  const conBackend = !!conexion.url && !!conexion.token
   const segunda = ops.mejor
     ? Object.values(ops.porTienda).filter((o) => o.tienda !== ops.mejor!.tienda && o.precioUnidad != null).sort((a, b) => a.precioUnidad! - b.precioUnidad!)[0]
     : undefined
@@ -100,9 +98,8 @@ export function DetalleProducto({ id }: { id: string }) {
 
       <div className="grid grid-cols-2 gap-2">
         <Boton onClick={() => setDialogo({ precio: {} })}>Anotar precio</Boton>
-        <Boton variante="secundario" onClick={() => (conBackend ? setDialogo('vincular') : ir('ajustes'))}>Buscar online</Boton>
+        <Boton variante="secundario" onClick={() => setDialogo('vincular')}>Buscar online</Boton>
       </div>
-      {!conBackend && <p className="text-xs text-stone-600">Buscar precios por internet es opcional y necesita conectar una copia en Google (Ajustes). Sin eso, anota el precio que ves en la tienda.</p>}
 
       <Tarjeta>
         <h2 className="mb-1 font-semibold">Marcas y tamaños</h2>

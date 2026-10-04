@@ -11,8 +11,7 @@ const lista = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} 
 /** Tras elegir marca: la busca en internet y dice dónde quedó (en segundo plano; el formulario ya se cerró). */
 async function buscarSuMarca(p: Producto) {
   const r = await vincularMarca(p)
-  if (r.tipo === 'sin_google') { avisar(`Marca guardada. Sin la copia en Google no se buscan precios de internet: anota el precio en la tienda.`); return }
-  if (r.tipo === 'fallo') { avisar(`Guardé la marca ${p.marca}; ahora no pude buscar su precio. ${r.motivo.startsWith('Tu script') ? r.motivo : 'Lo intento de nuevo solo en un rato.'}`); return }
+  if (r.tipo === 'fallo') { avisar(`Guardé la marca ${p.marca}; ahora no pude buscar su precio. ${r.motivo}`); return }
   const con = r.con.map((t) => INFO_TIENDAS[t].nombre)
   const sin = r.sin.map((t) => INFO_TIENDAS[t].nombre)
   avisar(con.length

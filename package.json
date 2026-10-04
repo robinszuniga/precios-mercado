@@ -18,6 +18,7 @@
     "gas:deploy": "npm run gas:push && cd apps-script && npx -y @google/clasp@3 deploy -i \"$GAS_DEPLOYMENT_ID\""
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.117.2",
     "barcode-detector": "3.2.2",
     "dexie": "4.4.6",
     "dexie-react-hooks": "4.4.0",

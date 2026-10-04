@@ -65,7 +65,13 @@ export class BaseLocal extends Dexie {
   }
 }
 
-export const db = new BaseLocal()
+/** La cuenta determina el nombre de IndexedDB: un cierre o cambio de cuenta no mezcla datos locales. */
+export let db = new BaseLocal()
+
+export function usarBaseLocal(userId: string | null) {
+  // UUID de Supabase; el nombre no contiene correo, nombre ni otro dato personal.
+  db = new BaseLocal(userId ? `precios-mercado-${userId}` : 'precios-mercado')
+}
 
 /** Pestaña del Sheet → tabla local. */
 export const TABLA_LOCAL: Partial<Record<NombreTabla, keyof BaseLocal & string>> = {
@@ -74,6 +80,7 @@ export const TABLA_LOCAL: Partial<Record<NombreTabla, keyof BaseLocal & string>>
   Productos: 'productos',
   Presentaciones: 'presentaciones',
   Precios_actuales: 'preciosActuales',
+  Precios: 'historial',
   Compras: 'compras',
   Compras_detalle: 'detalle',
   Compras_resumen: 'resumen',

@@ -3,10 +3,10 @@ import type { TiendaVtex } from '@shared/tiendas.ts'
 import type { UnidadBase } from '@shared/unidades.ts'
 import { esDeMarca, type Opcion } from '@shared/vtex/ordenar.ts'
 import type { Candidato } from '@shared/vtex/parse.ts'
-import { llamar } from './api.ts'
+import { llamarVtex } from './apiVtex.ts'
 import { db, guardarMeta, leerMeta } from './db.ts'
 import { compraAbierta, guardar, nuevaPresentacion, observacion, registrarObservaciones } from './escritura.ts'
-import { conexion, sincronizar } from './sync.ts'
+import { sincronizar } from './sync.ts'
 
 export type Cand = Candidato & { region: Region }
 export type OpcionLote = Opcion<Cand>
@@ -81,20 +81,17 @@ export function itemDe(p: Producto): Item {
  * Un fallo de red o del servidor se reintenta pronto (a la hora); que el script sea viejo no se arregla esperando un rato:
  * eso se trata como una revisión hecha (una vez al día) y el aviso lo ve la persona al elegir una marca.
  */
-const fallaLaRed = (f: string | null): boolean => !!f && f !== SCRIPT_SIN_MARCAS
-
-export const SCRIPT_SIN_MARCAS = 'Tu script de Google es una versión vieja y no conoce las marcas: en Ajustes toca “Actualizar ahora”.'
+const fallaLaRed = (f: string | null): boolean => !!f
 
 /** Busca de a 8 productos por llamada. Si el servidor no responde, se detiene y lo dice. */
 export async function buscarLote(items: Item[], tiendas: TiendaVtex[] = TIENDAS_LOTE, onAvance?: (hechos: number, total: number) => void) {
   const resultados = new Map<string, PorTienda>()
   const errores = new Set<string>()
   let sinMarcas = false
-  const c = await conexion()
   for (let i = 0; i < items.length; i += LOTE) {
     onAvance?.(i, items.length)
     const lote = items.slice(i, i + LOTE)
-    const r = await llamar<{ resultados: { id: string; porTienda: PorTienda }[]; errores: string[]; marcas?: boolean }>(c, 'buscarVarios', { items: lote, tiendas }, 90_000)
+    const r = await llamarVtex<{ resultados: { id: string; porTienda: PorTienda }[]; errores: string[]; marcas?: boolean }>('buscarVarios', { items: lote, tiendas })
     if (r.tipo !== 'ok') return { resultados, errores: [...errores], sinMarcas, fallo: r.tipo === 'error' ? r.mensaje : 'Sin respuesta. ¿Hay señal?' }
     // Un script viejo ignora la marca y marcaría como segura otra: lo de los productos con marca no se usa.
     const confiar = r.data?.marcas === true
@@ -188,8 +185,6 @@ export function autoVincular(opciones: { forzar?: boolean } = {}): Promise<Resul
 }
 
 async function correrAuto(opciones: { forzar?: boolean }): Promise<ResultadoAuto | null> {
-  const c = await conexion()
-  if (!c.url || !c.token) return null
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return null
   const estado = await leerMeta<EstadoAuto>('autoVinculo', { ultimo: 0, revisados: {} })
   const ahora = Date.now()
@@ -221,7 +216,7 @@ async function correrAuto(opciones: { forzar?: boolean }): Promise<ResultadoAuto
     return { vinculados: 0, dudosos: 0, sinResultado: 0 }
   }
   const { resultados, fallo: falloBusqueda, sinMarcas } = await buscarLote(pendientes.map(itemDe))
-  const fallo = falloBusqueda ?? (sinMarcas ? SCRIPT_SIN_MARCAS : null) ?? falloMarca
+  const fallo = falloBusqueda ?? (sinMarcas ? 'El servicio de precios no pudo confirmar las marcas.' : null) ?? falloMarca
   const elegidos: Elegido[] = []
   let dudosos = 0
   let sinResultado = 0
@@ -244,16 +239,13 @@ async function correrAuto(opciones: { forzar?: boolean }): Promise<ResultadoAuto
 
 export type ResultadoMarca =
   | { tipo: 'ok'; /** Tiendas donde quedó vinculada la marca preferida. */ con: TiendaVtex[]; /** Tiendas online donde no apareció esa marca (se deja lo que había). */ sin: TiendaVtex[] }
-  | { tipo: 'sin_google' }
   | { tipo: 'fallo'; motivo: string }
 
 async function vincularMarcaAhora(producto: Producto): Promise<ResultadoMarca> {
-  const c = await conexion()
-  if (!c.url || !c.token) return { tipo: 'sin_google' }
   if (!producto.marca) return { tipo: 'ok', con: [], sin: [] }
   const { resultados, fallo, sinMarcas } = await buscarLote([itemDe(producto)])
   if (fallo) return { tipo: 'fallo', motivo: fallo }
-  if (sinMarcas) return { tipo: 'fallo', motivo: SCRIPT_SIN_MARCAS }
+  if (sinMarcas) return { tipo: 'fallo', motivo: 'El servicio de precios no pudo confirmar las marcas.' }
   const antes = await db.presentaciones.where('producto_id').equals(producto.producto_id).toArray()
   const con: TiendaVtex[] = []
   for (const o of seguros(resultados.get(producto.producto_id), producto.marca)) {

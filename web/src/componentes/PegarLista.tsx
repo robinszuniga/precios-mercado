@@ -2,7 +2,6 @@ import { useId, useRef, useState } from 'react'
 import type { Producto } from '@shared/esquema.ts'
 import { emparejar, leerLista } from '@shared/importarLista.ts'
 import { etiquetaVisible, type UnidadBase } from '@shared/unidades.ts'
-import { useMeta } from '../datos/consultas.ts'
 import { db } from '../datos/db.ts'
 import { crearDesdeLista, deshacerReemplazo } from '../datos/escritura.ts'
 import { useTiendasHoy } from '../datos/tiendasHoy.ts'
@@ -76,8 +75,6 @@ function FilaLista({ f, onCambio, onQuitar }: { f: Fila; onCambio: (f: Fila) => 
 /** Pegar el listado (WhatsApp, Notas, Excel) → revisar → guardar como productos ★ y meterlos en la compra de hoy. */
 export function PegarLista({ onListo }: { onListo: () => void }) {
   const [tiendasHoy] = useTiendasHoy()
-  const google = useMeta<{ url: string; token: string }>('conexion', { url: '', token: '' })
-  const conGoogle = !!google.url && !!google.token
   const [crudo, setCrudo] = useState('')
   const [filas, setFilas] = useState<Fila[] | null>(null)
   const [recurrentes, setRecurrentes] = useState(true)
@@ -130,11 +127,11 @@ export function PegarLista({ onListo }: { onListo: () => void }) {
     const partes = [r.creados && `${r.creados} nuevos`, r.actualizados && `${r.actualizados} actualizados`, r.archivados.length && `${r.archivados.length} archivados`]
       .filter(Boolean).join(', ')
     avisar(
-      `Listo: ${partes}${aLaCompra ? '; ya están en la compra' : ''}.${conGoogle ? ' Buscando sus precios en internet…' : ''}`,
+      `Listo: ${partes}${aLaCompra ? '; ya están en la compra' : ''}. Buscando precios en internet…`,
       r.archivados.length ? () => deshacerReemplazo(r.archivados, r.quitados) : undefined,
     )
     onListo()
-    if (conGoogle) void buscarPreciosSolo(true)
+    void buscarPreciosSolo(true)
   }
 
   if (filas) {

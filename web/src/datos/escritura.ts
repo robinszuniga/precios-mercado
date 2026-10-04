@@ -89,7 +89,11 @@ export async function registrarObservaciones(obs: Observacion[]) {
     const r = aplicarObservaciones(mapa, obs)
     if (r.actuales.length) await db.preciosActuales.bulkPut(r.actuales)
     if (r.historial.length) await db.historial.bulkPut(r.historial)
-    await encolar('upsert', { cambios: obs.map((fila) => ({ tabla: 'Observaciones', fila })) })
+    await encolar('upsert', { cambios: [
+      ...obs.map((fila) => ({ tabla: 'Observaciones' as const, fila })),
+      ...r.actuales.map((fila) => ({ tabla: 'Precios_actuales' as const, fila: fila as unknown as Record<string, unknown> })),
+      ...r.historial.map((fila) => ({ tabla: 'Precios' as const, fila: fila as unknown as Record<string, unknown> })),
+    ] })
   })
   sincronizarPronto()
 }

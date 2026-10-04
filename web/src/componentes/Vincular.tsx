@@ -3,9 +3,8 @@ import { contenidoCompatible, parseContenido } from '@shared/contenido.ts'
 import type { Presentacion, Producto } from '@shared/esquema.ts'
 import { INFO_TIENDAS, TIENDAS_VTEX, type TiendaVtex } from '@shared/tiendas.ts'
 import { etiquetaVisible, formatoContenido, precioPorUnidad } from '@shared/unidades.ts'
-import { llamar } from '../datos/api.ts'
+import { llamarVtex } from '../datos/apiVtex.ts'
 import { crearDesdeCandidato, type Cand } from '../datos/vincularLote.ts'
-import { conexion } from '../datos/sync.ts'
 import { Boton, Campo, Distintivo, NombreTienda, pesos, Selector } from './ui.tsx'
 
 
@@ -49,7 +48,7 @@ export function Vincular({ producto, yaVinculadas, onListo }: { producto: Produc
   async function buscar(params: Record<string, unknown>, destino: (c: Cand[]) => void) {
     setBuscando(true)
     setError('')
-    const r = await llamar<{ candidatos: Cand[]; errores: string[] }>(await conexion(), 'buscarEnTienda', params)
+    const r = await llamarVtex<{ candidatos: Cand[]; errores: string[] }>('buscarEnTienda', params)
     setBuscando(false)
     if (r.tipo === 'ok') {
       destino(r.data.candidatos)

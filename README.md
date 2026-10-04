@@ -3,10 +3,16 @@
 App personal (PWA) para comparar el mercado entre **Éxito, Olímpica, D1 y Ara en Riohacha**, llevar el
 presupuesto en vivo mientras compras y saber dónde conviene cada producto.
 
+> **Multiusuario en preparación:** el sitio publicado aún es la versión personal antigua y usa Apps Script. El código local
+> ya guarda los datos por cuenta en Supabase y consulta VTEX mediante una función autenticada del servidor. En esa versión
+> cada persona podrá buscar precios sin crear una hoja ni copiar un token. Falta desplegar la función, configurar Google OAuth
+> y publicar la app; las actualizaciones de precios programadas también quedan pendientes.
+
 - Compara por **precio por kg, litro o unidad**: un paquete de 500 g de D1 se compara justo con uno de 1 kg de Éxito.
 - **El precio que ves en la tienda manda.** El precio online (Éxito, Olímpica y D1 si atiende Riohacha) es de apoyo y lleva
-  un distintivo: `online` si es de Riohacha, `online·nac` si la tienda solo publica el precio nacional.
-- Funciona **sin señal** dentro del súper: todo se guarda en el celular y se sincroniza con tu Google Sheet al volver la señal.
+  un distintivo: `online` si es de Riohacha, `online·nac` si la tienda solo publica el precio nacional. La etiqueta
+  también muestra cuándo se verificó por última vez.
+- Funciona **sin señal** dentro del súper: todo se guarda en el celular y se sincroniza con la nube al volver la señal.
 - El **plan** solo propone ir a otra tienda si el ahorro paga el viaje (por defecto $3.000 por tienda extra).
 - Al cerrar la compra, lo que pagaste queda como precio de tienda y se guarda el resumen: cuánto gastaste y cuánto
   habrías gastado comprando todo en una sola tienda.
@@ -16,11 +22,16 @@ presupuesto en vivo mientras compras y saber dónde conviene cada producto.
 | Parte | Qué es |
 |---|---|
 | `web/` | La app: React + Vite + Tailwind, instalable, con IndexedDB (Dexie) y cola de envíos. Se publica en GitHub Pages. |
-| `apps-script/` | El backend: Google Apps Script sobre tu Sheet. Guarda los datos y trae los precios online una vez al día (6 a. m.) o cuando tocas “Actualizar precios”. |
+| `apps-script/` | Backend heredado de la versión personal: guarda los datos en un Sheet y consulta las tiendas. La versión multiusuario usa Supabase y la función `supabase/functions/vtex/`. |
 | `shared/` | La lógica (precio por unidad, qué precio vale, plan, presupuesto, resumen, conector VTEX). Es la misma en la app, el backend y las pruebas. |
 | `tools/smoke-vtex.ts` | Prueba real de las APIs de Éxito, Olímpica y D1, incluida la región de Riohacha. |
 
-## Puesta en marcha (una sola vez)
+## Instalación de la versión personal antigua
+
+Estas instrucciones son para quienes ya usan la versión publicada anterior. La futura versión multiusuario no pedirá que cada
+persona configure Apps Script ni una hoja. No reutilices una misma hoja/token para varias cuentas.
+
+## Puesta en marcha de la versión personal (Apps Script)
 
 ### 1. El Sheet y el backend
 
@@ -83,6 +94,24 @@ en el repositorio y se publica una versión *mayor* (gas-v6 con lo de gas-v4). S
 3. Abre la app instalada → **Ajustes** → pega la URL `/exec` y el token → **Guardar y probar**.
 
 En iPhone la app instalada no comparte datos con Safari: por eso se configura desde la app instalada.
+
+## Preparar cuentas de usuario (versión multiusuario)
+
+La persona administradora aplica las migraciones `supabase/migrations/`, despliega `supabase/functions/vtex/` y habilita
+Google en Authentication → Sign In / Providers. La función solo acepta sesiones válidas, limita consultas por cuenta y
+llama a los catálogos públicos de VTEX; no admite direcciones arbitrarias. En Google Cloud registra el cliente OAuth web
+y copia el callback de Supabase. En Supabase define la URL permitida de la app. Configura `VITE_SUPABASE_URL` y
+`VITE_SUPABASE_ANON_KEY` como variables de GitHub Actions. La clave publicable está diseñada para el navegador; nunca
+incluyas una `service_role` ni el secreto OAuth en el frontend, el repositorio o este chat.
+
+El código de acceso bloquea la app si falta la configuración. Antes de invitar usuarios, hay que aplicar la segunda
+migración de límites, desplegar y probar la función, configurar Google OAuth y publicar el sitio. El código local ya no
+pide la URL/token de Apps Script; la actualización manual de precios sustituye por ahora la tarea diaria antigua.
+
+En **Ajustes → Este celular** puedes descargar un respaldo o importar uno. La importación combina los datos con los
+de ese celular: si una fila tiene la misma clave, gana la del archivo; las demás se conservan. La conexión y el token
+de Google no se incluyen ni se cambian. La importación solo restaura datos en el celular; no los envía automáticamente
+al Sheet. Al iniciar sesión, la sincronización de la cuenta restaura los datos privados desde Supabase.
 
 ## Pasar tu lista
 
