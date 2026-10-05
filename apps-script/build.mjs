@@ -3,10 +3,12 @@
 import { build } from 'esbuild'
 import { createHash } from 'node:crypto'
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 // Deben ser las mismas funciones que declara el cargador (cargador/Cargador.js).
 const GLOBALES = ['doGet', 'doPost', 'inicializarHoja', 'probarTiendas', 'autoprueba', 'tareaDiaria', 'continuarPrecios', 'onEdit', 'actualizarme']
-const dir = new URL('.', import.meta.url).pathname
+// fileURLToPath (no `.pathname`): en Windows `.pathname` deja "%20" y una "/" delante, que no son una ruta válida.
+const dir = fileURLToPath(new URL('.', import.meta.url))
 
 mkdirSync(`${dir}dist`, { recursive: true })
 // La versión sale de la etiqueta del release (gas-vN); en local o en el CI queda "dev".

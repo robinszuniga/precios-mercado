@@ -4,6 +4,15 @@ import { db, invalidarCuenta, usarBaseLocal } from '../datos/db.ts'
 import { arrancarSincronizacion, esperarSincronizacion } from '../datos/sync.ts'
 import { supabase, supabaseConfigurado } from '../datos/supabase.ts'
 
+/**
+ * El estado del cambio de cuenta es del módulo, no del efecto. En desarrollo React monta el componente dos veces: si cada
+ * montaje tuviera su propia cola y su propia "cuenta actual", cada uno cerraría la base local que abrió el otro
+ * ("DatabaseClosedError") y la app no abriría.
+ */
+let cuentaActual: string | null | undefined
+let limpiezaSync: (() => void) | undefined
+let colaCambio: Promise<void> = Promise.resolve()
+
 export function Acceso({ children }: { children: ReactNode }) {
   const [sesion, setSesion] = useState<Session | null>(null)
   const [preparado, setPreparado] = useState(false)
@@ -13,11 +22,8 @@ export function Acceso({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!supabase) return
     let viva = true
-    let limpiezaSync: (() => void) | undefined
-    let cuentaActual: string | null | undefined
-    let colaCambio = Promise.resolve()
     const cambiarCuenta = (s: Session | null) => {
-      colaCambio = colaCambio.then(async () => {
+      const turno = colaCambio.then(async () => {
         const id = s?.user.id ?? null
         if (cuentaActual !== id) {
           // Desde aquí, lo que siga corriendo de la cuenta anterior (sincronización, búsqueda de precios) se descarta,
@@ -40,11 +46,17 @@ export function Acceso({ children }: { children: ReactNode }) {
           setPreparado(true)
         }
       })
-      return colaCambio
+      // Un fallo de un turno no debe dejar la cola rechazada para siempre: los turnos siguientes tienen que poder correr.
+      colaCambio = turno.catch(() => undefined)
+      return turno
     }
     const { data: listener } = supabase.auth.onAuthStateChange((_evento, s) => {
       // Supabase exige que los callbacks de auth sean rápidos. El trabajo de IndexedDB va fuera del callback.
-      queueMicrotask(() => { void cambiarCuenta(s) })
+      queueMicrotask(() => {
+        cambiarCuenta(s).catch((e: unknown) => {
+          if (viva) { setError(e instanceof Error ? e.message : 'No se pudo cambiar de cuenta.'); setPreparado(true) }
+        })
+      })
     })
     void supabase.auth.getSession().then(({ data, error: e }) => {
       if (e) setError(e.message)
@@ -56,6 +68,9 @@ export function Acceso({ children }: { children: ReactNode }) {
     return () => {
       viva = false
       limpiezaSync?.()
+      limpiezaSync = undefined
+      // Un montaje nuevo vuelve a preparar la cuenta (y a arrancar la sincronización que acaba de detenerse).
+      cuentaActual = undefined
       listener.subscription.unsubscribe()
     }
   }, [])
