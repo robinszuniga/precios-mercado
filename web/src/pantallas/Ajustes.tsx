@@ -202,7 +202,8 @@ function Dispositivo() {
         throw new Error('El archivo no parece un respaldo de Precios de Mercado.')
       }
 
-      const tablas = TABLAS_RESPALDO.filter((nombre) => nombre in copia.datos)
+      const datosCopia = copia.datos
+      const tablas = TABLAS_RESPALDO.filter((nombre) => nombre in datosCopia)
       if (!tablas.length) throw new Error('El respaldo no contiene datos que esta versión pueda importar.')
 
       const filas = new Map<string, Record<string, unknown>[]>()
@@ -236,7 +237,7 @@ function Dispositivo() {
 
       exigirCuenta(cuenta)
       const tablasLocales = tablas.map((nombre) => db.table(nombre))
-      await db.transaction('rw', ...tablasLocales, db.outbox, async () => {
+      await db.transaction('rw', [...tablasLocales, db.outbox], async () => {
         for (const nombre of tablas) await db.table(nombre).bulkPut(filas.get(nombre)!)
         for (const nombre of tablas) {
           const cambios = filas.get(nombre)!.map((fila) => ({ tabla: ESQUEMA_RESPALDO[nombre], fila }))

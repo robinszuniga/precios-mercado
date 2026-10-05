@@ -1,6 +1,13 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createElement } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+// El servicio de precios (función VTEX de Supabase) se simula: estos tests no tocan la red.
+const h = vi.hoisted(() => ({ manejar: null as null | ((accion: string, params: Record<string, unknown>) => unknown) }))
+vi.mock('./apiVtex.ts', () => ({
+  llamarVtex: async (accion: string, params: Record<string, unknown>) => h.manejar?.(accion, params) ?? { tipo: 'desconocido', motivo: 'sin servicio' },
+}))
+
 import { VincularTodos } from '../componentes/VincularTodos.tsx'
 import { db, guardarMeta } from './db.ts'
 import { compraAbierta, guardar, nuevoProducto } from './escritura.ts'
@@ -16,34 +23,32 @@ function opcion(tienda: string, nombre: string, precio: number, valor: number, u
   }
 }
 
-/** Backend simulado: Arroz es seguro en Olímpica (y por su código aparece en Éxito); Leche es dudosa; Tornillo no existe. */
+/** Servicio simulado: Arroz es seguro en Olímpica (y por su código aparece en Éxito); Leche es dudosa; Tornillo no existe. */
 function servidor() {
   const llamadas: { items: Item[]; tiendas: string[] }[] = []
-  vi.stubGlobal('fetch', vi.fn(async (_u: string, init?: RequestInit) => {
-    const c = JSON.parse(String(init?.body))
-    if (c.a !== 'buscarVarios') return new Response(JSON.stringify({ ok: true, data: { resultados: [], tablas: {}, cursor: 'x' }, error: null, v: 1 }))
-    llamadas.push(c)
-    const resultados = (c.items as Item[]).map((it) => {
+  h.manejar = (accion, params) => {
+    if (accion !== 'buscarVarios') return { tipo: 'ok', data: {} }
+    llamadas.push(params as { items: Item[]; tiendas: string[] })
+    const resultados = (params.items as Item[]).map((it) => {
       if (it.ean === '770') return { id: it.id, porTienda: { OLIMPICA: [], EXITO: [opcion('EXITO', 'Arroz Diana 1000 g', 5400, 1000, 'g', true, '770')] } }
       if (it.q === 'Arroz') return { id: it.id, porTienda: { OLIMPICA: [opcion('OLIMPICA', 'Arroz Diana 1000 g', 5200, 1000, 'g', true, '770')], EXITO: [] } }
       if (it.q === 'Leche') return { id: it.id, porTienda: { OLIMPICA: [opcion('OLIMPICA', 'Leche deslactosada 1000 ml', 4500, 1000, 'ml', false), opcion('OLIMPICA', 'Leche de almendras 1000 ml', 9900, 1000, 'ml', false)], EXITO: [] } }
       return { id: it.id, porTienda: { OLIMPICA: [], EXITO: [] } }
     })
-    return new Response(JSON.stringify({ ok: true, data: { resultados, errores: [] }, error: null, v: 1 }))
-  }))
+    return { tipo: 'ok', data: { resultados, errores: [], marcas: true } }
+  }
   return llamadas
 }
 
 beforeEach(async () => {
+  h.manejar = null
   await Promise.all(db.tables.map((t) => t.clear()))
-  await guardarMeta('conexion', { url: 'https://script.google.com/macros/s/x/exec', token: 't' })
   await guardar('Productos', [
     nuevoProducto({ nombre: 'Arroz', unidad_base: 'g' }),
     nuevoProducto({ nombre: 'Leche', unidad_base: 'ml' }),
     nuevoProducto({ nombre: 'Tornillo', unidad_base: 'unidad' }),
   ])
 })
-afterEach(() => vi.unstubAllGlobals())
 
 describe('vincular automático', () => {
   it('vincula solo lo seguro, completa la otra tienda por código de barras y guarda el precio', async () => {
@@ -67,11 +72,6 @@ describe('vincular automático', () => {
     expect(llamadas).toHaveLength(3)
     await guardarMeta('autoVinculo', { ...(await db.meta.get('autoVinculo'))!.valor as object, ultimo: 0 })
     expect(await autoVincular()).toEqual({ vinculados: 0, dudosos: 0, sinResultado: 0 })
-  })
-
-  it('sin copia en Google no hace nada', async () => {
-    await guardarMeta('conexion', { url: '', token: '' })
-    expect(await autoVincular()).toBeNull()
   })
 })
 
@@ -100,16 +100,16 @@ describe('VincularTodos', () => {
   })
 })
 
-describe('con el script de Google viejo', () => {
-  it('no se cae y dice que hay que actualizarlo', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: false, data: null, error: { codigo: 'accion_desconocida', mensaje: 'Acción desconocida: buscarVarios' }, v: 1 }))))
+describe('cuando el servicio de precios falla', () => {
+  it('no se cae y dice por qué se detuvo', async () => {
+    h.manejar = () => ({ tipo: 'error', codigo: 'rate_limit', mensaje: 'Espera un minuto antes de volver a consultar precios.' })
     expect(await autoVincular()).toEqual({ vinculados: 0, dudosos: 0, sinResultado: 0 })
     render(createElement(VincularTodos, { onListo: () => {} }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('script de Google está desactualizado')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Espera un minuto antes de volver a consultar precios.')
   })
 
   it('una respuesta rara (sin resultados) no rompe nada', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: true, data: {}, error: null, v: 1 }))))
+    h.manejar = () => ({ tipo: 'ok', data: {} })
     expect(await autoVincular()).toEqual({ vinculados: 0, dudosos: 0, sinResultado: 0 })
   })
 })
@@ -146,7 +146,7 @@ describe('sin duplicados ni sorpresas', () => {
   })
 
   it('tras un fallo espera antes de reintentar solo', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
+    h.manejar = () => ({ tipo: 'desconocido', motivo: 'Failed to fetch' })
     await autoVincular()
     const llamadas = servidor()
     expect(await autoVincular()).toBeNull()
@@ -160,22 +160,21 @@ describe('marca preferida', () => {
 
   function servidorMarcas() {
     const llamadas: Item[][] = []
-    vi.stubGlobal('fetch', vi.fn(async (_u: string, init?: RequestInit) => {
-      const c = JSON.parse(String(init?.body))
-      if (c.a !== 'buscarVarios') return new Response(JSON.stringify({ ok: true, data: { resultados: [], tablas: {}, cursor: 'x' }, error: null, v: 1 }))
-      llamadas.push(c.items)
-      const resultados = (c.items as (Item & { marca?: string })[]).map((it) => {
+    h.manejar = (accion, params) => {
+      if (accion !== 'buscarVarios') return { tipo: 'ok', data: {} }
+      llamadas.push(params.items as Item[])
+      const resultados = (params.items as (Item & { marca?: string })[]).map((it) => {
         const roa = { ...opcion('OLIMPICA', 'Arroz Roa 1000 g', 4800, 1000, 'g', true), marca: 'Roa' }
         const diana = { ...opcion('OLIMPICA', 'Arroz Diana 1000 g', 5200, 1000, 'g', true), marca: 'Diana' }
-        // Un script viejo que no conoce marcas marca como segura la primera que coincida (Roa).
+        // Un servicio que no confirma marcas marca como segura la primera que coincida (Roa).
         return { id: it.id, porTienda: { OLIMPICA: it.marca === 'Diana' ? [diana, { ...roa, seguro: false }] : [roa], EXITO: [] } }
       })
-      return new Response(JSON.stringify({ ok: true, data: { resultados, errores: [], marcas: soportaMarcas }, error: null, v: 1 }))
-    }))
+      return { tipo: 'ok', data: { resultados, errores: [], marcas: soportaMarcas } }
+    }
     return llamadas
   }
 
-  it('la búsqueda automática manda la marca y nunca vincula otra marca, aunque el script diga que es segura', async () => {
+  it('la búsqueda automática manda la marca y nunca vincula otra marca, aunque el servicio diga que es segura', async () => {
     const llamadas = servidorMarcas()
     await db.productos.clear()
     await guardar('Productos', nuevoProducto({ nombre: 'Arroz', unidad_base: 'g', marca: 'Supremo' }))
@@ -199,56 +198,48 @@ describe('marca preferida', () => {
     expect(activas).toEqual(['Arroz Diana 1000 g'])
   })
 
-  it('con un script viejo (no dice que conoce las marcas) no vincula nada por marca y queda pendiente para reintentar', async () => {
+  it('si el servicio no confirma las marcas no vincula nada por marca y queda pendiente para reintentar', async () => {
     servidorMarcas()
     await db.productos.clear()
     const [arroz] = await guardar('Productos', nuevoProducto({ nombre: 'Arroz', unidad_base: 'g', marca: 'Diana' }))
     soportaMarcas = false
-    const { vincularMarca, SCRIPT_SIN_MARCAS } = await import('./vincularLote.ts')
-    expect(await vincularMarca(arroz)).toEqual({ tipo: 'fallo', motivo: SCRIPT_SIN_MARCAS })
+    const { vincularMarca } = await import('./vincularLote.ts')
+    expect(await vincularMarca(arroz)).toEqual({ tipo: 'fallo', motivo: 'El servicio de precios no pudo confirmar las marcas.' })
     expect(await db.presentaciones.count()).toBe(0)
     expect((await db.meta.get('marcasPendientes'))?.valor).toEqual([arroz.producto_id])
 
-    // Cuando el script se actualiza, la búsqueda automática la resuelve sola y la quita de pendientes.
+    // Cuando el servicio vuelve a confirmar las marcas, la búsqueda automática la resuelve sola y la quita de pendientes.
     soportaMarcas = true
     await autoVincular({ forzar: true })
     expect((await db.presentaciones.toArray()).map((p) => p.nombre_en_tienda)).toEqual(['Arroz Diana 1000 g'])
     expect((await db.meta.get('marcasPendientes'))?.valor).toEqual([])
   })
 
-  it('sin la copia en Google lo dice y queda pendiente por si la conecta después', async () => {
-    await guardarMeta('conexion', { url: '', token: '' })
+  it('si no hay conexión con la cuenta lo dice y queda pendiente para reintentar', async () => {
+    h.manejar = () => ({ tipo: 'error', codigo: 'sin_conexion', mensaje: 'La cuenta no está conectada.' })
     const [p] = await guardar('Productos', nuevoProducto({ nombre: 'Sal', unidad_base: 'g', marca: 'Refisal' }))
     const { vincularMarca } = await import('./vincularLote.ts')
-    expect(await vincularMarca(p)).toEqual({ tipo: 'sin_google' })
+    expect(await vincularMarca(p)).toEqual({ tipo: 'fallo', motivo: 'La cuenta no está conectada.' })
     expect((await db.meta.get('marcasPendientes'))?.valor).toEqual([p.producto_id])
   })
 })
 
-describe('revisión: script viejo y reintentos', () => {
-  it('si el script no conoce las marcas, la búsqueda automática se repite una vez al día, no cada hora', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (_u: string, init?: RequestInit) => {
-      const c = JSON.parse(String(init?.body))
-      const data = c.a === 'buscarVarios'
-        ? { resultados: (c.items as { id: string }[]).map((it) => ({ id: it.id, porTienda: { OLIMPICA: [], EXITO: [] } })), errores: [] } // sin "marcas: true": script viejo
-        : { tablas: {}, cursor: 'x', resultados: [] }
-      return new Response(JSON.stringify({ ok: true, data, error: null, v: 1 }))
-    }))
+describe('revisión: reintentos', () => {
+  it('si el servicio no confirma las marcas, la búsqueda automática se reintenta a la hora y no se da por revisada', async () => {
+    h.manejar = (accion, params) => accion === 'buscarVarios'
+      // Sin "marcas: true": el servicio no puede confirmar las marcas.
+      ? { tipo: 'ok', data: { resultados: (params.items as { id: string }[]).map((it) => ({ id: it.id, porTienda: { OLIMPICA: [], EXITO: [] } })), errores: [] } }
+      : { tipo: 'ok', data: {} }
     await db.productos.clear()
     await guardar('Productos', nuevoProducto({ nombre: 'Arroz', unidad_base: 'g', marca: 'Diana' }))
     await autoVincular()
     const estado = (await db.meta.get('autoVinculo'))!.valor as { ultimo: number; fallo?: number }
-    expect(estado.ultimo).toBeGreaterThan(0) // quedó como revisión hecha hoy
-    expect(estado.fallo).toBeUndefined() // y no como un fallo de red que se reintenta a la hora
-    expect(await autoVincular()).toBeNull() // la siguiente apertura de la app no vuelve a buscar
+    expect(estado.fallo).toBeGreaterThan(0) // quedó como fallo: se reintenta pronto
+    expect(estado.ultimo).toBe(0) // y no como una revisión hecha hoy
   })
 
   it('un fallo de red sí se reintenta a la hora', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (_u: string, init?: RequestInit) => {
-      const c = JSON.parse(String(init?.body))
-      if (c.a === 'buscarVarios') return new Response('no es json', { status: 502 })
-      return new Response(JSON.stringify({ ok: true, data: { tablas: {}, cursor: 'x', resultados: [] }, error: null, v: 1 }))
-    }))
+    h.manejar = (accion) => (accion === 'buscarVarios' ? { tipo: 'desconocido', motivo: 'Failed to fetch' } : { tipo: 'ok', data: {} })
     await autoVincular()
     const estado = (await db.meta.get('autoVinculo'))!.valor as { ultimo: number; fallo?: number }
     expect(estado.fallo).toBeGreaterThan(0)

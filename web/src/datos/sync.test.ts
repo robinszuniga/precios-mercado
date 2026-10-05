@@ -126,7 +126,12 @@ describe('precios locales', () => {
     const actual = await db.preciosActuales.get(`${p.presentacion_id}|tienda`)
     expect(actual).toMatchObject({ precio: 4500, origen: 'tienda', fuente: 'manual' })
     const cola = await db.outbox.toArray()
-    expect(cola.at(-1)?.payload.cambios).toEqual([expect.objectContaining({ tabla: 'Observaciones' })])
+    // La observación viaja junto con el precio actual y el histórico que produjo.
+    expect(cola.at(-1)?.payload.cambios).toEqual([
+      expect.objectContaining({ tabla: 'Observaciones' }),
+      expect.objectContaining({ tabla: 'Precios_actuales' }),
+      expect.objectContaining({ tabla: 'Precios' }),
+    ])
   })
 })
 
