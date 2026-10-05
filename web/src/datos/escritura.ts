@@ -1,9 +1,9 @@
-import { claveActual, type Categoria, type Compra, type Detalle, type NombreTabla, type Observacion, type Presentacion, type Producto } from '@shared/esquema.ts'
+import { claveActual, productoEliminado, type Categoria, type Compra, type Detalle, type NombreTabla, type Observacion, type Presentacion, type Producto } from '@shared/esquema.ts'
 import { aMs, compararIso, esIso, isoBogota } from '@shared/fechas.ts'
 import { aplicarObservaciones } from '@shared/observaciones.ts'
 import type { Tienda } from '@shared/tiendas.ts'
 import { nuevoId } from './api.ts'
-import { db, TABLA_LOCAL } from './db.ts'
+import { db, purgarDatosDeProductos, TABLA_LOCAL } from './db.ts'
 import { ahoraIso, encolar, sincronizarPronto } from './sync.ts'
 
 /** Escribe en local y deja el cambio en la cola, en la misma transacción. */
@@ -29,6 +29,33 @@ export async function guardar<T extends object>(tabla: NombreTabla, filas: T | T
 
 export async function guardarConfig(clave: string, valor: string) {
   await guardar('Config', { clave, valor })
+}
+
+/**
+ * Elimina productos para siempre (a diferencia de archivarlos, no se pueden recuperar). Cada uno queda solo como una marca
+ * de "eliminado" sin nombre ni datos, que viaja a la nube y a los demás celulares; en la nube se borran sus marcas, tamaños
+ * y precios. Aquí se borra también todo lo que dependía de él. Lo que no se pierde:
+ * - las compras ya cerradas conservan la línea, con el nombre del producto como texto (si no, dirían "?");
+ * - en una compra que sigue abierta, el producto simplemente sale.
+ * Devuelve cuántos eliminó (los que ya estaban eliminados no cuentan).
+ */
+export async function eliminarProductos(ids: readonly string[]): Promise<number> {
+  const quitar = (await db.productos.bulkGet([...new Set(ids)])).filter((p): p is Producto => !!p && !productoEliminado(p))
+  if (!quitar.length) return 0
+  const fuera = new Map(quitar.map((p) => [p.producto_id, p]))
+  const compras = new Map((await db.compras.toArray()).map((c) => [c.compra_id, c]))
+  const abierta = (d: Detalle) => {
+    const c = compras.get(d.compra_id)
+    return !!c && !c.borrado && (c.estado === 'borrador' || c.estado === 'en_curso')
+  }
+  const lineas = (await db.detalle.toArray()).filter((d) => !!d.producto_id && fuera.has(d.producto_id))
+  const cambiadas = lineas.map((d) => (abierta(d)
+    ? { ...d, borrado: true }
+    : { ...d, producto_id: '', nombre_libre: d.nombre_libre || fuera.get(d.producto_id)!.nombre }))
+  if (cambiadas.length) await guardar('Compras_detalle', cambiadas)
+  await guardar('Productos', quitar.map((p) => ({ ...p, nombre: '', notas: '', marca: '', activo: false, recurrente: false, borrado: true })))
+  await db.transaction('rw', db.presentaciones, db.preciosActuales, db.historial, db.cambios, () => purgarDatosDeProductos(db, new Set(fuera.keys())))
+  return quitar.length
 }
 
 export function nuevoProducto(p: Partial<Producto> & Pick<Producto, 'nombre'>): Producto {

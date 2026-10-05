@@ -4,7 +4,7 @@ import { aMs, esIso, isoBogota } from '@shared/fechas.ts'
 import { detectarCambio, type CambioPrecio } from '@shared/novedades.ts'
 import { conservarOpcionales, ganaRemoto } from '@shared/sync.ts'
 import { llamar, type Conexion } from './api.ts'
-import { type BaseLocal, CuentaCambiada, db, generacionActual, guardarMeta, leerMeta, propietarioDb, TABLA_LOCAL, type EntradaOutbox } from './db.ts'
+import { type BaseLocal, CuentaCambiada, db, generacionActual, guardarMeta, leerMeta, propietarioDb, purgarDatosDeProductos, TABLA_LOCAL, type EntradaOutbox } from './db.ts'
 import { clienteDeCuenta, supabase } from './supabase.ts'
 
 export interface EstadoSync {
@@ -628,7 +628,10 @@ async function traerCloud(ctx: ContextoCuenta, completo = false): Promise<boolea
   if (!vigente(ctx)) return false
   const base = ctx.base
   const instancias = todas.map(({ local }) => base.table(local))
-  await base.transaction('rw', [...instancias, base.meta, base.outbox], async () => {
+  // Además de lo que se descarga, la limpieza de un producto eliminado toca estas tablas (todas de este celular).
+  const tablasDeTransaccion = new Set([...instancias, base.meta, base.outbox, base.presentaciones, base.preciosActuales, base.historial, base.cambios])
+  await base.transaction('rw', [...tablasDeTransaccion], async () => {
+    const eliminados = new Set<string>()
     // Filas con cambios sin enviar: de esas decide el envío (por versión). Las demás son iguales a las del servidor.
     const sucias = await filasPendientes(base)
     for (const { local, tablaCloud, remoto, cursor, versionada } of todas) {
@@ -658,6 +661,8 @@ async function traerCloud(ctx: ContextoCuenta, completo = false): Promise<boolea
           if (!comparable || ganaRemoto(previo as { updated_at: string }, fila as { updated_at: string })) aceptar.push(fila)
         })
         if (aceptar.length) await tabla.bulkPut(aceptar)
+        // Otro celular (o este, antes) eliminó un producto: aquí también se va todo lo que dependía de él.
+        if (local === 'productos') for (const f of aceptar) if (f.borrado === true) eliminados.add(String(f.producto_id))
       }
       if (cursor) {
         // Cada tabla avanza por separado.
@@ -665,6 +670,7 @@ async function traerCloud(ctx: ContextoCuenta, completo = false): Promise<boolea
         await base.meta.put({ clave: `cursorCloud:${tablaCloud}`, valor: cursorConSolape })
       }
     }
+    await purgarDatosDeProductos(base, eliminados)
   })
   return true
 }

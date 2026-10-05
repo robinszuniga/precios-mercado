@@ -34,7 +34,7 @@ export const TABLAS = {
     id: 'producto_id',
     cols: {
       producto_id: 't', nombre: 't', categoria_id: 't', unidad_base: 't', recurrente: 'b',
-      cantidad_habitual: 'n', notas: 't', activo: 'b', updated_at: 't', _srv: 't', marca: 't',
+      cantidad_habitual: 'n', notas: 't', activo: 'b', updated_at: 't', _srv: 't', marca: 't', borrado: 'b',
     },
     cliente: true,
     sincroniza: true,
@@ -110,7 +110,7 @@ export type NombreTabla = keyof typeof TABLAS
  * Columnas que se agregaron después de la primera versión. Un cliente o un script más viejo no las conoce:
  * si no vienen en la fila, se conserva lo que ya había (no se borran con un vacío).
  */
-export const COLUMNAS_OPCIONALES: Partial<Record<NombreTabla, readonly string[]>> = { Productos: ['marca'] }
+export const COLUMNAS_OPCIONALES: Partial<Record<NombreTabla, readonly string[]>> = { Productos: ['marca', 'borrado'] }
 export const NOMBRES_TABLAS = Object.keys(TABLAS) as NombreTabla[]
 export const TABLAS_CLIENTE = NOMBRES_TABLAS.filter((t) => TABLAS[t].cliente)
 export const TABLAS_SYNC = NOMBRES_TABLAS.filter((t) => TABLAS[t].sincroniza)
@@ -148,6 +148,16 @@ export interface Producto extends Sincronizable {
   activo: boolean
   /** Marca que sueles comprar ("Diana"). Vacía = cualquiera. Las filas viejas no la traen. */
   marca?: string
+  /**
+   * Eliminado para siempre. Queda solo esta marca (sin nombre ni datos) para que ningún celular ni el Sheet lo vuelvan
+   * a traer; sus marcas, tamaños y precios se borran. Distinto de archivado (`activo: false`), que se puede restaurar.
+   */
+  borrado?: boolean
+}
+
+/** Un producto eliminado (o una fila vacía que dejó un script viejo al eliminarlo): no se muestra en ninguna parte. */
+export function productoEliminado(p: { borrado?: boolean; nombre?: string | null }): boolean {
+  return !!p.borrado || !String(p.nombre ?? '').trim()
 }
 
 export interface Presentacion extends Sincronizable {

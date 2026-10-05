@@ -2,9 +2,10 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import type { RegionGuardada } from '@shared/config.ts'
 import { formatoNumero } from '@shared/dinero.ts'
-import { TABLAS, type NombreTabla } from '@shared/esquema.ts'
+import { productoEliminado, TABLAS, type NombreTabla, type Producto } from '@shared/esquema.ts'
 import { validarFila } from '@shared/seguridad.ts'
 import { INFO_TIENDAS, TIENDAS_VTEX, type TiendaVtex } from '@shared/tiendas.ts'
+import { EliminarProductos } from '../componentes/EliminarProductos.tsx'
 import { BotonPegarLista } from '../componentes/PegarLista.tsx'
 import { avisar, Boton, Campo, Cargando, ErrorTexto, leerNumero, NombreTienda, Tarjeta, Titulo } from '../componentes/ui.tsx'
 import { llamarVtex } from '../datos/apiVtex.ts'
@@ -103,7 +104,8 @@ function Pasillos() {
 }
 
 function Archivados() {
-  const archivados = useLiveQuery(async () => (await db.productos.toArray()).filter((p) => !p.activo), []) ?? []
+  const archivados = useLiveQuery(async () => (await db.productos.toArray()).filter((p) => !p.activo && !productoEliminado(p)), []) ?? []
+  const [porEliminar, setPorEliminar] = useState<Producto[]>([])
   if (!archivados.length) return null
   return (
     <Tarjeta>
@@ -111,13 +113,21 @@ function Archivados() {
         <summary className="min-h-11 cursor-pointer py-2 font-semibold">Productos archivados ({archivados.length})</summary>
         <ul className="divide-y divide-stone-100">
           {archivados.map((p) => (
-            <li key={p.producto_id} className="flex items-center justify-between">
-              <span>{p.nombre}</span>
-              <Boton variante="fantasma" onClick={async () => { await guardar('Productos', { ...p, activo: true }); avisar(`${p.nombre} restaurado`) }}>Restaurar</Boton>
+            <li key={p.producto_id} className="flex flex-wrap items-center justify-between gap-x-2">
+              <span className="min-w-0 flex-1">{p.nombre}</span>
+              <span className="flex shrink-0">
+                <Boton variante="fantasma" onClick={async () => { await guardar('Productos', { ...p, activo: true }); avisar(`${p.nombre} restaurado`) }}>Restaurar</Boton>
+                <Boton variante="fantasma" className="text-peligro" aria-label={`Eliminar ${p.nombre} para siempre`} onClick={() => setPorEliminar([p])}>Eliminar</Boton>
+              </span>
             </li>
           ))}
         </ul>
+        {archivados.length > 1 && (
+          <Boton variante="secundario" className="mt-2 w-full text-peligro" onClick={() => setPorEliminar(archivados)}>Eliminar todos los archivados…</Boton>
+        )}
+        <p className="mt-1 text-xs text-stone-600">Archivar los esconde y se pueden recuperar. Eliminar los borra para siempre.</p>
       </details>
+      <EliminarProductos productos={porEliminar} abierta={porEliminar.length > 0} onCerrar={() => setPorEliminar([])} onHecho={() => setPorEliminar([])} />
     </Tarjeta>
   )
 }

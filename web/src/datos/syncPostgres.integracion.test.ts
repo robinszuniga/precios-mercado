@@ -105,7 +105,7 @@ vi.mock('./supabase.ts', () => ({
 
 import { cerrarCompra } from './cierre.ts'
 import { db, usarBaseLocal } from './db.ts'
-import { agregarALaCompra, compraAbierta, guardar, nuevaPresentacion, nuevoProducto, registrarPrecioManual } from './escritura.ts'
+import { agregarALaCompra, compraAbierta, eliminarProductos, guardar, nuevaPresentacion, nuevoProducto, registrarPrecioManual } from './escritura.ts'
 import { sincronizar } from './sync.ts'
 
 const A = '11111111-1111-1111-1111-111111111111'
@@ -283,4 +283,86 @@ describe('app + Postgres real', () => {
     expect((await admin('select count(*)::int n from public.compras_resumen'))[0].n).toBeGreaterThanOrEqual(1)
     expect((await admin('select count(*)::int n from public.observaciones'))[0].n).toBeGreaterThanOrEqual(2)
   })
+
+  describe('eliminar productos para siempre', () => {
+    async function conArroz() {
+      const [p] = await guardar('Productos', nuevoProducto({ nombre: 'Arroz', marca: 'Diana' }))
+      const [pres] = await guardar('Presentaciones', nuevaPresentacion({ producto_id: p.producto_id, tienda: 'D1', contenido: 1000 }))
+      await registrarPrecioManual(pres, 4500)
+      await sincronizar()
+      return { p, pres }
+    }
+    const cuenta = async (sql: string, params: unknown[] = []) => Number((await admin<{ n: number }>(sql, params))[0].n)
+
+    it('en la nube queda solo la marca y se borran sus presentaciones, observaciones, precio actual e historial', async () => {
+      const { p } = await conArroz()
+      expect(await cuenta('select count(*)::int n from public.presentaciones')).toBe(1)
+      expect(await cuenta('select count(*)::int n from public.precios_historial')).toBe(1)
+
+      await eliminarProductos([p.producto_id])
+      await sincronizar()
+      expect((await estadoSync())?.error).toBeNull()
+      expect(await db.rechazados.count()).toBe(0)
+      expect(await db.outbox.count()).toBe(0)
+      expect((await admin('select nombre, marca, borrado, activo from public.productos'))[0]).toEqual({ nombre: '', marca: '', borrado: true, activo: false })
+      for (const t of ['presentaciones', 'observaciones', 'precios_actuales', 'precios_historial']) {
+        expect(await cuenta(`select count(*)::int n from public.${t}`), t).toBe(0)
+      }
+    })
+
+    it('lo de la otra cuenta no se toca, aunque use los mismos ids', async () => {
+      const { p, pres } = await conArroz()
+      await entrarComo(B)
+      await guardar('Productos', { ...nuevoProducto({ nombre: 'Arroz de B' }), producto_id: p.producto_id })
+      await guardar('Presentaciones', { ...nuevaPresentacion({ producto_id: p.producto_id, tienda: 'D1', contenido: 1000 }), presentacion_id: pres.presentacion_id })
+      await sincronizar()
+      await entrarComo(A)
+      await sincronizar()
+      await eliminarProductos([p.producto_id])
+      await sincronizar()
+      const deB = await admin('select p.nombre, (select count(*)::int from public.presentaciones x where x.user_id = p.user_id) as pres from public.productos p where p.user_id = $1', [B])
+      expect(deB).toEqual([{ nombre: 'Arroz de B', pres: 1 }])
+    })
+
+    it('un segundo celular que recibe la marca borra también lo suyo, y no vuelve a verlo', async () => {
+      const { p, pres } = await conArroz()
+      // Celular 2: una copia de todo lo que A tenía descargado.
+      const copia = await Promise.all(db.tables.map(async (t) => ({ t, filas: await t.toArray() })))
+
+      await eliminarProductos([p.producto_id])
+      await sincronizar()
+
+      await Promise.all(db.tables.map((t) => t.clear()))
+      for (const { t, filas } of copia) await t.bulkPut(filas)
+      expect(await db.presentaciones.count()).toBe(1) // el celular 2 todavía lo tiene
+      await sincronizar()
+      expect(await db.presentaciones.get(pres.presentacion_id)).toBeUndefined()
+      expect(await db.preciosActuales.where('presentacion_id').equals(pres.presentacion_id).count()).toBe(0)
+      expect(await db.historial.where('presentacion_id').equals(pres.presentacion_id).count()).toBe(0)
+      expect(await db.productos.get(p.producto_id)).toMatchObject({ borrado: true, nombre: '' })
+      await sincronizar()
+      expect((await estadoSync())?.error).toBeNull()
+    })
+
+    it('un celular nuevo descarga la marca de eliminado pero nada de sus datos', async () => {
+      const { p } = await conArroz()
+      await eliminarProductos([p.producto_id])
+      await sincronizar()
+      await Promise.all(db.tables.map((t) => t.clear()))
+      await sincronizar()
+      expect(await db.productos.count()).toBe(1)
+      expect((await db.productos.toArray())[0]).toMatchObject({ borrado: true, nombre: '' })
+      expect(await db.presentaciones.count()).toBe(0)
+      expect(await db.preciosActuales.count()).toBe(0)
+    })
+
+    it('no se puede des-eliminar desde la base: borrado se queda en verdadero y los datos vacíos', async () => {
+      const { p } = await conArroz()
+      await eliminarProductos([p.producto_id])
+      await sincronizar()
+      await h.pg.exec(`update public.productos set borrado = false, nombre = 'Resucitado', activo = true where producto_id = '${p.producto_id}'`)
+      expect((await admin('select nombre, borrado, activo from public.productos'))[0]).toEqual({ nombre: '', borrado: true, activo: false })
+    })
+  })
 })
+

@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from 'react'
-import type { Producto } from '@shared/esquema.ts'
+import { productoEliminado, type Producto } from '@shared/esquema.ts'
 import { emparejar, leerLista } from '@shared/importarLista.ts'
 import { etiquetaVisible, type UnidadBase } from '@shared/unidades.ts'
 import { db } from '../datos/db.ts'
@@ -98,7 +98,8 @@ export function PegarLista({ onListo }: { onListo: () => void }) {
   }
 
   async function revisar() {
-    const productos = await db.productos.toArray()
+    // Un producto eliminado no se reconoce ni revive: si vuelve a la lista, se crea de nuevo.
+    const productos = (await db.productos.toArray()).filter((p) => !productoEliminado(p))
     setMios(productos.filter((p) => p.activo))
     const xs = emparejar(leerLista(crudo), productos)
     setFilas(xs.map((x, i) => ({

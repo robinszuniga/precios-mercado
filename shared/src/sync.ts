@@ -26,8 +26,9 @@ export function conservarOpcionales<F extends { updated_at: string }>(tabla: Nom
   const fila: Record<string, unknown> = { ...r }
   let reenviar = false
   for (const c of cols) {
-    const vacio = r[c] === undefined || r[c] === null || r[c] === ''
-    if (vacio && l[c] !== undefined && l[c] !== null && l[c] !== '') { fila[c] = l[c]; reenviar = true }
+    // "false" tampoco cuenta como dato (una columna booleana nueva vale false en todas las filas viejas).
+    const sinValor = (v: unknown) => v === undefined || v === null || v === '' || v === false
+    if (sinValor(r[c]) && !sinValor(l[c])) { fila[c] = l[c]; reenviar = true }
   }
   return { fila: fila as F, reenviar }
 }

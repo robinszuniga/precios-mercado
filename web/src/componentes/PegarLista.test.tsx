@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { db, guardarMeta } from '../datos/db.ts'
-import { compraAbierta, crearCategoria, crearDesdeLista, guardar, nuevoProducto } from '../datos/escritura.ts'
+import { compraAbierta, crearCategoria, crearDesdeLista, eliminarProductos, guardar, nuevoProducto } from '../datos/escritura.ts'
 import { PegarLista } from './PegarLista.tsx'
 
 beforeEach(async () => {
@@ -110,6 +110,19 @@ describe('Reemplazar mi lista', () => {
     await deshacerReemplazo(r.archivados, r.quitados)
     expect((await db.productos.toArray()).filter((p) => p.activo)).toHaveLength(4)
     expect((await detallesAbiertos()).map((d) => d.producto_id)).toContain(sal.producto_id)
+  })
+
+  it('un producto eliminado para siempre no revive: vuelve a salir como producto nuevo', async () => {
+    const [sal] = await guardar('Productos', nuevoProducto({ nombre: 'Sal', activo: false }))
+    await eliminarProductos([sal.producto_id])
+    render(<PegarLista onListo={() => {}} />)
+    fireEvent.change(screen.getByLabelText('Tu lista'), { target: { value: 'Sal 1 kg' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Revisar' }))
+    expect(await screen.findByText(/Encontré/)).toHaveTextContent('Encontré 1 producto')
+    expect(screen.queryByText('Ya lo tienes: se actualiza')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar 1 producto' }))
+    await waitFor(async () => expect((await db.productos.toArray()).filter((p) => !p.borrado && p.nombre === 'Sal')).toHaveLength(1))
+    expect((await db.productos.get(sal.producto_id))?.borrado).toBe(true)
   })
 
   it('un producto archivado revive si vuelve en una lista (con sus precios)', async () => {

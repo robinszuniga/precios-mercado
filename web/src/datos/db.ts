@@ -123,3 +123,21 @@ export async function leerMeta<T>(clave: string, porDefecto: T, base: BaseLocal 
 export async function guardarMeta(clave: string, valor: unknown, base: BaseLocal = db) {
   await base.meta.put({ clave, valor })
 }
+
+/**
+ * Borra de este celular lo que depende de productos eliminados: sus marcas y tamaños, su precio actual, su historial de
+ * precios y lo que había en "Novedades". Va dentro de la transacción de quien la llama (la tabla de cada cosa debe estar
+ * en ella). En la nube lo hace un disparador de la base de datos al recibir la marca de eliminado.
+ */
+export async function purgarDatosDeProductos(base: BaseLocal, ids: ReadonlySet<string>): Promise<void> {
+  if (!ids.size) return
+  const presentaciones = (await base.presentaciones.where('producto_id').anyOf([...ids]).primaryKeys()) as string[]
+  if (!presentaciones.length) return
+  const fuera = new Set(presentaciones)
+  await base.presentaciones.bulkDelete(presentaciones)
+  await base.preciosActuales.where('presentacion_id').anyOf(presentaciones).delete()
+  await base.historial.where('presentacion_id').anyOf(presentaciones).delete()
+  const novedades = (await base.cambios.toArray()).filter((c) => fuera.has(c.presentacion_id)).map((c) => c.id!)
+  if (novedades.length) await base.cambios.bulkDelete(novedades)
+}
+

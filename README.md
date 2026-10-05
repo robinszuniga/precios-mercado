@@ -108,6 +108,12 @@ El código de acceso bloquea la app si falta la configuración. Antes de invitar
 migración de límites, desplegar y probar la función, configurar Google OAuth y publicar el sitio. El código local ya no
 pide la URL/token de Apps Script; la actualización manual de precios sustituye por ahora la tarea diaria antigua.
 
+**Archivar y eliminar.** Archivar esconde un producto y se puede recuperar (Ajustes → Archivados). «Eliminar para siempre»
+(en Editar producto o en la lista de archivados) pide confirmación y no se puede deshacer: el producto queda en la nube solo
+como una marca `borrado` sin nombre, sus marcas/tamaños y precios se borran en todos los celulares de la cuenta, y las compras
+pasadas conservan el nombre como texto. Requiere la migración `20261005000200_eliminar_productos.sql`; sin ella el celular
+igual lo oculta y borra lo suyo, pero el servidor conserva las presentaciones hasta que se aplique.
+
 En **Ajustes → Este celular** puedes descargar un respaldo o importar uno. La importación combina los datos con los
 de ese celular: si una fila tiene la misma clave, gana la del archivo; las demás se conservan. La conexión y el token
 de Google no se incluyen ni se cambian. La importación solo restaura datos en el celular; no los envía automáticamente

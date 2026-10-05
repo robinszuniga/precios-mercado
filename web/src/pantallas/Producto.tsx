@@ -4,6 +4,7 @@ import { diasEntre } from '@shared/fechas.ts'
 import { INFO_TIENDAS, TIENDAS, type Tienda } from '@shared/tiendas.ts'
 import { etiquetaVisible, formatoCantidadVisible, precioPorUnidad } from '@shared/unidades.ts'
 import { ir } from '../app/ruta.ts'
+import { EliminarProductos } from '../componentes/EliminarProductos.tsx'
 import { FormProducto } from '../componentes/FormProducto.tsx'
 import { describirPresentacion, RegistrarPrecio } from '../componentes/RegistrarPrecio.tsx'
 import { avisar, Boton, Cargando, Distintivo, hace, Hoja, LeyendaDistintivos, LogoTienda, NombreTienda, pesos, Tarjeta, Vacio } from '../componentes/ui.tsx'
@@ -12,7 +13,7 @@ import { opcionesDe, useCatalogo } from '../datos/consultas.ts'
 import { guardar } from '../datos/escritura.ts'
 import { ahoraIso } from '../datos/sync.ts'
 
-type Dialogo = null | 'editar' | 'vincular' | { precio: { tienda?: Tienda; presentacion?: string } } | { quitar: Presentacion }
+type Dialogo = null | 'editar' | 'eliminar' | 'vincular' | { precio: { tienda?: Tienda; presentacion?: string } } | { quitar: Presentacion }
 
 export function DetalleProducto({ id }: { id: string }) {
   const cat = useCatalogo()
@@ -139,7 +140,14 @@ export function DetalleProducto({ id }: { id: string }) {
           Archivar producto
         </Boton>
         <p className="mt-1 text-center text-xs text-stone-600">Sale de la lista y del plan. Se puede recuperar en Ajustes → Archivados.</p>
+        <Boton variante="secundario" className="mt-4 w-full text-peligro" onClick={() => {
+          // Una hoja no se abre en el mismo instante en que otra se cierra: el "atrás" de la que se va cerraría la nueva.
+          setDialogo(null)
+          setTimeout(() => setDialogo('eliminar'), 300)
+        }}>Eliminar para siempre…</Boton>
+        <p className="mt-1 text-center text-xs text-stone-600">Borra el producto y sus precios. No se puede deshacer.</p>
       </Hoja>
+      <EliminarProductos productos={[producto]} abierta={dialogo === 'eliminar'} onCerrar={cerrar} onHecho={() => { cerrar(); ir('lista') }} />
       <Hoja abierta={dialogo === 'vincular'} titulo="Buscar en la tienda online" onCerrar={cerrar}>
         <Vincular producto={producto} yaVinculadas={presentaciones} onListo={cerrar} />
       </Hoja>

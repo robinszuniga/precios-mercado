@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { leerConfig, type Config } from '@shared/config.ts'
-import type { Categoria, Detalle, PrecioActual, Presentacion, Producto } from '@shared/esquema.ts'
+import { productoEliminado, type Categoria, type Detalle, type PrecioActual, type Presentacion, type Producto } from '@shared/esquema.ts'
 import { costoEnTienda, opcionesProducto, type ItemPlan, type OpcionesProducto } from '@shared/recomendacion.ts'
 import { TIENDAS, type Tienda } from '@shared/tiendas.ts'
 import { db } from './db.ts'
@@ -16,9 +16,13 @@ export interface Catalogo {
 }
 
 export async function cargarCatalogo(): Promise<Catalogo> {
-  const [productos, presentaciones, actuales, categorias, config] = await Promise.all([
+  const [todosLosProductos, todasLasPresentaciones, actuales, categorias, config] = await Promise.all([
     db.productos.toArray(), db.presentaciones.toArray(), db.preciosActuales.toArray(), db.categorias.toArray(), db.config.toArray(),
   ])
+  // Un producto eliminado (y lo que aún quede suyo por una descarga atrasada) no se muestra en ninguna parte.
+  const productos = todosLosProductos.filter((p) => !productoEliminado(p))
+  const eliminados = new Set(todosLosProductos.filter(productoEliminado).map((p) => p.producto_id))
+  const presentaciones = eliminados.size ? todasLasPresentaciones.filter((p) => !eliminados.has(p.producto_id)) : todasLasPresentaciones
   const presentacionesDe = new Map<string, Presentacion[]>()
   for (const p of presentaciones) presentacionesDe.set(p.producto_id, [...(presentacionesDe.get(p.producto_id) ?? []), p])
   const actualesDe = new Map<string, PrecioActual[]>()
