@@ -4,7 +4,7 @@ import type { Presentacion, Producto } from '@shared/esquema.ts'
 import { claveProducto } from '@shared/importarLista.ts'
 import type { Tienda, TiendaVtex } from '@shared/tiendas.ts'
 import { llamarVtex } from './apiVtex.ts'
-import { db } from './db.ts'
+import { db, exigirCuenta, generacionActual } from './db.ts'
 import { guardar, nuevaPresentacion } from './escritura.ts'
 import { crearDesdeCandidato, TIENDAS_LOTE, type Cand } from './vincularLote.ts'
 
@@ -42,16 +42,22 @@ async function copiarA(tienda: Tienda, p: Presentacion): Promise<Presentacion> {
  * Olímpica es la misma de D1); si no está, en internet, para sugerir nombre y tamaño.
  */
 export async function resolverCodigo(ean: string, tienda: Tienda): Promise<Resuelto> {
+  const cuenta = generacionActual()
   const codigo = normalizarEan(ean)
   const [presentaciones, productos] = await Promise.all([db.presentaciones.toArray(), db.productos.toArray()])
+  exigirCuenta(cuenta)
   const producto = new Map(productos.filter((p) => p.activo).map((p) => [p.producto_id, p]))
   const iguales = presentaciones.filter((p) => p.activo && mismoEan(p.ean, codigo) && producto.has(p.producto_id))
   const aqui = iguales.find((p) => p.tienda === tienda)
   if (aqui) return { tipo: 'conocido', producto: producto.get(aqui.producto_id)!, presentacion: aqui }
-  if (iguales[0]) return { tipo: 'conocido', producto: producto.get(iguales[0].producto_id)!, presentacion: await copiarA(tienda, iguales[0]) }
+  if (iguales[0]) {
+    exigirCuenta(cuenta)
+    return { tipo: 'conocido', producto: producto.get(iguales[0].producto_id)!, presentacion: await copiarA(tienda, iguales[0]) }
+  }
 
   // En la tienda la señal es mala: si internet no responde pronto, se sigue sin la sugerencia.
-  const r = await llamarVtex<{ candidatos: Cand[] }>('buscarEnTienda', { tienda: '*', ean: codigo }, TIEMPO_BUSQUEDA_MS)
+  const r = await llamarVtex<{ candidatos: Cand[] }>('buscarEnTienda', { tienda: '*', ean: codigo }, TIEMPO_BUSQUEDA_MS, cuenta)
+  exigirCuenta(cuenta)
   const cands = r.tipo === 'ok' ? (r.data.candidatos ?? []).filter((x) => mismoEan(x.ean, codigo)) : []
   const mejor = cands.find((x) => x.contenido) ?? cands[0]
   return { tipo: 'elegir', ean: codigo, sugerencia: mejor ? { nombre: mejor.nombre, marca: mejor.marca, candidatos: cands } : null }
@@ -63,18 +69,22 @@ export async function resolverCodigo(ean: string, tienda: Tienda): Promise<Resue
  * no tenga. Sin tamaño comparable devuelve null: el formulario de precio lo pregunta.
  */
 export async function asignarCodigo(producto: Producto, tienda: Tienda, ean: string, sugerencia: Sugerencia | null): Promise<Presentacion | null> {
+  // Varias lecturas y escrituras seguidas: todas son de la cuenta con la que empezó; si cambia, se corta antes de escribir.
+  const cuenta = generacionActual()
   const compatibles = (sugerencia?.candidatos ?? []).filter((c) => contenidoCompatible(c.contenido, producto.unidad_base))
   if (!compatibles.length) return null
   const ya = await db.presentaciones.where('producto_id').equals(producto.producto_id).toArray()
+  exigirCuenta(cuenta)
   // Una sola presentación online por tienda: el mismo código puede salir dos veces en una tienda (dos SKU).
   const vinculadas = new Set(ya.filter((p) => p.activo && p.sku_id).map((p) => p.tienda))
   for (const c of compatibles) {
     const t = c.tienda as TiendaVtex
     if (!TIENDAS_LOTE.includes(t) || vinculadas.has(t)) continue
-    if (await crearDesdeCandidato(producto, c, c.contenido!.valor)) vinculadas.add(t)
+    if (await crearDesdeCandidato(producto, c, c.contenido!.valor, { cuenta })) vinculadas.add(t)
   }
   const base = compatibles[0]
   const ahora = await db.presentaciones.where('producto_id').equals(producto.producto_id).toArray()
+  exigirCuenta(cuenta)
   const igual = ahora.find((p) => p.activo && p.tienda === tienda && mismoEan(p.ean, ean))
   if (igual) return igual
   const [nueva] = await guardar<Presentacion>('Presentaciones', nuevaPresentacion({

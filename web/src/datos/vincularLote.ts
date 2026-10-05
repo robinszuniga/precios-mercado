@@ -4,7 +4,7 @@ import type { UnidadBase } from '@shared/unidades.ts'
 import { esDeMarca, type Opcion } from '@shared/vtex/ordenar.ts'
 import type { Candidato } from '@shared/vtex/parse.ts'
 import { llamarVtex } from './apiVtex.ts'
-import { db, guardarMeta, leerMeta } from './db.ts'
+import { CuentaCambiada, db, exigirCuenta, generacionActual, guardarMeta, leerMeta } from './db.ts'
 import { compraAbierta, guardar, nuevaPresentacion, observacion, registrarObservaciones } from './escritura.ts'
 import { sincronizar } from './sync.ts'
 
@@ -32,10 +32,16 @@ export function exclusivo<T>(fn: () => Promise<T>): Promise<T> {
  * Crea la presentación de la tienda para el producto y guarda el precio que trajo la búsqueda.
  * Si ese SKU ya está vinculado al producto no lo repite; si el usuario lo había quitado, solo lo vuelve a poner
  * cuando él mismo lo elige (`reactivar`), nunca la búsqueda automática.
+ * `cuenta` es la cuenta con la que empezó la operación: si cambió, no se escribe nada (sería de otra cuenta).
  */
-export async function crearDesdeCandidato(producto: Producto, c: Cand, contenido: number | null, opciones: { reactivar?: boolean } = {}): Promise<Presentacion | null> {
+export async function crearDesdeCandidato(producto: Producto, c: Cand, contenido: number | null, opciones: { reactivar?: boolean; cuenta?: number } = {}): Promise<Presentacion | null> {
+  // Sin `cuenta` explícita (vincular a mano), la cuenta es la de este momento: un cambio durante la llamada la corta.
+  const cuenta = opciones.cuenta ?? generacionActual()
+  const revisarCuenta = () => exigirCuenta(cuenta)
+  revisarCuenta()
   const previa = (await db.presentaciones.where('producto_id').equals(producto.producto_id).toArray())
     .find((x) => x.tienda === c.tienda && x.sku_id === c.skuId)
+  revisarCuenta()
   if (previa && !previa.activo && !opciones.reactivar) return null
   const [p] = previa
     ? previa.activo ? [previa] : await guardar<Presentacion>('Presentaciones', { ...previa, activo: true, contenido: contenido ?? previa.contenido })
@@ -54,6 +60,7 @@ export async function crearDesdeCandidato(producto: Producto, c: Cand, contenido
       auto: true,
     }))
   if (c.precio != null) {
+    revisarCuenta()
     await registrarObservaciones([observacion({ presentacion: p, precio: c.precio, precioLista: c.precioLista, origen: 'online', fuente: 'auto', disponible: c.disponible, region: c.region })])
   }
   return p
@@ -84,14 +91,16 @@ export function itemDe(p: Producto): Item {
 const fallaLaRed = (f: string | null): boolean => !!f
 
 /** Busca de a 8 productos por llamada. Si el servidor no responde, se detiene y lo dice. */
-export async function buscarLote(items: Item[], tiendas: TiendaVtex[] = TIENDAS_LOTE, onAvance?: (hechos: number, total: number) => void) {
+export async function buscarLote(items: Item[], tiendas: TiendaVtex[] = TIENDAS_LOTE, onAvance?: (hechos: number, total: number) => void, cuenta = generacionActual()) {
   const resultados = new Map<string, PorTienda>()
   const errores = new Set<string>()
   let sinMarcas = false
   for (let i = 0; i < items.length; i += LOTE) {
     onAvance?.(i, items.length)
     const lote = items.slice(i, i + LOTE)
-    const r = await llamarVtex<{ resultados: { id: string; porTienda: PorTienda }[]; errores: string[]; marcas?: boolean }>('buscarVarios', { items: lote, tiendas })
+    const r = await llamarVtex<{ resultados: { id: string; porTienda: PorTienda }[]; errores: string[]; marcas?: boolean }>('buscarVarios', { items: lote, tiendas }, undefined, cuenta)
+    // Los resultados de otra cuenta no se usan para nada: la operación entera se corta.
+    exigirCuenta(cuenta)
     if (r.tipo !== 'ok') return { resultados, errores: [...errores], sinMarcas, fallo: r.tipo === 'error' ? r.mensaje : 'Sin respuesta. ¿Hay señal?' }
     // Un script viejo ignora la marca y marcaría como segura otra: lo de los productos con marca no se usa.
     const confiar = r.data?.marcas === true
@@ -126,7 +135,17 @@ export interface Elegido {
  * Vincula lo elegido. Si un producto quedó sin alguna de las dos tiendas, busca su código de barras en la otra
  * y lo agrega si está (mismo producto, así que es seguro). Devuelve cuántos productos quedaron vinculados.
  */
-export async function vincular(elegidos: Elegido[], onAvance?: (hechos: number, total: number) => void, opciones: { reactivar?: boolean } = {}): Promise<number> {
+export async function vincular(elegidos: Elegido[], onAvance?: (hechos: number, total: number) => void, opciones: { reactivar?: boolean } = {}, cuenta = generacionActual()): Promise<number> {
+  try {
+    return await vincularDeCuenta(elegidos, cuenta, onAvance, opciones)
+  } catch (e) {
+    // Si se cerró la sesión o se cambió de cuenta a mitad, lo que faltaba no se escribe en la cuenta nueva.
+    if (e instanceof CuentaCambiada) return 0
+    throw e
+  }
+}
+
+async function vincularDeCuenta(elegidos: Elegido[], cuenta: number, onAvance: ((hechos: number, total: number) => void) | undefined, opciones: { reactivar?: boolean }): Promise<number> {
   const conEan: Item[] = []
   const faltaEn = new Map<string, TiendaVtex[]>()
   const hechos = new Set<string>()
@@ -134,7 +153,7 @@ export async function vincular(elegidos: Elegido[], onAvance?: (hechos: number, 
   for (const e of elegidos) {
     onAvance?.(n++, elegidos.length)
     for (const o of e.opciones) {
-      if (await crearDesdeCandidato(e.producto, o, o.contenido!.valor, opciones)) hechos.add(e.producto.producto_id)
+      if (await crearDesdeCandidato(e.producto, o, o.contenido!.valor, { ...opciones, cuenta })) hechos.add(e.producto.producto_id)
     }
     const faltan = TIENDAS_LOTE.filter((t) => !e.opciones.some((o) => o.tienda === t))
     const ean = e.opciones.find((o) => o.ean)?.ean
@@ -144,12 +163,12 @@ export async function vincular(elegidos: Elegido[], onAvance?: (hechos: number, 
     }
   }
   if (conEan.length) {
-    const { resultados } = await buscarLote(conEan)
+    const { resultados } = await buscarLote(conEan, TIENDAS_LOTE, undefined, cuenta)
     for (const e of elegidos) {
       const faltan = faltaEn.get(e.producto.producto_id)
       if (!faltan) continue
       for (const o of seguros(resultados.get(e.producto.producto_id)).filter((x) => faltan.includes(x.tienda))) {
-        if (await crearDesdeCandidato(e.producto, o, o.contenido!.valor)) hechos.add(e.producto.producto_id)
+        if (await crearDesdeCandidato(e.producto, o, o.contenido!.valor, { cuenta })) hechos.add(e.producto.producto_id)
       }
     }
   }
@@ -180,13 +199,18 @@ export interface ResultadoAuto {
 export function autoVincular(opciones: { forzar?: boolean } = {}): Promise<ResultadoAuto | null> {
   // Si ya hay una corriendo y se pide forzar (acabas de pegar la lista), se corre otra después con lo nuevo.
   if (enCurso) return opciones.forzar ? enCurso.then(() => autoVincular(opciones)) : enCurso
-  enCurso = exclusivo(() => correrAuto(opciones)).finally(() => { enCurso = null })
+  enCurso = exclusivo(() => correrAuto(opciones, generacionActual()))
+    // Si la cuenta cambió a mitad, el resultado era de la cuenta anterior: no hay nada que informar.
+    .catch((e: unknown) => { if (e instanceof CuentaCambiada) return null; throw e })
+    .finally(() => { enCurso = null })
   return enCurso
 }
 
-async function correrAuto(opciones: { forzar?: boolean }): Promise<ResultadoAuto | null> {
+async function correrAuto(opciones: { forzar?: boolean }, cuenta: number): Promise<ResultadoAuto | null> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return null
+  exigirCuenta(cuenta)
   const estado = await leerMeta<EstadoAuto>('autoVinculo', { ultimo: 0, revisados: {} })
+  exigirCuenta(cuenta)
   const ahora = Date.now()
   if (!opciones.forzar) {
     if (ahora - estado.ultimo < HORAS_ENTRE_AUTOMATICOS * 3600_000) return null
@@ -195,27 +219,31 @@ async function correrAuto(opciones: { forzar?: boolean }): Promise<ResultadoAuto
   }
   // Primero lo último del Sheet: otro celular pudo haber vinculado ya estos productos.
   await sincronizar()
+  exigirCuenta(cuenta)
   const recientes = (id: string) => ahora - (estado.revisados[id] ?? 0) < DIAS_SIN_REPETIR * 86400_000
   const pendientes = (await productosSinVincular()).filter((p) => opciones.forzar || !recientes(p.producto_id))
   // Marcas que se eligieron cuando no se pudo buscar (sin señal, script viejo): se reintentan aquí.
   const idsMarca = await leerMeta<string[]>('marcasPendientes', [])
   const conMarcaPendiente = idsMarca.length ? (await db.productos.bulkGet(idsMarca)).filter((p): p is Producto => !!p && p.activo && !!p.marca) : []
+  exigirCuenta(cuenta)
   let falloMarca: string | null = null
   if (conMarcaPendiente.length) {
     const pend = new Set(idsMarca)
     for (const p of conMarcaPendiente) {
-      const r = await vincularMarcaAhora(p)
+      const r = await vincularMarcaAhora(p, cuenta)
       if (r.tipo === 'ok') pend.delete(p.producto_id)
       else if (r.tipo === 'fallo') { falloMarca = r.motivo; break }
     }
     for (const id of idsMarca) if (!conMarcaPendiente.some((p) => p.producto_id === id)) pend.delete(id)
+    exigirCuenta(cuenta)
     await guardarMeta('marcasPendientes', [...pend])
   }
   if (!pendientes.length) {
+    exigirCuenta(cuenta)
     await guardarMeta('autoVinculo', fallaLaRed(falloMarca) ? { ...estado, fallo: ahora } : { ...estado, ultimo: ahora })
     return { vinculados: 0, dudosos: 0, sinResultado: 0 }
   }
-  const { resultados, fallo: falloBusqueda, sinMarcas } = await buscarLote(pendientes.map(itemDe))
+  const { resultados, fallo: falloBusqueda, sinMarcas } = await buscarLote(pendientes.map(itemDe), TIENDAS_LOTE, undefined, cuenta)
   const fallo = falloBusqueda ?? (sinMarcas ? 'El servicio de precios no pudo confirmar las marcas.' : null) ?? falloMarca
   const elegidos: Elegido[] = []
   let dudosos = 0
@@ -232,7 +260,8 @@ async function correrAuto(opciones: { forzar?: boolean }): Promise<ResultadoAuto
       else sinResultado++
     }
   }
-  const vinculados = await vincular(elegidos)
+  const vinculados = await vincularDeCuenta(elegidos, cuenta, undefined, {})
+  exigirCuenta(cuenta)
   await guardarMeta('autoVinculo', fallaLaRed(fallo) ? { ...estado, revisados, fallo: ahora } : { ultimo: ahora, revisados })
   return { vinculados, dudosos, sinResultado }
 }
@@ -241,19 +270,20 @@ export type ResultadoMarca =
   | { tipo: 'ok'; /** Tiendas donde quedó vinculada la marca preferida. */ con: TiendaVtex[]; /** Tiendas online donde no apareció esa marca (se deja lo que había). */ sin: TiendaVtex[] }
   | { tipo: 'fallo'; motivo: string }
 
-async function vincularMarcaAhora(producto: Producto): Promise<ResultadoMarca> {
+async function vincularMarcaAhora(producto: Producto, cuenta: number): Promise<ResultadoMarca> {
   if (!producto.marca) return { tipo: 'ok', con: [], sin: [] }
-  const { resultados, fallo, sinMarcas } = await buscarLote([itemDe(producto)])
+  const { resultados, fallo, sinMarcas } = await buscarLote([itemDe(producto)], TIENDAS_LOTE, undefined, cuenta)
   if (fallo) return { tipo: 'fallo', motivo: fallo }
   if (sinMarcas) return { tipo: 'fallo', motivo: 'El servicio de precios no pudo confirmar las marcas.' }
   const antes = await db.presentaciones.where('producto_id').equals(producto.producto_id).toArray()
   const con: TiendaVtex[] = []
   for (const o of seguros(resultados.get(producto.producto_id), producto.marca)) {
-    const nueva = await crearDesdeCandidato(producto, o, o.contenido!.valor, { reactivar: true })
+    const nueva = await crearDesdeCandidato(producto, o, o.contenido!.valor, { reactivar: true, cuenta })
     if (!nueva) continue
     con.push(o.tienda)
     const otras = antes.filter((x) => x.tienda === o.tienda && x.activo && x.sku_id && x.presentacion_id !== nueva.presentacion_id
       && !esDeMarca({ nombre: x.nombre_en_tienda, marca: x.marca }, producto.marca))
+    exigirCuenta(cuenta)
     if (otras.length) await guardar<Presentacion>('Presentaciones', otras.map((x) => ({ ...x, activo: false })))
   }
   return { tipo: 'ok', con, sin: TIENDAS_LOTE.filter((t) => !con.includes(t)) }
@@ -265,12 +295,21 @@ async function vincularMarcaAhora(producto: Producto): Promise<ResultadoMarca> {
  * marca que ninguno). Si no se pudo buscar, queda pendiente: la búsqueda automática lo reintenta.
  */
 export function vincularMarca(producto: Producto): Promise<ResultadoMarca> {
+  const cuenta = generacionActual()
   return exclusivo(async () => {
-    const r = await vincularMarcaAhora(producto)
-    const pend = new Set(await leerMeta<string[]>('marcasPendientes', []))
-    if (r.tipo === 'ok') pend.delete(producto.producto_id)
-    else if (producto.marca) pend.add(producto.producto_id)
-    await guardarMeta('marcasPendientes', [...pend])
-    return r
+    try {
+      const r = await vincularMarcaAhora(producto, cuenta)
+      exigirCuenta(cuenta)
+      const pend = new Set(await leerMeta<string[]>('marcasPendientes', []))
+      exigirCuenta(cuenta)
+      if (r.tipo === 'ok') pend.delete(producto.producto_id)
+      else if (producto.marca) pend.add(producto.producto_id)
+      await guardarMeta('marcasPendientes', [...pend])
+      return r
+    } catch (e) {
+      // Cambió la cuenta: la marca pendiente era de la anterior y no se anota en la nueva.
+      if (e instanceof CuentaCambiada) return { tipo: 'fallo', motivo: 'La cuenta cambió mientras se buscaba la marca.' } satisfies ResultadoMarca
+      throw e
+    }
   })
 }

@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { db, usarBaseLocal } from '../datos/db.ts'
+import { db, invalidarCuenta, usarBaseLocal } from '../datos/db.ts'
 import { arrancarSincronizacion, esperarSincronizacion } from '../datos/sync.ts'
 import { supabase, supabaseConfigurado } from '../datos/supabase.ts'
 
@@ -20,6 +20,10 @@ export function Acceso({ children }: { children: ReactNode }) {
       colaCambio = colaCambio.then(async () => {
         const id = s?.user.id ?? null
         if (cuentaActual !== id) {
+          // Desde aquí, lo que siga corriendo de la cuenta anterior (sincronización, búsqueda de precios) se descarta,
+          // y la app se desmonta ya: no queda nada de la cuenta anterior en pantalla mientras cambia la base local.
+          invalidarCuenta()
+          if (viva) setPreparado(false)
           limpiezaSync?.()
           limpiezaSync = undefined
           await esperarSincronizacion()
@@ -98,7 +102,8 @@ export function Acceso({ children }: { children: ReactNode }) {
         <button type="button" onClick={() => void salir()} disabled={ocupado} className="min-h-11 shrink-0 px-2 font-medium text-marca underline">Cerrar sesión</button>
       </div>
       {error && <p role="alert" className="mx-auto max-w-lg px-4 text-sm text-peligro">No se pudo cerrar sesión: {error}</p>}
-      {children}
+      {/* Con la cuenta como llave, al cambiar de cuenta la app se monta de cero: no quedan formularios ni selecciones de la anterior. */}
+      <Fragment key={sesion.user.id}>{children}</Fragment>
     </>
   )
 }

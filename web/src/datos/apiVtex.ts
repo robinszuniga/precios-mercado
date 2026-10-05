@@ -1,18 +1,26 @@
 import type { ResultadoApi } from './api.ts'
+import { generacionActual } from './db.ts'
 import { supabase } from './supabase.ts'
 
 type Sobre<T> = { ok: boolean; data: T; error: { codigo: string; mensaje: string } | null }
 
-/** Invoca la función de VTEX con la sesión Supabase del usuario, nunca con un token compartido de Google. */
-export async function llamarVtex<T>(accion: string, params: Record<string, unknown> = {}, timeoutMs = 45_000): Promise<ResultadoApi<T>> {
+/**
+ * Invoca la función de VTEX con la sesión Supabase del usuario, nunca con un token compartido de Google.
+ * `generacion` es la cuenta con la que empezó la operación: si cambia antes de enviar o antes de recibir, la
+ * respuesta no se entrega (es de otra cuenta).
+ */
+export async function llamarVtex<T>(accion: string, params: Record<string, unknown> = {}, timeoutMs = 45_000, generacion = generacionActual()): Promise<ResultadoApi<T>> {
   if (!supabase) return { tipo: 'error', codigo: 'sin_conexion', mensaje: 'La cuenta no está conectada.' }
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return { tipo: 'desconocido', motivo: 'sin señal' }
+  const cuentaCambio = (): ResultadoApi<T> => ({ tipo: 'desconocido', motivo: 'La cuenta cambió mientras se consultaban los precios.' })
+  if (generacion !== generacionActual()) return cuentaCambio()
   try {
     let timer: ReturnType<typeof setTimeout> | undefined
     const resultado = await Promise.race([
       supabase.functions.invoke('vtex', { body: { a: accion, ...params } }),
       new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('La consulta tardó demasiado.')), timeoutMs) }),
     ]).finally(() => { if (timer) clearTimeout(timer) })
+    if (generacion !== generacionActual()) return cuentaCambio()
     const { data, error } = resultado
     if (error) {
       const response = (error as { context?: Response }).context

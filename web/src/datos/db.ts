@@ -21,6 +21,8 @@ export interface Rechazo {
   filaId: string
   mensaje: string
   fecha: number
+  /** Lo que no se aceptó, por si hay que recuperarlo a mano. */
+  payload?: Record<string, unknown>
 }
 
 export interface Meta {
@@ -67,8 +69,35 @@ export class BaseLocal extends Dexie {
 
 /** La cuenta determina el nombre de IndexedDB: un cierre o cambio de cuenta no mezcla datos locales. */
 export let db = new BaseLocal()
+/** Cuenta dueña de `db` (null = base sin cuenta). */
+export let propietarioDb: string | null = null
+
+/**
+ * Cuenta de la sesión: sube cada vez que se cierra o cambia la cuenta. Una operación larga (sincronizar, buscar precios)
+ * la guarda al empezar y la revisa antes de escribir: si cambió, el resultado es de otra cuenta y se descarta.
+ */
+let generacionCuenta = 0
+
+export class CuentaCambiada extends Error {
+  constructor() { super('La cuenta cambió mientras se hacía la operación.') }
+}
+
+export function generacionActual(): number {
+  return generacionCuenta
+}
+
+/** Marca que la cuenta ya no es la misma. Llamar apenas empieza un cierre o cambio de cuenta, antes de cerrar IndexedDB. */
+export function invalidarCuenta() {
+  generacionCuenta++
+}
+
+export function exigirCuenta(generacion: number) {
+  if (generacion !== generacionCuenta) throw new CuentaCambiada()
+}
 
 export function usarBaseLocal(userId: string | null) {
+  invalidarCuenta()
+  propietarioDb = userId
   // UUID de Supabase; el nombre no contiene correo, nombre ni otro dato personal.
   db = new BaseLocal(userId ? `precios-mercado-${userId}` : 'precios-mercado')
 }
@@ -86,11 +115,11 @@ export const TABLA_LOCAL: Partial<Record<NombreTabla, keyof BaseLocal & string>>
   Compras_resumen: 'resumen',
 }
 
-export async function leerMeta<T>(clave: string, porDefecto: T): Promise<T> {
-  const m = await db.meta.get(clave)
+export async function leerMeta<T>(clave: string, porDefecto: T, base: BaseLocal = db): Promise<T> {
+  const m = await base.meta.get(clave)
   return m ? (m.valor as T) : porDefecto
 }
 
-export async function guardarMeta(clave: string, valor: unknown) {
-  await db.meta.put({ clave, valor })
+export async function guardarMeta(clave: string, valor: unknown, base: BaseLocal = db) {
+  await base.meta.put({ clave, valor })
 }

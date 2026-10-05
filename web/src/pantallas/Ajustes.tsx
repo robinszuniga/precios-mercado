@@ -9,9 +9,9 @@ import { BotonPegarLista } from '../componentes/PegarLista.tsx'
 import { avisar, Boton, Campo, Cargando, ErrorTexto, leerNumero, NombreTienda, Tarjeta, Titulo } from '../componentes/ui.tsx'
 import { llamarVtex } from '../datos/apiVtex.ts'
 import { useCatalogo, useMeta } from '../datos/consultas.ts'
-import { db, guardarMeta } from '../datos/db.ts'
+import { db, exigirCuenta, generacionActual, guardarMeta } from '../datos/db.ts'
 import { guardar, guardarConfig } from '../datos/escritura.ts'
-import { sincronizar, type EstadoSync } from '../datos/sync.ts'
+import { sincronizar, sincronizarPronto, type EstadoSync } from '../datos/sync.ts'
 
 function hora(ms: number | null) {
   if (!ms) return 'nunca'
@@ -190,11 +190,14 @@ function Dispositivo() {
     // Permite volver a elegir el mismo archivo si se corrige o falla la importación.
     e.target.value = ''
     if (!archivo) return
+    // El respaldo se importa a la cuenta que estaba abierta al elegirlo: si cambia antes de escribir, se cancela.
+    const cuenta = generacionActual()
     setImportando(true)
     setResultadoRespaldo(null)
     try {
       if (archivo.size > 25 * 1024 * 1024) throw new Error('El archivo supera el límite de 25 MB.')
       const copia: unknown = JSON.parse(await archivo.text())
+      exigirCuenta(cuenta)
       if (!esRegistro(copia) || copia.app !== 'precios-mercado' || !esRegistro(copia.datos)) {
         throw new Error('El archivo no parece un respaldo de Precios de Mercado.')
       }
@@ -231,6 +234,7 @@ function Dispositivo() {
       )
       if (!confirmacion) return
 
+      exigirCuenta(cuenta)
       const tablasLocales = tablas.map((nombre) => db.table(nombre))
       await db.transaction('rw', ...tablasLocales, db.outbox, async () => {
         for (const nombre of tablas) await db.table(nombre).bulkPut(filas.get(nombre)!)

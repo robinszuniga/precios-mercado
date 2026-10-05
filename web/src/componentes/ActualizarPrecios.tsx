@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { Presentacion } from '@shared/esquema.ts'
 import { useCatalogo } from '../datos/consultas.ts'
-import { db } from '../datos/db.ts'
+import { CuentaCambiada, db, exigirCuenta, generacionActual } from '../datos/db.ts'
 import { observacion, registrarObservaciones, guardar } from '../datos/escritura.ts'
 import { llamarVtex } from '../datos/apiVtex.ts'
 import { Boton } from './ui.tsx'
@@ -30,10 +30,13 @@ export function ActualizarPrecios() {
 
   async function iniciar() {
     if (!catalogo) return
+    // Esta búsqueda es de la cuenta actual: si se cierra la sesión o se cambia de cuenta a mitad, se corta sin escribir.
+    const cuenta = generacionActual()
     setOcupado(true)
     setMensaje('Buscando precios en las tiendas…')
     try {
       const todas = await db.presentaciones.toArray()
+      exigirCuenta(cuenta)
       const pendientes = todas.filter((p) => p.activo && p.auto && (p.sku_id || p.ean)
         && (p.tienda === 'EXITO' || p.tienda === 'OLIMPICA' || (p.tienda === 'D1' && catalogo.cfg.autoD1)))
       let actualizadas = 0
@@ -43,13 +46,15 @@ export function ActualizarPrecios() {
         setMensaje(`Consultando ${Math.min(i + lote.length, pendientes.length)} de ${pendientes.length} productos…`)
         const r = await llamarVtex<{ resultados: ResultadoPrecio[] }>('actualizarVinculadas', {
           presentaciones: lote.map(({ presentacion_id, tienda, sku_id, ean }) => ({ presentacion_id, tienda, sku_id, ean })),
-        })
+        }, undefined, cuenta)
+        exigirCuenta(cuenta)
         if (r.tipo !== 'ok') {
           errores += lote.length
           if (r.tipo === 'error' && r.codigo === 'rate_limit') break
           continue
         }
         for (const resultado of r.data.resultados) {
+          exigirCuenta(cuenta)
           const p = lote.find((x) => x.presentacion_id === resultado.presentacion_id)
           if (!p) continue
           if (resultado.error) {
@@ -66,6 +71,7 @@ export function ActualizarPrecios() {
           if (actualizada.sku_id !== p.sku_id || actualizada.vtex_product_id !== p.vtex_product_id || p.ultimo_error) {
             await guardar<Presentacion>('Presentaciones', actualizada)
           }
+          exigirCuenta(cuenta)
           await registrarObservaciones([observacion({
             presentacion: actualizada,
             precio: resultado.precio,
@@ -82,8 +88,10 @@ export function ActualizarPrecios() {
       setMensaje(actualizadas || errores
         ? `Listo: ${actualizadas} precios consultados${errores ? `; ${errores} no se pudieron actualizar` : ''}.`
         : 'No hay presentaciones online para actualizar todavía.')
-    } catch {
-      setMensaje('No pude actualizar los precios. Revisa tu conexión e inténtalo de nuevo.')
+    } catch (e) {
+      setMensaje(e instanceof CuentaCambiada
+        ? 'La cuenta cambió: se canceló la búsqueda de precios.'
+        : 'No pude actualizar los precios. Revisa tu conexión e inténtalo de nuevo.')
     } finally {
       setOcupado(false)
     }
