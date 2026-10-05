@@ -162,13 +162,20 @@ describe('compra: barra fija, tachado y agregar directo', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Desmarcar Arroz' })).toBeNull())
     expect(screen.getByText('Arroz')).toBeInTheDocument() // ahora está en la tarjeta del carrito
 
-    // Desmarcar dentro de la ventana de un segundo: vuelve a pendiente.
-    fireEvent.click(screen.getByRole('button', { name: 'Marcar Leche como comprado' }))
-    await screen.findByRole('button', { name: 'Desmarcar Leche' })
-    await new Promise((r) => setTimeout(r, 450))
-    fireEvent.click(screen.getByRole('button', { name: 'Desmarcar Leche' }))
-    await waitFor(async () => expect((await db.detalle.toArray()).find((d) => d.nombre_libre === '' && d.estado === 'pendiente')).toBeTruthy())
-    expect(await screen.findByRole('button', { name: 'Marcar Leche como comprado' })).toBeInTheDocument()
+    // Desmarcar dentro de la ventana de 1,1 s: vuelve a pendiente. La app ignora un toque en los primeros 400 ms (evita el
+    // doble toque), así que hay que esperar un poco; esa espera se hace adelantando el reloj, no con una pausa real, que en
+    // una máquina ocupada se alarga y deja pasar la ventana.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'Marcar Leche como comprado' }))
+      const desmarcar = await screen.findByRole('button', { name: 'Desmarcar Leche' })
+      vi.setSystemTime(new Date(Date.now() + 450))
+      fireEvent.click(desmarcar)
+      await waitFor(async () => expect((await db.detalle.toArray()).find((d) => d.nombre_libre === '' && d.estado === 'pendiente')).toBeTruthy())
+      expect(await screen.findByRole('button', { name: 'Marcar Leche como comprado' })).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('al agregar un producto, su hoja se abre sola con el cursor en el precio', async () => {

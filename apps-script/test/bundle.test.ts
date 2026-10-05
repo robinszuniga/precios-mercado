@@ -1,10 +1,12 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 import { beforeAll, describe, expect, it } from 'vitest'
 
-const dir = new URL('../', import.meta.url).pathname
+// `.pathname` deja la ruta con "%20" y una "/" delante en Windows: no es una ruta de archivo válida allí.
+const dir = fileURLToPath(new URL('../', import.meta.url))
 
 describe('bundle de Apps Script', () => {
   let codigo = ''

@@ -11,7 +11,8 @@
     "preview": "vite preview --config web/vite.config.ts",
     "build:gas": "node apps-script/build.mjs",
     "build": "npm run build:web && npm run build:gas",
-    "test": "vitest run",
+    "test": "vitest run --project shared --project apps-script --project web && vitest run --project integracion",
+    "test:integracion": "vitest run --project integracion",
     "typecheck": "tsc -p tsconfig.shared.json && tsc -p tsconfig.gas.json && tsc -p tsconfig.web.json",
     "smoke": "node tools/smoke-vtex.ts",
     "gas:push": "npm run build:gas && cd apps-script && npx -y @google/clasp@3 push -f",
@@ -28,6 +29,7 @@
     "zxing-wasm": "3.1.3"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@tailwindcss/vite": "4.3.3",
     "@testing-library/dom": "10.4.2",
     "@testing-library/jest-dom": "7.0.1",

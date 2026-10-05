@@ -46,9 +46,9 @@ begin
   perform set_config('request.jwt.claims', json_build_object('sub', u::text)::text, true);
   delete from public.vtex_rate_limits where bucket_key in ('global', 'user:' || u::text);
   ok := public.consumir_cuota_vtex(100);
-  r := r || format(E'cuota 100 -> %s (esperado true)\n', ok);
+  r := r || format(E'cuota 100 -> %s (esperado true)\n', ok::text);
   ok := public.consumir_cuota_vtex(30);
-  r := r || format(E'cuota +30 (130 > 120) -> %s (esperado false)\n', ok);
+  r := r || format(E'cuota +30 (130 > 120) -> %s (esperado false)\n', ok::text);
   select unidades into v from public.vtex_rate_limits where bucket_key = 'global';
   r := r || format(E'global tras el rechazo: %s (esperado 100, no 130)\n', v);
 
