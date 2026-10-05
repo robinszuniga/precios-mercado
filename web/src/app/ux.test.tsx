@@ -1,6 +1,15 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { isoBogota } from '@shared/fechas.ts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+// La app solo muestra el estado de la conexión cuando hay base de datos en la nube: se simula, sin sesión abierta
+// (así la sincronización no hace nada y no toca la red).
+vi.mock('../datos/supabase.ts', () => ({
+  supabaseConfigurado: true,
+  supabase: { auth: { getSession: async () => ({ data: { session: null } }) } },
+  clienteDeCuenta: () => null,
+}))
+
 import { AlCarrito } from '../componentes/AlCarrito.tsx'
 import { cargarCatalogo } from '../datos/consultas.ts'
 import { db, guardarMeta } from '../datos/db.ts'
@@ -14,7 +23,7 @@ import { InstalarEnIphone } from './InstalarEnIphone.tsx'
 
 beforeEach(async () => {
   await Promise.all(db.tables.map((t) => t.clear()))
-  await guardarMeta('conexion', { url: '', token: '' })
+  // sin sesión: la sincronización no hace nada
 })
 afterEach(() => vi.restoreAllMocks())
 
@@ -189,7 +198,8 @@ describe('pantalla Empezar compra', () => {
     await guardar('Compras', { ...c, estado: 'en_curso' })
     const otra = render(<Compra />)
     await screen.findByText('Tu compra de hoy')
-    expect(valor()).toBe('4.25rem')
+    // El efecto que fija la barra corre cuando llega la consulta a la base local: se espera, no se asume.
+    await waitFor(() => expect(valor()).toBe('4.25rem'))
     otra.unmount()
     expect(valor()).toBe('')
   })
@@ -211,7 +221,6 @@ describe('historial', () => {
 
 describe('señal fantasma (falsa alarma)', () => {
   it('mientras una sincronización está en marcha (la primera, con muchos cambios) no se dice "sin respuesta"', async () => {
-    await guardarMeta('conexion', { url: 'https://script.google.com/macros/s/x/exec', token: 't' })
     await guardarMeta('estadoSync', { enCurso: true, ultimoOk: null, error: null })
     await db.outbox.add({ tipo: 'upsert', payload: { cambios: [] }, intentos: 0, proximo: 0, creado: Date.now() - 60_000 })
     const { container } = render(<EstadoConexion />)
@@ -222,14 +231,13 @@ describe('señal fantasma (falsa alarma)', () => {
 
 describe('señal fantasma', () => {
   async function conCola(hace: number) {
-    await guardarMeta('conexion', { url: 'https://script.google.com/macros/s/x/exec', token: 't' })
     await db.outbox.add({ tipo: 'upsert', payload: { cambios: [] }, intentos: 1, proximo: Date.now() + 60_000, creado: Date.now() - hace })
   }
 
   it('si lo último que marcaste lleva más de 15 segundos sin salir, lo dice', async () => {
     await conCola(20_000)
     render(<EstadoConexion />)
-    expect(await screen.findByText(/1 por enviar · sin respuesta de Google/)).toBeInTheDocument()
+    expect(await screen.findByText(/1 por enviar · sin respuesta de la nube/)).toBeInTheDocument()
   })
 
   it('si acaba de quedar en la cola, no alarma', async () => {

@@ -2,7 +2,7 @@ import { claveActual, type Compra, type Observacion, type PrecioActual } from '@
 import { aplicarObservaciones } from '@shared/observaciones.ts'
 import { resumenCierre, type ResultadoCierre } from '@shared/resumen.ts'
 import { cargarCatalogo } from './consultas.ts'
-import { db } from './db.ts'
+import { db, exigirCuenta, generacionActual } from './db.ts'
 import { observacion } from './escritura.ts'
 import { ahoraIso, encolar, sincronizarPronto } from './sync.ts'
 
@@ -11,9 +11,12 @@ import { ahoraIso, encolar, sincronizarPronto } from './sync.ts'
  * todo viaja al servidor como una sola operación idempotente.
  */
 export async function cerrarCompra(compra: Compra): Promise<ResultadoCierre> {
+  // Lee de la cuenta que tenía abierta y escribe en la misma: si cambia entre una cosa y otra, se cancela sin escribir.
+  const cuenta = generacionActual()
   const ahora = ahoraIso()
   const detalles = (await db.detalle.where('compra_id').equals(compra.compra_id).toArray()).filter((d) => !d.borrado)
   const presentaciones = new Map((await db.presentaciones.toArray()).map((p) => [p.presentacion_id, p]))
+  exigirCuenta(cuenta)
 
   const obs: Observacion[] = []
   for (const d of detalles) {
@@ -31,6 +34,7 @@ export async function cerrarCompra(compra: Compra): Promise<ResultadoCierre> {
     if (r.historial.length) await db.historial.bulkPut(r.historial)
 
     const cat = await cargarCatalogo()
+    exigirCuenta(cuenta)
     resultado = resumenCierre({
       compraId: compra.compra_id,
       detalles,

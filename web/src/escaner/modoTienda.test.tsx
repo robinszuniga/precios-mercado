@@ -1,6 +1,13 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { db, guardarMeta } from '../datos/db.ts'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+// El servicio de precios (función VTEX de Supabase) se simula: estos tests no tocan la red.
+const h = vi.hoisted(() => ({ manejar: null as null | ((accion: string, params: Record<string, unknown>) => unknown) }))
+vi.mock('../datos/apiVtex.ts', () => ({
+  llamarVtex: async (accion: string, params: Record<string, unknown>) => h.manejar?.(accion, params) ?? { tipo: 'desconocido', motivo: 'sin servicio' },
+}))
+
+import { db } from '../datos/db.ts'
 import { guardar, nuevaPresentacion, nuevoProducto } from '../datos/escritura.ts'
 import { asignarCodigo, ordenarPorParecido, resolverCodigo } from '../datos/modoTienda.ts'
 import { ModoTienda } from './ModoTienda.tsx'
@@ -16,18 +23,16 @@ function candidato(tienda: string) {
 }
 
 function servidor() {
-  vi.stubGlobal('fetch', vi.fn(async (_u: string, init?: RequestInit) => {
-    const c = JSON.parse(String(init?.body))
-    const data = c.a === 'buscarEnTienda' ? { candidatos: c.ean === EAN ? [candidato('OLIMPICA'), candidato('D1')] : [], errores: [] } : { tablas: {}, cursor: 'x', resultados: [] }
-    return new Response(JSON.stringify({ ok: true, data, error: null, v: 1 }))
-  }))
+  h.manejar = (accion, params) => ({
+    tipo: 'ok',
+    data: accion === 'buscarEnTienda' ? { candidatos: params.ean === EAN ? [candidato('OLIMPICA'), candidato('D1')] : [], errores: [] } : {},
+  })
 }
 
 beforeEach(async () => {
+  h.manejar = null
   await Promise.all(db.tables.map((t) => t.clear()))
-  await guardarMeta('conexion', { url: 'https://script.google.com/macros/s/x/exec', token: 't' })
 })
-afterEach(() => vi.unstubAllGlobals())
 
 describe('modo tienda', () => {
   it('un código que ya tienes en Olímpica se reconoce en D1 y se copia con su tamaño (una sola vez)', async () => {
@@ -78,7 +83,7 @@ describe('modo tienda', () => {
   })
 
   it('un código nuevo con otra marca ya anotada en esa tienda: no pisa el precio de la otra y recuerda el código', async () => {
-    await guardarMeta('conexion', { url: '', token: '' }) // sin internet: no hay sugerencia
+    h.manejar = () => ({ tipo: 'desconocido', motivo: 'sin señal' }) // sin internet: no hay sugerencia
     const [arroz] = await guardar('Productos', nuevoProducto({ nombre: 'Arroz', unidad_base: 'g' }))
     const [diana] = await guardar('Presentaciones', nuevaPresentacion({ producto_id: arroz.producto_id, tienda: 'D1', marca: 'Diana', contenido: 1000 }))
     const { registrarPrecioManual } = await import('../datos/escritura.ts')
@@ -100,11 +105,10 @@ describe('modo tienda', () => {
 
   it('si internet tarda se puede seguir sin esperar, y la respuesta tardía no cambia la pantalla', async () => {
     let soltar: () => void = () => {}
-    vi.stubGlobal('fetch', vi.fn(async (_u: string, init?: RequestInit) => {
-      const c = JSON.parse(String(init?.body))
-      if (c.a === 'buscarEnTienda') await new Promise<void>((r) => { soltar = r })
-      return new Response(JSON.stringify({ ok: true, data: { candidatos: [candidato('OLIMPICA')], tablas: {}, cursor: 'x', resultados: [] }, error: null, v: 1 }))
-    }))
+    h.manejar = async (accion) => {
+      if (accion === 'buscarEnTienda') await new Promise<void>((r) => { soltar = r })
+      return { tipo: 'ok', data: { candidatos: [candidato('OLIMPICA')] } }
+    }
     await guardar('Productos', nuevoProducto({ nombre: 'Arroz', unidad_base: 'g' }))
     render(<ModoTienda onListo={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: /Escanear código de barras/ }))
