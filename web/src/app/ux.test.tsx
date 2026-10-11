@@ -18,7 +18,7 @@ import { Compra } from '../pantallas/Compra.tsx'
 import { Historico } from '../pantallas/Historico.tsx'
 import { Lista } from '../pantallas/Lista.tsx'
 import { Plan } from '../pantallas/Plan.tsx'
-import { EstadoConexion } from './EstadoConexion.tsx'
+import { EstadoConexion, explicarError } from './EstadoConexion.tsx'
 import { InstalarEnIphone } from './InstalarEnIphone.tsx'
 
 beforeEach(async () => {
@@ -254,3 +254,45 @@ describe('señal fantasma', () => {
     expect(container.textContent).toBe('')
   })
 })
+
+describe('señal fantasma: dice la causa y deja reintentar', () => {
+  const conCola = (error?: string) => db.outbox.add({ tipo: 'upsert', payload: { cambios: [] }, intentos: 3, proximo: Date.now() + 300_000, creado: Date.now() - 60_000, ...(error ? { error } : {}) })
+
+  it('si el envío falló por una causa que no es de red, la pastilla la dice en palabras de persona', async () => {
+    await conCola("Could not find the table 'public.productos' in the schema cache")
+    render(<EstadoConexion />)
+    expect(await screen.findByText(/1 por enviar · a tu base en la nube le faltan tablas o columnas/)).toBeInTheDocument()
+    expect(screen.queryByText(/sin respuesta de la nube/)).toBeNull()
+  })
+
+  it('con el aviso general ya borrado, igual usa el error del propio envío; y el error general manda si existe', async () => {
+    await guardarMeta('estadoSync', { enCurso: false, ultimoOk: Date.now(), error: 'Tu sesión venció o no tiene acceso a tus datos. Inicia sesión de nuevo.' })
+    await conCola('otro error')
+    render(<EstadoConexion />)
+    expect(await screen.findByText(/tu sesión venció o no tiene acceso a tus datos: vuelve a entrar/)).toBeInTheDocument()
+  })
+
+  it('un error de red sigue siendo "señal inestable" y no ofrece reintentar', async () => {
+    await conCola('TypeError: Failed to fetch')
+    render(<EstadoConexion />)
+    expect(await screen.findByText('Señal inestable · se envía solo')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Reintentar' })).toBeNull()
+  })
+
+  it('"Reintentar" quita la espera de los cambios para que salgan ya', async () => {
+    await conCola('algo falló')
+    render(<EstadoConexion />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Reintentar' }))
+    await waitFor(async () => expect((await db.outbox.toArray())[0].proximo).toBe(0))
+  })
+
+  it('explicarError: conocidos en palabras de persona, el resto recortado', () => {
+    expect(explicarError('relation "public.productos" does not exist')).toMatch(/faltan tablas/)
+    expect(explicarError('Could not find the \'borrado\' column of \'productos\' in the schema cache')).toMatch(/faltan tablas/)
+    expect(explicarError('JWT expired')).toMatch(/sesión venció/)
+    expect(explicarError('new row violates row-level security policy')).toMatch(/sesión venció/)
+    expect(explicarError('Error: raro')).toBe('raro')
+    expect(explicarError('x'.repeat(200))).toHaveLength(91)
+  })
+})
+

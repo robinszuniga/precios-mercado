@@ -675,6 +675,12 @@ async function traerCloud(ctx: ContextoCuenta, completo = false): Promise<boolea
   return true
 }
 
+/** "Reintentar ahora": los cambios que esperaban su turno de reintento salen ya, no cuando se cumpla la espera. */
+export async function reintentarAhora(): Promise<void> {
+  await db.outbox.toCollection().modify({ proximo: 0 })
+  await sincronizar()
+}
+
 let enCurso: Promise<void> | null = null
 
 /** Envía lo pendiente y trae lo nuevo. Si ya hay una sincronización corriendo, espera esa. */
