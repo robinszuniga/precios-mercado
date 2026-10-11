@@ -12,7 +12,7 @@ import { llamarVtex } from '../datos/apiVtex.ts'
 import { useCatalogo, useMeta } from '../datos/consultas.ts'
 import { db, exigirCuenta, generacionActual, guardarMeta } from '../datos/db.ts'
 import { guardar, guardarConfig } from '../datos/escritura.ts'
-import { sincronizar, sincronizarPronto, type EstadoSync } from '../datos/sync.ts'
+import { motivosRechazo, reenviarRechazados, sincronizar, sincronizarPronto, type EstadoSync } from '../datos/sync.ts'
 
 function hora(ms: number | null) {
   if (!ms) return 'nunca'
@@ -330,7 +330,19 @@ function Avanzado() {
         {rechazados.length > 0 && (
           <div>
             <p className="text-peligro">{rechazados.length} cambios rechazados por el servidor</p>
-            <ul className="mt-1 space-y-1 text-xs">{rechazados.slice(-20).map((r) => <li key={r.id}>{r.tabla} {r.filaId}: {r.mensaje}</li>)}</ul>
+            <ul className="mt-1 space-y-1 text-xs">
+              {motivosRechazo(rechazados).slice(0, 6).map(([motivo, cuantos]) => <li key={motivo}>{cuantos} × {motivo}</li>)}
+            </ul>
+            {rechazados.some((r) => r.payload) && (
+              <Boton
+                variante="secundario"
+                className="mt-2 w-full"
+                onClick={async () => { const n = await reenviarRechazados(); avisar(n === 1 ? 'Se reenvió 1 cambio.' : `Se reenviaron ${n} cambios.`) }}
+              >
+                Reenviar los rechazados
+              </Boton>
+            )}
+            <p className="mt-1 text-xs text-stone-600">Reenviar sirve cuando ya se corrigió la causa. «Borrar la lista» los descarta de aquí (siguen en este celular, pero no suben a la nube).</p>
             <Boton variante="fantasma" onClick={() => void db.rechazados.clear()}>Borrar la lista</Boton>
           </div>
         )}

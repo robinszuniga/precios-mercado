@@ -101,7 +101,7 @@ vi.mock('./supabase.ts', () => ({
 import { cerrarCompra } from './cierre.ts'
 import { CuentaCambiada, db, usarBaseLocal, invalidarCuenta } from './db.ts'
 import { guardar, nuevoProducto, nuevaPresentacion, registrarPrecioManual } from './escritura.ts'
-import { actualMasNuevo, clasificarError, ErrorCloud, filaCloud, filaLocalDeCloud, sincronizar } from './sync.ts'
+import { actualMasNuevo, clasificarError, ErrorCloud, filaCloud, filaLocalDeCloud, motivosRechazo, reenviarRechazados, sincronizar } from './sync.ts'
 
 const cuenta = (id: string) => ({ user: { id }, access_token: `token-${id}` })
 
@@ -170,6 +170,27 @@ describe('envío a la nube', () => {
     expect(h.servidor.envios.some((e) => e.filas.some((f) => f.nombre === 'Bueno'))).toBe(true)
     // El aviso se queda hasta que la persona revise la lista de rechazados.
     expect((await db.meta.get('estadoSync'))?.valor).toMatchObject({ error: expect.stringContaining('no fue aceptado') })
+  })
+
+  it('el aviso dice el motivo principal; y "reenviar" lo vuelve a intentar cuando ya se corrigió la causa', async () => {
+    const [malo] = await guardar('Productos', nuevoProducto({ nombre: 'MALO' }))
+    await guardar('Productos', nuevoProducto({ nombre: 'Bueno' }))
+    h.servidor.rechazar = (_t, filas) => (filas.some((f) => f.nombre === 'MALO') ? { message: 'violates check constraint "productos_unidad_base_check"', code: '23514', status: 400 } : null)
+    await sincronizar()
+    expect((await db.meta.get('estadoSync'))?.valor).toMatchObject({ error: expect.stringContaining('violates check constraint "productos_unidad_base_check"') })
+    expect(motivosRechazo(await db.rechazados.toArray())).toEqual([['violates check constraint "productos_unidad_base_check"', 1]])
+
+    // Todavía sin corregir: vuelve a rechazarse y queda en la lista, sin duplicarse.
+    expect(await reenviarRechazados()).toBe(1)
+    expect(await db.rechazados.count()).toBe(1)
+
+    // Corregida la causa: sale y la lista queda vacía, sin aviso.
+    h.servidor.rechazar = () => null
+    expect(await reenviarRechazados()).toBe(1)
+    expect(await db.rechazados.count()).toBe(0)
+    expect(await db.outbox.count()).toBe(0)
+    expect(h.servidor.envios.some((e) => e.filas.some((f) => f.producto_id === malo.producto_id))).toBe(true)
+    expect((await db.meta.get('estadoSync'))?.valor).toMatchObject({ error: null })
   })
 
   it('un fallo de red se reintenta y se avisa; no se descarta nada', async () => {

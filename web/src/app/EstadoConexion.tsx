@@ -22,11 +22,11 @@ export const ESPERA_COLA_MS = 15_000
 const ERROR_DE_RED = /fetch|network|abort|timeout|señal|JSON|no es JSON|desconocid/i
 
 /** El error de la nube en palabras de persona; si no es uno conocido, el texto original, recortado. */
-export function explicarError(error: string): string {
+export function explicarError(error: string, maximo = 90): string {
   if (/schema cache|does not exist|42P01|PGRST20[45]/i.test(error)) return 'a tu base en la nube le faltan tablas o columnas (migraciones sin aplicar)'
   if (/sesión|JWT|\b401\b|42501|row-level security|permission denied/i.test(error)) return 'tu sesión venció o no tiene acceso a tus datos: vuelve a entrar'
   const limpio = error.replace(/^Error:\s*/, '').trim()
-  return limpio.length > 90 ? `${limpio.slice(0, 90)}…` : limpio
+  return limpio.length > maximo ? `${limpio.slice(0, maximo)}…` : limpio
 }
 
 export function EstadoConexion() {
@@ -75,7 +75,7 @@ export function EstadoConexion() {
   if (!sync.error) return null
   return (
     <div role="status">
-      <a href="#/ajustes" className="block min-h-11 bg-red-100 px-4 py-3 text-center text-sm text-red-900">No se pudo sincronizar: {explicarError(sync.error)}</a>
+      <a href="#/ajustes" className="block min-h-11 bg-red-100 px-4 py-3 text-center text-sm text-red-900">No se pudo sincronizar: {explicarError(sync.error, 260)}</a>
     </div>
   )
 }

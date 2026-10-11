@@ -29,3 +29,22 @@ describe('Ajustes · reglas', () => {
     await waitFor(async () => expect((await db.config.get('vigencia_tienda_max_dias'))?.valor).toBe('45'))
   })
 })
+
+describe('Ajustes · cambios rechazados', () => {
+  it('agrupa los motivos con su cuenta y "Reenviar" los vuelve a poner en la cola', async () => {
+    const payload = { cambios: [] }
+    await db.rechazados.bulkAdd([
+      { tabla: 'upsert', filaId: '1', mensaje: 'viola la llave foránea', fecha: 1, payload },
+      { tabla: 'upsert', filaId: '2', mensaje: 'viola la llave foránea', fecha: 2, payload },
+      { tabla: 'upsert', filaId: '3', mensaje: 'fuera de rango', fecha: 3, payload },
+    ])
+    render(<Ajustes />)
+    fireEvent.click(await screen.findByText('Avanzado (diagnóstico)', {}, { timeout: ESPERA }))
+    expect(await screen.findByText('2 × viola la llave foránea')).toBeInTheDocument()
+    expect(screen.getByText('1 × fuera de rango')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Reenviar los rechazados' }))
+    await waitFor(async () => expect(await db.rechazados.count()).toBe(0))
+    expect(await db.outbox.count()).toBe(3)
+  })
+})
+

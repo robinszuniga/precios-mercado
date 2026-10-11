@@ -400,8 +400,37 @@ async function vaciarOutbox(ctx: ContextoCuenta): Promise<boolean> {
 
 /** Mientras haya cambios rechazados sin revisar (Ajustes → Borrar la lista), el aviso se mantiene. */
 async function avisoRechazados(ctx: ContextoCuenta): Promise<string | null> {
-  const n = await ctx.base.rechazados.count()
-  return n ? `${n} ${n === 1 ? 'cambio no fue aceptado' : 'cambios no fueron aceptados'} por el servidor (revisa Ajustes).` : null
+  const todos = await ctx.base.rechazados.toArray()
+  if (!todos.length) return null
+  const [motivo] = motivosRechazo(todos)[0] ?? []
+  const n = todos.length
+  return `${n} ${n === 1 ? 'cambio no fue aceptado' : 'cambios no fueron aceptados'} por el servidor${motivo ? `: ${motivo}` : ''} (revisa Ajustes).`
+}
+
+/** Los motivos distintos de los rechazos, del más frecuente al menos, con cuántos cambios tiene cada uno. */
+export function motivosRechazo(rechazos: readonly { mensaje: string }[]): [motivo: string, cuantos: number][] {
+  const cuenta = new Map<string, number>()
+  for (const r of rechazos) cuenta.set(r.mensaje, (cuenta.get(r.mensaje) ?? 0) + 1)
+  return [...cuenta].sort((a, b) => b[1] - a[1])
+}
+
+/**
+ * Vuelve a poner en la cola lo que el servidor rechazó (por ejemplo, después de corregir la base) y lo envía. Lo que se
+ * rechazó otra vez vuelve a la lista con su motivo. Los rechazos viejos que no guardaron su contenido no se pueden reenviar.
+ */
+export async function reenviarRechazados(): Promise<number> {
+  const reenviados = await db.transaction('rw', db.outbox, db.rechazados, async () => {
+    const reenviables = (await db.rechazados.orderBy('id').toArray())
+      .filter((r) => r.payload && (r.tabla === 'upsert' || r.tabla === 'cerrarCompra'))
+    for (const r of reenviables) {
+      await db.outbox.add({ tipo: r.tabla as EntradaOutbox['tipo'], payload: r.payload!, intentos: 0, proximo: 0, creado: Date.now() })
+    }
+    await db.rechazados.bulkDelete(reenviables.map((r) => r.id!))
+    return reenviables.length
+  })
+  await estado({ error: null })
+  await sincronizar()
+  return reenviados
 }
 
 /** Compatibilidad del adaptador anterior. Acceso.tsx bloquea la app si no existe Supabase, así que no se usa en producción. */
