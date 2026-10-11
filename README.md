@@ -97,6 +97,9 @@ En iPhone la app instalada no comparte datos con Safari: por eso se configura de
 
 ## Preparar cuentas de usuario (versión multiusuario)
 
+En una base de Supabase **vacía**, `supabase/instalar_todo.sql` aplica todas las migraciones de una vez (pegar en SQL Editor → Run; se
+detiene sin tocar nada si ya existe `public.productos`; se regenera con `node tools/instalar-supabase.mjs`).
+
 La persona administradora aplica las migraciones `supabase/migrations/`, despliega `supabase/functions/vtex/` y habilita
 Google en Authentication → Sign In / Providers. La función solo acepta sesiones válidas, limita consultas por cuenta y
 llama a los catálogos públicos de VTEX; no admite direcciones arbitrarias. En Google Cloud registra el cliente OAuth web
