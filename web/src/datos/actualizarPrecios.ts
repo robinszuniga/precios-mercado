@@ -25,5 +25,8 @@ export function presentacionesPorActualizar(
   return presentaciones
     .filter((p) => p.activo && p.auto && (p.sku_id || p.ean) && esTiendaVtex(p.tienda) && vivos.has(p.producto_id)
       && ahora - (ultimo.get(p.presentacion_id) ?? 0) >= FRESCO_MS)
-    .sort((a, b) => (ultimo.get(a.presentacion_id) ?? 0) - (ultimo.get(b.presentacion_id) ?? 0))
+    // Las que la tienda no encontró la última vez van al final: no registran precio, así que si no, su fecha vieja las dejaría
+    // siempre al frente y gastarían la cuota de cada vuelta sin que las demás avancen.
+    .sort((a, b) => Number(!!a.ultimo_error) - Number(!!b.ultimo_error)
+      || (ultimo.get(a.presentacion_id) ?? 0) - (ultimo.get(b.presentacion_id) ?? 0))
 }

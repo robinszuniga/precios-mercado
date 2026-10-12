@@ -164,11 +164,24 @@ export function sinLoEliminado(tipo: string, payload: Record<string, unknown>, p
 /**
  * Borra de este celular lo que depende de productos eliminados: sus marcas y tamaños, su precio actual, su historial de
  * precios, lo que había en "Novedades" y lo que seguía esperando en la cola de envío o en los rechazados (si no, volvería a
- * subir lo que la nube ya borró, o dejaría un aviso rojo que ya no se puede arreglar). Va dentro de la transacción de quien
- * la llama (esas tablas, y `outbox` y `rechazados`, deben estar en ella). En la nube lo hace un disparador de la base.
+ * subir lo que la nube ya borró, o dejaría un aviso rojo que ya no se puede arreglar). También arregla las líneas de compra
+ * que usaban esos productos: en una compra abierta salen; en las ya cerradas quedan con el nombre como texto (`nombres` trae el
+ * de antes, que la marca de eliminado ya no tiene). Estas líneas se derivan en cada celular, no se envían.
+ * Va dentro de la transacción de quien la llama (esas tablas, `outbox`, `rechazados`, `detalle` y `compras`, deben estar en ella).
+ * En la nube lo hace un disparador de la base.
  */
-export async function purgarDatosDeProductos(base: BaseLocal, ids: ReadonlySet<string>): Promise<void> {
+export async function purgarDatosDeProductos(base: BaseLocal, ids: ReadonlySet<string>, nombres: ReadonlyMap<string, string> = new Map()): Promise<void> {
   if (!ids.size) return
+  const lineas = (await base.detalle.toArray()).filter((d) => !!d.producto_id && ids.has(d.producto_id))
+  if (lineas.length) {
+    const abiertas = new Set((await base.compras.toArray()).filter((c) => !c.borrado && (c.estado === 'borrador' || c.estado === 'en_curso')).map((c) => c.compra_id))
+    await base.detalle.bulkPut(lineas.flatMap((d) => {
+      if (abiertas.has(d.compra_id)) return d.borrado ? [] : [{ ...d, borrado: true }]
+      // En una compra cerrada lo que estaba en el carrito se compró: se conserva (aunque el otro celular la haya sacado cuando la
+      // compra seguía abierta), si no el total gastado incluiría una línea que el historial no muestra.
+      return [{ ...d, borrado: d.estado === 'en_carrito' ? false : d.borrado, producto_id: '', nombre_libre: d.nombre_libre || nombres.get(d.producto_id) || '' }]
+    }))
+  }
   const presentaciones = (await base.presentaciones.where('producto_id').anyOf([...ids]).primaryKeys()) as string[]
   const fuera = new Set(presentaciones)
   if (presentaciones.length) {

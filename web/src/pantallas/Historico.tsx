@@ -158,7 +158,7 @@ function ResumenCompra({ cat, compraId }: { cat: Catalogo; compraId: string }) {
           {comprados.map((d) => (
             <li key={d.detalle_id} className="flex justify-between gap-2 py-1.5">
               <span className="min-w-0">
-                {d.producto_id ? cat.producto.get(d.producto_id)?.nombre : d.nombre_libre}
+                {(d.producto_id ? cat.producto.get(d.producto_id)?.nombre : '') || d.nombre_libre || 'Producto eliminado'}
                 <span className="text-stone-600"> · {formatoNumero(d.cantidad ?? 0)} × {pesos(d.precio_unitario)}{d.tienda && ` · ${INFO_TIENDAS[d.tienda].nombre}`}</span>
               </span>
               <span className="shrink-0">{pesos(d.subtotal)}</span>

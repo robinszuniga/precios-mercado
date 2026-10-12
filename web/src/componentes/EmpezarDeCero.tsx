@@ -19,7 +19,8 @@ export function EmpezarDeCero({ abierta, onCerrar, onHecho }: { abierta: boolean
   const pasillos = cuentas?.pasillos ?? 0
   // Mientras cuenta no se afirma nada: «ya estás de cero» y el botón de borrar solo aparecen con la cuenta hecha.
   const contando = cuentas === undefined
-  const nada = productos === 0 && pasillos === 0
+  // Mientras borra, la cuenta baja a 0: no se cambia a «ya estás de cero» antes de que la hoja se cierre sola.
+  const nada = !trabajando && productos === 0 && pasillos === 0
 
   async function confirmar() {
     if (trabajando) return

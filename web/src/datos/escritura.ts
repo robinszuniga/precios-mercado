@@ -54,7 +54,7 @@ export async function eliminarProductos(ids: readonly string[]): Promise<number>
     : { ...d, producto_id: '', nombre_libre: d.nombre_libre || fuera.get(d.producto_id)!.nombre }))
   if (cambiadas.length) await guardar('Compras_detalle', cambiadas)
   await guardar('Productos', quitar.map((p) => ({ ...p, nombre: '', notas: '', marca: '', activo: false, recurrente: false, borrado: true })))
-  await db.transaction('rw', [db.presentaciones, db.preciosActuales, db.historial, db.cambios, db.outbox, db.rechazados], () => purgarDatosDeProductos(db, new Set(fuera.keys())))
+  await db.transaction('rw', [db.presentaciones, db.preciosActuales, db.historial, db.cambios, db.outbox, db.rechazados, db.detalle, db.compras], () => purgarDatosDeProductos(db, new Set(fuera.keys()), new Map(quitar.map((p) => [p.producto_id, p.nombre]))))
   return quitar.length
 }
 
@@ -139,9 +139,15 @@ export function observacion(p: {
 }
 
 /** Aplica los precios en local (para verlos al instante) y los manda al servidor, que hace lo mismo. */
-export async function registrarObservaciones(obs: Observacion[]) {
-  if (!obs.length) return
-  await db.transaction('rw', db.preciosActuales, db.historial, db.outbox, async () => {
+export async function registrarObservaciones(todas: Observacion[]) {
+  if (!todas.length) return
+  await db.transaction('rw', db.preciosActuales, db.historial, db.outbox, db.presentaciones, async () => {
+    // Una pantalla o una búsqueda larga puede traer una presentación que mientras tanto se borró (su producto se eliminó): su
+    // precio no se guarda, para no dejar filas sin dueño ni un envío que el servidor rechazaría.
+    const existen = await db.presentaciones.bulkGet([...new Set(todas.map((o) => o.presentacion_id))])
+    const vivas = new Set(existen.filter((p) => !!p).map((p) => p!.presentacion_id))
+    const obs = todas.filter((o) => vivas.has(o.presentacion_id))
+    if (!obs.length) return
     const previos = await db.preciosActuales.bulkGet(obs.map((o) => claveActual(o.presentacion_id, o.origen)))
     const mapa = new Map(previos.filter((p) => !!p).map((p) => [p!.clave, p!]))
     const r = aplicarObservaciones(mapa, obs)

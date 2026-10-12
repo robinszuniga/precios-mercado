@@ -17,4 +17,13 @@ describe('códigos de barras', () => {
     expect(mismoEan('7702511000014', ' 7702511000014 ')).toBe(true)
     expect(mismoEan('', '')).toBe(false)
   })
+
+  it('con ceros de más o de menos (GTIN-14, o recortados) sigue siendo el mismo código; un código de empaque o corto no', () => {
+    expect(mismoEan('07702001234561', '7702001234561')).toBe(true) // GTIN-14 con un cero adelante
+    expect(mismoEan('12345678905', '0012345678905')).toBe(true) // 11 dígitos contra 13
+    expect(mismoEan('96385074', '0000096385074')).toBe(true) // EAN-8
+    expect(mismoEan('17702001234568', '7702001234561')).toBe(false) // otro nivel de empaque, no el mismo
+    expect(mismoEan('7702001234561', '7702001234562')).toBe(false)
+    expect(mismoEan('1234567', '0001234567')).toBe(false) // demasiado corto para ser un código
+  })
 })

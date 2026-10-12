@@ -131,6 +131,8 @@ describe('Empezar de cero', () => {
     fireEvent.click(screen.getByRole('button', { name: /Empezar de cero…/ }))
     await confirmarIrreversible('Sí, borrar todo y empezar de cero')
     expect(await screen.findByText('Empieza aquí')).toBeInTheDocument()
+    // El botón que se tocó ya no existe: el foco va al título de la pantalla, no al <body>.
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1 })))
     await waitFor(async () => {
       const cat = await cargarCatalogo()
       expect(cat.productos).toEqual([])

@@ -297,24 +297,28 @@ async function completarTiendas(cuenta: number): Promise<number> {
     // Con la marca preferida se buscó por nombre; si allí no está, se cae al código de barras de la otra marca.
     const segunda = new Map<string, PorTienda>()
     let falloSegunda: string | null = null
+    let erroresSegunda: string[] = []
     if (!primera.fallo) {
       const otras = pendientes.filter((p) => p.marca && !eanDe(p) && eanDe(p, true) && !seguros(primera.resultados.get(p.producto_id), p.marca).some((o) => o.tienda === t))
       if (otras.length) {
         const r = await buscarLote(otras.map((p) => ({ id: p.producto_id, ean: eanDe(p, true), unidad: p.unidad_base })), [t], undefined, cuenta)
         exigirCuenta(cuenta)
         falloSegunda = r.fallo
+        erroresSegunda = r.errores
         for (const [id, porTienda] of r.resultados) segunda.set(id, porTienda)
       }
     }
     // Lo que se alcanzó a buscar se aprovecha y se sella aunque el servicio haya fallado después (cuota a mitad de la lista);
     // lo que no, queda sin sello y se reintenta en la próxima vuelta.
+    // Una tienda caída o lenta responde con la lista vacía y un error aparte: eso no es «no lo vende», no se sella la revisión.
+    const fallaLaTienda = (errores: readonly string[]) => errores.some((e) => e.startsWith(`${t}:`))
     for (const p of pendientes) {
       const buscado = primera.resultados.get(p.producto_id)
-      if (!buscado) continue
+      if (!buscado || fallaLaTienda(primera.errores)) continue
       const porEan = !!eanDe(p)
       let seguras = seguros(buscado, porEan ? undefined : p.marca).filter((o) => o.tienda === t)
       if (!seguras.length && p.marca && !porEan && eanDe(p, true)) {
-        if (!segunda.has(p.producto_id)) continue // la segunda consulta no se hizo o falló: se reintenta
+        if (!segunda.has(p.producto_id) || fallaLaTienda(erroresSegunda)) continue // la segunda consulta no se hizo o falló: se reintenta
         seguras = seguros(segunda.get(p.producto_id)).filter((o) => o.tienda === t)
       }
       estado[`${t}:${p.producto_id}`] = ahora
@@ -364,20 +368,23 @@ async function correrAutoBase(opciones: { forzar?: boolean }, cuenta: number): P
   }
   if (!pendientes.length) {
     exigirCuenta(cuenta)
-    await guardarMeta('autoVinculo', fallaLaRed(falloMarca) ? { ...estado, fallo: ahora } : { ...estado, ultimo: ahora })
+    await guardarMeta('autoVinculo', fallaLaRed(falloMarca) ? { ...estado, fallo: ahora, espera: undefined } : { ...estado, ultimo: ahora })
     return { vinculados: 0, dudosos: 0, sinResultado: 0, sinBuscar: 0, limite: false }
   }
-  const { resultados, fallo: falloBusqueda, sinMarcas, limite } = await buscarLote(pendientes.map(itemDe), TIENDAS_LOTE, undefined, cuenta)
+  const { resultados, errores, fallo: falloBusqueda, sinMarcas, limite } = await buscarLote(pendientes.map(itemDe), TIENDAS_LOTE, undefined, cuenta)
   const fallo = falloBusqueda ?? (sinMarcas ? 'El servicio de precios no pudo confirmar las marcas.' : null) ?? falloMarca
   const elegidos: Elegido[] = []
   let dudosos = 0
   let sinResultado = 0
+  // Sin nada que mostrar y con una tienda que falló, no se sabe si «no hay»: no se da por revisado (se reintenta pronto).
+  let porReintentar = 0
   const revisados = { ...estado.revisados }
   for (const p of pendientes) {
     const porTienda = resultados.get(p.producto_id)
     if (!porTienda) continue
     const s = seguros(porTienda, p.marca)
     if (s.length) elegidos.push({ producto: p, opciones: s })
+    else if (!opcionesDe(porTienda).length && errores.length) porReintentar++
     else {
       revisados[p.producto_id] = ahora
       if (opcionesDe(porTienda).length) dudosos++
@@ -390,7 +397,7 @@ async function correrAutoBase(opciones: { forzar?: boolean }, cuenta: number): P
   await guardarMeta('autoVinculo', fallaLaRed(fallo)
     ? { ...estado, revisados, fallo: ahora, ...(limite ? { espera: ESPERA_TRAS_LIMITE_MS } : { espera: undefined }) }
     : { ultimo: ahora, revisados })
-  return { vinculados, dudosos, sinResultado, sinBuscar: pendientes.filter((p) => !resultados.has(p.producto_id)).length, limite }
+  return { vinculados, dudosos, sinResultado, sinBuscar: pendientes.filter((p) => !resultados.has(p.producto_id)).length + porReintentar, limite }
 }
 
 export type ResultadoMarca =

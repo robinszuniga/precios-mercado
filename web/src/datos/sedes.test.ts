@@ -41,6 +41,19 @@ describe('sedes encontradas en OpenStreetMap', () => {
   })
 })
 
+describe('la misma tienda traída dos veces por OpenStreetMap', () => {
+  it('si quitaste el punto, el edificio de la misma tienda (otro id, a menos de 80 m) tampoco vuelve en la misma respuesta', async () => {
+    const punto = osm('osm:node1', 11.54, -72.9, 'D1 Calle 15')
+    const edificio = osm('osm:way9', 11.54003, -72.90002, 'D1 Calle 15')
+    await agregarSedesEncontradas([punto])
+    await quitarSede('osm:node1')
+    expect(await agregarSedesEncontradas([punto, edificio])).toBe(0)
+    expect(await guardadas()).toEqual([])
+    // Una tienda de verdad distinta, más lejos, sí entra.
+    expect(await agregarSedesEncontradas([punto, edificio, osm('osm:node5', 11.6, -72.95, 'D1 Norte')])).toBe(1)
+  })
+})
+
 describe('agregar una sede a mano', () => {
   it('una longitud de otra «copia del mundo» se guarda con su valor real y la sede aparece', async () => {
     const sede = await agregarSede('EXITO', { lat: 11.5, lng: 287.09 })

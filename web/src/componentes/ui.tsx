@@ -231,7 +231,8 @@ export function Titulo({ children, accion, sub }: { children: ReactNode; accion?
   return (
     <div className="mb-3 flex items-start justify-between gap-2">
       <div className="min-w-0">
-        <h1 className="text-xl font-bold">{children}</h1>
+        {/* tabIndex -1: se puede llevar el foco aquí cuando el botón que se tocó desaparece (ver Lista). */}
+        <h1 tabIndex={-1} className="text-xl font-bold outline-none">{children}</h1>
         {sub && <p className="text-sm text-stone-600">{sub}</p>}
       </div>
       {accion}

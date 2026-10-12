@@ -60,4 +60,15 @@ describe('Traer precios', () => {
     expect(await screen.findByText(/Listo: 12 precios consultados\./, {}, { timeout: ESPERA })).toBeInTheDocument()
     expect(h.llamadas.flat().some((x) => primeras.has(x.id))).toBe(false)
   })
+
+  it('«ya están al día» solo si de verdad había algo que consultar y estaba fresco; con todo archivado no lo dice', async () => {
+    const [p] = await guardar('Productos', nuevoProducto({ nombre: 'Viejo', activo: false }))
+    await guardar('Presentaciones', { ...nuevaPresentacion({ producto_id: p.producto_id, tienda: 'EXITO', sku_id: '1', auto: true }), presentacion_id: 'x1' })
+    render(<ActualizarPrecios />)
+    const boton = await screen.findByRole('button', { name: /Traer precios/ }, { timeout: ESPERA })
+    await vi.waitFor(() => expect(boton).toBeEnabled(), { timeout: ESPERA })
+    fireEvent.click(boton)
+    expect(await screen.findByText('No hay presentaciones online para actualizar todavía.', {}, { timeout: ESPERA })).toBeInTheDocument()
+    expect(screen.queryByText(/ya están al día/)).toBeNull()
+  })
 })

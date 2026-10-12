@@ -18,16 +18,19 @@ export async function cerrarCompra(compra: Compra): Promise<ResultadoCierre> {
   const presentaciones = new Map((await db.presentaciones.toArray()).map((p) => [p.presentacion_id, p]))
   exigirCuenta(cuenta)
 
-  const obs: Observacion[] = []
+  const todas: Observacion[] = []
   for (const d of detalles) {
     const p = d.presentacion_id ? presentaciones.get(d.presentacion_id) : undefined
     // Solo lo que el usuario vio en la tienda: un sugerido de internet aceptado sin mirar no se vuelve "precio de tienda".
     if (d.estado !== 'en_carrito' || !p || !(d.precio_unitario && d.precio_unitario > 0) || !d.precio_confirmado) continue
-    obs.push(observacion({ presentacion: p, precio: d.precio_unitario, origen: 'tienda', fuente: 'compra', compraId: compra.compra_id, id: `compra:${d.detalle_id}` }))
+    todas.push(observacion({ presentacion: p, precio: d.precio_unitario, origen: 'tienda', fuente: 'compra', compraId: compra.compra_id, id: `compra:${d.detalle_id}` }))
   }
 
   let resultado!: ResultadoCierre
   await db.transaction('rw', [db.preciosActuales, db.historial, db.compras, db.resumen, db.outbox, db.productos, db.presentaciones, db.config, db.categorias], async () => {
+    // Si mientras tanto se borró una presentación (su producto se eliminó en otro celular), su precio no se guarda ni se envía.
+    const vivas = new Set((await db.presentaciones.bulkGet([...new Set(todas.map((o) => o.presentacion_id))])).filter((p) => !!p).map((p) => p!.presentacion_id))
+    const obs = todas.filter((o) => vivas.has(o.presentacion_id))
     const previos = await db.preciosActuales.bulkGet(obs.map((o) => claveActual(o.presentacion_id, o.origen)))
     const r = aplicarObservaciones(new Map(previos.filter((x): x is PrecioActual => !!x).map((x) => [x.clave, x])), obs)
     if (r.actuales.length) await db.preciosActuales.bulkPut(r.actuales)

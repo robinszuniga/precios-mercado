@@ -5,6 +5,7 @@ import { planCompra } from '@shared/recomendacion.ts'
 import { INFO_TIENDAS, TIENDAS, type Tienda } from '@shared/tiendas.ts'
 import type { PinSede } from '../componentes/MapaLeaflet.tsx'
 import { avisar, Boton, Campo, Cargando, Hoja, NombreTienda, pesos, Tarjeta, Titulo } from '../componentes/ui.tsx'
+import { pagina } from '../app/recargar.ts'
 import { compartirTexto, textoRuta } from '../datos/compartir.ts'
 import { itemsDelPlan, useCatalogo } from '../datos/consultas.ts'
 import { db } from '../datos/db.ts'
@@ -15,15 +16,12 @@ import { useTiendasHoy } from '../datos/tiendasHoy.ts'
 import { ErrorUbicacion, MENSAJE_UBICACION, ubicarme, type Ubicacion } from '../datos/ubicacion.ts'
 
 const cargarMapa = () => import('../componentes/MapaLeaflet.tsx')
-/** Leaflet y sus estilos se bajan solo al abrir esta pantalla. Si la descarga falla, "Reintentar" crea otra carga. */
-let MapaLeaflet = lazy(cargarMapa)
+/** Leaflet y sus estilos se bajan solo al abrir esta pantalla. */
+const MapaLeaflet = lazy(cargarMapa)
 
 type PropsMapa = ComponentProps<typeof MapaLeaflet>
 
-/**
- * Lee `MapaLeaflet` al dibujar, no al armar el elemento: un `lazy` cuya descarga falló guarda su error para siempre, y
- * «Reintentar» tiene que ver el nuevo. Si el elemento se armara con el viejo, el botón volvería a mostrar el mismo error.
- */
+/** El mapa se baja al abrir la pantalla; mientras llega se ve un recuadro de espera. */
 function MapaDiferido(props: PropsMapa) {
   return (
     <Suspense fallback={<div className="grid h-72 place-items-center rounded-2xl bg-stone-100 text-sm text-stone-600">Cargando el mapa…</div>}>
@@ -41,7 +39,9 @@ class LimiteMapa extends Component<{ children: ReactNode }, { fallo: boolean }> 
       return (
         <div role="status" className="grid place-items-center gap-2 rounded-2xl bg-stone-100 p-4 text-center text-sm text-stone-600">
           <p>No se pudo cargar el mapa (¿sin señal?). Las tiendas y la ruta de abajo sí funcionan.</p>
-          <Boton variante="secundario" onClick={() => { MapaLeaflet = lazy(cargarMapa); this.setState({ fallo: false }) }}>Reintentar</Boton>
+          {/* Recargar: el navegador recuerda el módulo (o la hoja de estilos) que falló y, sin recargar, un segundo import() repite el error
+              o monta el mapa sin estilos. Los datos están en el celular, no se pierde nada. */}
+          <Boton variante="secundario" onClick={() => pagina.recargar()}>Reintentar</Boton>
         </div>
       )
     }
@@ -262,7 +262,7 @@ export function Mapa() {
                         <li key={p.sede.id} className="flex items-baseline justify-between gap-2">
                           <span className="min-w-0"><strong>{i + 1}.</strong> {INFO_TIENDAS[p.sede.tienda].nombre} <span className="text-stone-600">· {p.sede.nombre}</span></span>
                           <span className="shrink-0 text-right text-stone-600">
-                            {grupo && <span className="font-medium text-tinta">{pesos(grupo.total)}</span>}
+                            {grupo && <span className="font-medium text-tinta">{pesos(grupo.total)}{grupo.nacional ? ' · precio nacional' : ''}</span>}
                             {(yo || i > 0) && <span className="block text-xs">{i === 0 ? '' : '+'}{formatoKm(p.km)}</span>}
                           </span>
                         </li>
@@ -272,8 +272,8 @@ export function Mapa() {
                   {hoy.ahorro != null && hoy.mejorUnica && (
                     <p className={`text-sm font-medium ${hoy.ahorro > 0 ? 'text-ok' : 'text-stone-700'}`}>
                       {hoy.ahorro > 0
-                        ? `Ahorras ${pesos(hoy.ahorro)} frente a comprar todo en ${INFO_TIENDAS[hoy.mejorUnica.tienda].nombre}`
-                        : `Lo más conveniente: todo en ${INFO_TIENDAS[hoy.mejorUnica.tienda].nombre}`}
+                        ? `Ahorras ${pesos(hoy.ahorro)} frente a comprar todo en ${INFO_TIENDAS[hoy.mejorUnica.tienda].nombre}${hoy.mejorUnica.nacional ? ' (con su precio nacional de internet)' : ''}`
+                        : `Lo más conveniente: todo en ${INFO_TIENDAS[hoy.mejorUnica.tienda].nombre}${hoy.mejorUnica.nacional ? ' (con su precio nacional de internet)' : ''}`}
                     </p>
                   )}
                   <p className="text-xs text-stone-600">

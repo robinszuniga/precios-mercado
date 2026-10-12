@@ -486,6 +486,45 @@ describe('la cuota del servicio de precios', () => {
     expect(vistos.size).toBe(productos.length)
   })
 
+  it('si D1 no respondió (tienda caída), esos productos no se dan por revisados: se vuelven a preguntar, no a la semana', async () => {
+    const [p] = await conVinculados(1)
+    let caida = true
+    const pedidos: string[][] = []
+    h.manejar = (accion, params) => {
+      if (accion !== 'buscarVarios') return { tipo: 'ok', data: {} }
+      pedidos.push((params as { tiendas: string[] }).tiendas)
+      const base = sinNada(params) as { tipo: string; data: Record<string, unknown> }
+      return caida ? { ...base, data: { ...base.data, errores: ['D1: tienda no disponible', 'EXITO: tienda no disponible'] } } : base
+    }
+    await autoVincular({ forzar: true })
+    expect(((await db.meta.get('completarTiendas'))?.valor as Record<string, number> | undefined) ?? {}).toEqual({}) // nada sellado
+    caida = false
+    pedidos.length = 0
+    await autoVincular({ forzar: true })
+    expect(pedidos.some((t) => t.length === 1 && t[0] === 'D1')).toBe(true) // se volvió a preguntar por D1
+    expect(Object.keys((await db.meta.get('completarTiendas'))!.valor as object).some((k) => k === `D1:${p.producto_id}`)).toBe(true)
+  })
+
+  it('con más de 40 vencidos entran primero los que hace más que no se miran', async () => {
+    const productos = await conVinculados(45)
+    // Todos con sello vencido, pero de edades distintas: el 00 es el más viejo y el 44 el más reciente.
+    const sellos: Record<string, number> = {}
+    productos.forEach((p, i) => { sellos[`D1:${p.producto_id}`] = Date.now() - (30 + (45 - i)) * 86400_000 })
+    await guardarMeta('completarTiendas', sellos)
+    const vistos = new Set<string>()
+    h.manejar = (accion, params) => {
+      if (accion !== 'buscarVarios') return { tipo: 'ok', data: {} }
+      const p = params as { items: Item[]; tiendas: string[] }
+      if (p.tiendas.length === 1 && p.tiendas[0] === 'D1') for (const it of p.items) vistos.add(it.id)
+      return sinNada(params)
+    }
+    await autoVincular({ forzar: true })
+    expect(vistos.size).toBe(40)
+    // Los 5 más recientes (los últimos de la lista) son los que quedan fuera de esta vuelta.
+    for (const p of productos.slice(40)) expect(vistos.has(p.producto_id)).toBe(false)
+    for (const p of productos.slice(0, 40)) expect(vistos.has(p.producto_id)).toBe(true)
+  })
+
   it('el paso por código de barras pide solo las tiendas que faltan', async () => {
     const pedidos: { items: Item[]; tiendas: string[] }[] = []
     h.manejar = (accion, params) => {
@@ -498,6 +537,19 @@ describe('la cuota del servicio de precios', () => {
     const porCodigo = pedidos.filter((x) => x.tiendas.length > 1 && x.items.some((i) => i.ean === '770'))
     expect(porCodigo).toHaveLength(1)
     expect([...porCodigo[0].tiendas].sort()).toEqual(['D1', 'EXITO'])
+  })
+
+  it('un fallo de marcas (sin productos por buscar) espera la hora de siempre, no los 2 minutos de un límite de cuota anterior', async () => {
+    await db.productos.clear()
+    const [arroz] = await guardar('Productos', nuevoProducto({ nombre: 'Arroz', unidad_base: 'g', marca: 'Diana' }))
+    await guardar('Presentaciones', nuevaPresentacion({ producto_id: arroz.producto_id, tienda: 'OLIMPICA', sku_id: 'o1', contenido: 1000, auto: true }))
+    await guardarMeta('marcasPendientes', [arroz.producto_id])
+    await guardarMeta('autoVinculo', { ultimo: 0, revisados: {}, fallo: Date.now() - 10 * 60_000, espera: 2 * 60_000 })
+    h.manejar = (accion) => (accion === 'buscarVarios' ? { tipo: 'desconocido', motivo: 'Failed to fetch' } : { tipo: 'ok', data: {} })
+    await autoVincular()
+    const estado = (await db.meta.get('autoVinculo'))!.valor as { fallo?: number; espera?: number }
+    expect(estado.fallo).toBeGreaterThan(0)
+    expect(estado.espera).toBeUndefined()
   })
 
   it('si el servicio pide esperar a mitad de la lista, dice cuántos quedaron sin buscar y reintenta en minutos, no en una hora', async () => {

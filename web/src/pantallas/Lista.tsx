@@ -131,6 +131,15 @@ export function Lista() {
   const [seleccion, setSeleccion] = useState<Set<string> | null>(null)
   const [eliminando, setEliminando] = useState(false)
   const [reiniciando, setReiniciando] = useState(false)
+  // «Empezar de cero» quita el botón que se tocó (lo reemplaza la pantalla de primer uso): cuando la hoja termina de cerrarse,
+  // el foco va al título de la pantalla y no cae en el <body>.
+  const [enfocarTitulo, setEnfocarTitulo] = useState(false)
+  useEffect(() => {
+    if (!enfocarTitulo || reiniciando) return
+    setEnfocarTitulo(false)
+    const activo = document.activeElement
+    if (!activo || activo === document.body) (document.querySelector<HTMLElement>('main h1') ?? document.querySelector<HTMLElement>('h1'))?.focus({ preventScroll: true })
+  }, [enfocarTitulo, reiniciando])
   const seleccionando = seleccion !== null
   // Al salir de «Seleccionar» tras archivar o eliminar, el botón que se tocó desaparece y el foco caería en el <body>
   // (quien usa teclado o lector de pantalla volvería al inicio): se lleva al botón «Seleccionar», que sigue ahí.
@@ -328,7 +337,7 @@ export function Lista() {
         </div>
       )}
       <EliminarProductos productos={marcados} abierta={eliminando} onCerrar={() => setEliminando(false)} onHecho={salirSeleccion} />
-      <EmpezarDeCero abierta={reiniciando} onCerrar={() => setReiniciando(false)} onHecho={() => { setReiniciando(false); salirSeleccion() }} />
+      <EmpezarDeCero abierta={reiniciando} onCerrar={() => setReiniciando(false)} onHecho={() => { setReiniciando(false); salirSeleccion(); setEnfocarTitulo(true) }} />
       <Hoja abierta={creando} titulo="Nuevo producto" onCerrar={() => setCreando(false)} protegida>
         <FormProducto
           nombreInicial={q}

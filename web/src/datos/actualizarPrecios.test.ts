@@ -27,6 +27,13 @@ describe('presentacionesPorActualizar', () => {
     expect(presentacionesPorActualizar([a], [vivo], [precio('a', FRESCO_MS + 1000)], AHORA)).toHaveLength(1)
   })
 
+  it('las que la tienda no encontró la última vez van al final: no se quedan siempre al frente gastando la cuota', () => {
+    const muerta = pres('muerta', { ultimo_error: '2026-10-12 producto no encontrado' })
+    const a = pres('a'); const b = pres('b')
+    const r = presentacionesPorActualizar([muerta, a, b], [vivo], [precio('a', 3600_000), precio('b', 7200_000)], AHORA)
+    expect(r.map((p) => p.presentacion_id)).toEqual(['b', 'a', 'muerta'])
+  })
+
   it('un precio anotado en la tienda no cuenta como consulta de internet', () => {
     const a = pres('a')
     expect(presentacionesPorActualizar([a], [vivo], [precio('a', 1000, 'tienda')], AHORA)).toHaveLength(1)

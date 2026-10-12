@@ -174,12 +174,16 @@ const falloCloud = (error: { message: string; code?: string }, status: number | 
  * subirlo lo resucitaría. Importa sobre todo cuando la limpieza ocurre en medio de un envío que ya estaba armado.
  */
 async function sinDeEliminados(ctx: ContextoCuenta, cambios: CambioCloud[]): Promise<CambioCloud[]> {
-  const ids = [...new Set(cambios.filter((c) => c.tabla === 'Presentaciones').map((c) => String(c.fila.producto_id)))]
-  if (!ids.length) return cambios
-  const locales = await ctx.base.productos.bulkGet(ids)
-  const eliminados = new Set(ids.filter((_, i) => locales[i]?.borrado === true))
-  if (!eliminados.size) return cambios
-  const quedan = sinLoEliminado('upsert', { cambios }, eliminados, new Set())
+  const productos = [...new Set(cambios.filter((c) => c.tabla === 'Presentaciones').map((c) => String(c.fila.producto_id)))]
+  // Los precios de una presentación que este celular ya no tiene (se borró con su producto) no se pueden enviar: el servidor
+  // los rechazaría por la llave foránea y, en un cierre de compra, arrastraría el resumen y los precios de los demás productos.
+  const dePrecios = [...new Set(cambios.filter((c) => c.tabla === 'Observaciones' || c.tabla === 'Precios_actuales' || c.tabla === 'Precios').map((c) => String(c.fila.presentacion_id)))]
+  if (!productos.length && !dePrecios.length) return cambios
+  const [localesProductos, localesPresentaciones] = await Promise.all([ctx.base.productos.bulkGet(productos), ctx.base.presentaciones.bulkGet(dePrecios)])
+  const eliminados = new Set(productos.filter((_, i) => localesProductos[i]?.borrado === true))
+  const perdidas = new Set(dePrecios.filter((_, i) => !localesPresentaciones[i]))
+  if (!eliminados.size && !perdidas.size) return cambios
+  const quedan = sinLoEliminado('upsert', { cambios }, eliminados, perdidas)
   return quedan ? (quedan.cambios as CambioCloud[]) : []
 }
 
@@ -303,9 +307,12 @@ async function aplicarLapidas(ctx: ContextoCuenta, filas: Record<string, unknown
   if (!filas.length) return
   if (!vigente(ctx)) throw new CuentaCambiada()
   const base = ctx.base
-  await base.transaction('rw', [base.productos, base.presentaciones, base.preciosActuales, base.historial, base.cambios, base.outbox, base.rechazados], async () => {
+  await base.transaction('rw', [base.productos, base.presentaciones, base.preciosActuales, base.historial, base.cambios, base.outbox, base.rechazados, base.detalle, base.compras], async () => {
+    const ids = filas.map((f) => String(f.producto_id))
+    const antes = await base.productos.bulkGet(ids)
+    const nombres = new Map(ids.flatMap((id, i) => (antes[i]?.nombre ? [[id, antes[i]!.nombre] as const] : [])))
     await base.productos.bulkPut(filas as unknown as Producto[])
-    await purgarDatosDeProductos(base, new Set(filas.map((f) => String(f.producto_id))))
+    await purgarDatosDeProductos(base, new Set(ids), nombres)
   })
 }
 
@@ -348,6 +355,9 @@ async function resolverConflictos(ctx: ContextoCuenta, tabla: NombreTabla, desti
     // Eliminar un producto no se deshace: contra una marca de eliminado, la edición de este celular siempre pierde
     // (sin mirar fechas) y se limpia todo lo que dependía de él.
     if (tabla === 'Productos' && s.borrado === true) { lapidas.push(filaLocalDeCloud(s)); continue }
+    // Y al revés: la eliminación de este celular que todavía no salió gana sobre una edición más nueva de otro (el servidor la
+    // deja como marca y borra sus presentaciones); si no, quedaría vivo allá y este celular sin sus presentaciones ni precios.
+    if (tabla === 'Productos' && x.fila.borrado === true) { reintentar.push({ ...x, base: versionDe(s) }); continue }
     const suyo = instante(x.fila.editado_en)
     const ajeno = instante(s.editado_en ?? s.updated_at)
     if (suyo > ajeno) reintentar.push({ ...x, base: versionDe(s) })
@@ -521,9 +531,13 @@ export function motivosRechazo(rechazos: readonly { mensaje: string }[]): [motiv
  * nueva de las dos, como en cualquier choque entre celulares). Es seguro repetirlo. Devuelve cuántas filas puso en la cola.
  */
 export async function resubirBase(): Promise<number> {
-  const orden: NombreTabla[] = ['Categorias', 'Productos', 'Presentaciones', 'Compras', 'Compras_detalle']
+  // Lo de arriba primero (la configuración, los pasillos, los productos…) y, de lo que cuelga de eso, solo lo que es poco y se
+  // pierde si el servidor quedó vacío: los resúmenes de compras y el precio actual de cada presentación. El historial de
+  // precios y las observaciones no se suben otra vez (son muchos; lo que falte llega con los precios nuevos).
+  const orden: NombreTabla[] = ['Config', 'Categorias', 'Productos', 'Presentaciones', 'Compras', 'Compras_detalle', 'Compras_resumen', 'Precios_actuales']
   const locales = orden.map((t) => db.table(TABLA_LOCAL[t]!))
   return db.transaction('rw', [...locales, db.outbox], async () => {
+    const entradas: Record<string, unknown>[] = []
     let n = 0
     const eliminados = new Set((await db.productos.filter((p) => p.borrado === true).primaryKeys()) as string[])
     for (const [i, tabla] of orden.entries()) {
@@ -531,10 +545,19 @@ export async function resubirBase(): Promise<number> {
       const filas = ((await locales[i].toArray()) as Record<string, unknown>[])
         .filter((f) => tabla !== 'Presentaciones' || !eliminados.has(String(f.producto_id)))
       if (!filas.length) continue
-      const sinVersion = filas.map((f) => ({ ...f, version: 0 }))
-      await locales[i].bulkPut(sinVersion)
-      for (let j = 0; j < sinVersion.length; j += 100) await encolar('upsert', { cambios: sinVersion.slice(j, j + 100).map((fila) => ({ tabla, fila })) })
+      // Solo las tablas con versión llevan versión 0 («el servidor no la tiene»); las demás se suben tal cual.
+      const aSubir = conFechaDeEdicion(tabla) ? filas.map((f) => ({ ...f, version: 0 })) : filas
+      if (conFechaDeEdicion(tabla)) await locales[i].bulkPut(aSubir)
+      for (let j = 0; j < aSubir.length; j += 100) entradas.push({ cambios: aSubir.slice(j, j + 100).map((fila) => ({ tabla, fila })) })
       n += filas.length
+    }
+    // Van por delante de lo que ya esperaba en la cola: eso depende de lo que se está volviendo a subir y, detrás, el servidor
+    // lo rechazaría por la llave foránea.
+    const primero = (await db.outbox.orderBy('seq').first())?.seq
+    for (const [k, payload] of entradas.entries()) {
+      const entrada = { tipo: 'upsert' as const, payload, intentos: 0, proximo: 0, creado: Date.now() }
+      if (primero == null) await db.outbox.add(entrada)
+      else await db.outbox.add({ ...entrada, seq: primero - entradas.length + k })
     }
     return n
   })
@@ -796,6 +819,7 @@ async function traerCloud(ctx: ContextoCuenta, completo = false): Promise<boolea
   const tablasDeTransaccion = new Set([...instancias, base.meta, base.outbox, base.rechazados, base.presentaciones, base.preciosActuales, base.historial, base.cambios])
   await base.transaction('rw', [...tablasDeTransaccion], async () => {
     const eliminados = new Set<string>()
+    const nombres = new Map<string, string>()
     // Filas con cambios sin enviar: de esas decide el envío (por versión). Las demás son iguales a las del servidor.
     const sucias = await filasPendientes(base)
     for (const { local, tablaCloud, remoto, cursor, versionada } of todas) {
@@ -814,13 +838,17 @@ async function traerCloud(ctx: ContextoCuenta, completo = false): Promise<boolea
           // Una fila sin cambios pendientes aquí simplemente toma la versión más nueva del servidor: la fecha de edición
           // (reloj del celular que la escribió) no puede dejarla desactualizada.
           if (versionada) {
+            // Una marca de eliminado se acepta siempre —aun con un cambio sin enviar de ese producto—, porque eliminar es definitivo y
+            // la edición pendiente perdería igual. Cubre también la copia viva de la misma versión que dejó una edición «aceptada»
+            // pero reescrita por el servidor. Sin esto, lo que dependía del producto no se limpiaría hasta resolver esa edición.
+            if (local === 'productos' && fila.borrado === true && previo && previo.borrado !== true && versionDe(fila) >= versionDe(previo)) {
+              aceptar.push(fila)
+              return
+            }
             // Con un cambio sin enviar aquí no se reemplaza nada: el envío lo resuelve por versión, con su versión original.
             if (sucias.has(`${local}:${fila[llave]}`)) return
             // Solo una versión más nueva reemplaza; una igual o más vieja (respuesta atrasada) nunca, sin mirar fechas.
             if (versionDe(fila) > versionDe(previo)) aceptar.push(fila)
-            // Salvo una marca de eliminado: si este celular se quedó con una copia viva de la misma versión (la edición «tuvo
-            // éxito» pero el servidor la reescribió), la marca la corrige; eliminar es definitivo.
-            else if (local === 'productos' && fila.borrado === true && previo && previo.borrado !== true && versionDe(fila) === versionDe(previo)) aceptar.push(fila)
             return
           }
           // Sin `updated_at` en la fila o en lo local (histórico, resumen de compra) no hay nada que comparar: no cambian.
@@ -829,7 +857,15 @@ async function traerCloud(ctx: ContextoCuenta, completo = false): Promise<boolea
         })
         if (aceptar.length) await tabla.bulkPut(aceptar)
         // Otro celular (o este, antes) eliminó un producto: aquí también se va todo lo que dependía de él.
-        if (local === 'productos') for (const f of aceptar) if (f.borrado === true) eliminados.add(String(f.producto_id))
+        if (local === 'productos') {
+          for (const f of aceptar) {
+            if (f.borrado !== true) continue
+            eliminados.add(String(f.producto_id))
+            // El nombre de antes (la marca llega vacía) se guarda como texto en las compras ya cerradas que lo usaban.
+            const nombre = (actuales[lote.indexOf(f)] as Producto | undefined)?.nombre
+            if (nombre) nombres.set(String(f.producto_id), nombre)
+          }
+        }
       }
       if (cursor) {
         // Cada tabla avanza por separado.
@@ -839,7 +875,7 @@ async function traerCloud(ctx: ContextoCuenta, completo = false): Promise<boolea
     }
     // También los que ya eran marca aquí pero conservan algo colgando (una presentación que llegó o quedó después).
     for (const id of await base.productos.filter((p) => p.borrado === true).primaryKeys()) eliminados.add(String(id))
-    await purgarDatosDeProductos(base, eliminados)
+    await purgarDatosDeProductos(base, eliminados, nombres)
   })
   return true
 }

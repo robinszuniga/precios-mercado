@@ -106,6 +106,9 @@ describe('Mapa · lo que cuesta tu lista en cada tienda', () => {
     expect(await screen.findByRole('button', { name: /pin D1 .*con precio nacional/ }, { timeout: ESPERA })).toBeInTheDocument()
     const tarjeta = (await screen.findAllByRole('listitem')).find((li) => /Toda tu lista/.test(li.textContent ?? ''))!
     expect(tarjeta).toHaveTextContent(/incluye precio nacional de internet/)
+    // La ruta de hoy también lo dice: el total de la parada y la frase de «lo más conveniente».
+    expect(await screen.findByText(/Lo más conveniente: todo en D1 \(con su precio nacional de internet\)/)).toBeInTheDocument()
+    expect(screen.getAllByText(/precio nacional/).some((e) => /\$\s*4\.000 · precio nacional/.test(e.textContent ?? ''))).toBe(true)
   })
 
   it('con sedes: los pines llevan lo que cuesta la lista y marcan la más barata; elegir uno muestra cómo ir', async () => {

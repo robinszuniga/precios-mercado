@@ -1,4 +1,4 @@
-import { claveSede, consultaOverpass, fusionarSedes, MAX_SEDES, normalizarPunto, puntoValido, PREFIJO_SEDE, sedesDeConfig, sedesDeOverpass, valorSede, type Punto, type Sede } from '@shared/mapa.ts'
+import { claveSede, consultaOverpass, distanciaKm, fusionarSedes, MAX_SEDES, normalizarPunto, puntoValido, PREFIJO_SEDE, sedesDeConfig, sedesDeOverpass, valorSede, type Punto, type Sede } from '@shared/mapa.ts'
 import { INFO_TIENDAS, type Tienda } from '@shared/tiendas.ts'
 import { nuevoId } from './api.ts'
 import { db } from './db.ts'
@@ -28,7 +28,11 @@ export async function agregarSedesEncontradas(nuevas: readonly Sede[]): Promise<
   // Una sede que la persona quitó queda como fila vacía y los ids de OpenStreetMap son siempre los mismos: sin esto, cada
   // búsqueda la traería de vuelta (y a los otros celulares también).
   const quitadas = new Set((await db.config.toArray()).filter((f) => f.clave.startsWith(PREFIJO_SEDE) && !f.valor).map((f) => f.clave.slice(PREFIJO_SEDE.length)))
-  const { agregadas } = fusionarSedes(await leerSedes(), nuevas.filter((s) => !quitadas.has(s.id)))
+  // OpenStreetMap puede traer la misma tienda dos veces (como punto y como edificio, con ids distintos): si una de las dos es
+  // una sede quitada, la que queda a menos de 80 m en la misma respuesta tampoco vuelve.
+  const cerca = (a: Sede, b: Sede) => a.tienda === b.tienda && distanciaKm(a, b) * 1000 < 80
+  const tiradas = nuevas.filter((s) => quitadas.has(s.id))
+  const { agregadas } = fusionarSedes(await leerSedes(), nuevas.filter((s) => !quitadas.has(s.id) && !tiradas.some((q) => cerca(q, s))))
   if (agregadas.length) await guardar('Config', agregadas.map((s) => ({ clave: claveSede(s.id), valor: valorSede(s) })))
   return agregadas.length
 }

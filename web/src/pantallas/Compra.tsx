@@ -142,7 +142,7 @@ export function Compra() {
     porTienda.set(t, [...(porTienda.get(t) ?? []), d])
   }
   const ordenGrupos = [...tiendasHoy.filter((t) => porTienda.has(t)), ...TIENDAS.filter((t) => !tiendasHoy.includes(t) && porTienda.has(t)), ...(porTienda.has('') ? [''] : [])]
-  const nombre = (d: Detalle) => (d.producto_id ? cat.producto.get(d.producto_id)?.nombre ?? '?' : d.nombre_libre)
+  const nombre = (d: Detalle) => (d.producto_id ? cat.producto.get(d.producto_id)?.nombre ?? (d.nombre_libre || 'Producto eliminado') : d.nombre_libre)
   const estoyEn = ordenGrupos.filter((t): t is Tienda => t !== '')
   const estaAqui = aqui && estoyEn.includes(aqui) ? aqui : ''
   const vista = estaAqui ? [estaAqui, ...ordenGrupos.filter((t) => t !== estaAqui)] : ordenGrupos

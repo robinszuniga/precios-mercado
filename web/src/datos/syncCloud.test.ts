@@ -358,6 +358,7 @@ describe('lo que el servidor ignora o lo que se cancela', () => {
       disponible: true, region: '', fecha_observado: fecha, fecha_verificado: fecha,
     })
     // Una copia de respaldo vieja trae un precio viejo; el servidor ya tiene uno más nuevo desde antes del cursor.
+    await db.presentaciones.put({ presentacion_id: 'pr1', producto_id: 'p1', tienda: 'D1', activo: true } as never)
     await db.preciosActuales.put(fila(1000, '2026-01-01T00:00:00.000-05:00') as never)
     await db.outbox.add({ tipo: 'upsert', payload: { cambios: [{ tabla: 'Precios_actuales', fila: fila(1000, '2026-01-01T00:00:00.000-05:00') }] }, intentos: 0, proximo: 0, creado: Date.now() })
     h.servidor.tablas.set('precios_actuales', [{ user_id: 'u1', ...fila(2000, '2026-06-01T00:00:00+00:00'), updated_at: '2026-06-01T00:00:00+00:00' }])

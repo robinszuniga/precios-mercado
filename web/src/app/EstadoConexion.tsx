@@ -34,8 +34,9 @@ export function explicarError(error: string, maximo = 90): string {
  * en inglés y con nombres de tablas), solo que la nube no los aceptó. El detalle completo se ve en la franja roja y en Ajustes.
  */
 export function causaCorta(error: string): string {
-  const completo = explicarError(error, Infinity)
-  if (completo !== error.replace(/^Error:\s*/, '').trim()) return completo
+  // Frases cortas: la pastilla es de 2 líneas y recorta lo que sobre, que sería justo lo que dice qué hacer.
+  if (/schema cache|does not exist|42P01|PGRST20[45]/i.test(error)) return 'faltan migraciones en tu nube'
+  if (/sesión|JWT|\b401\b|42501|row-level security|permission denied/i.test(error)) return 'tu sesión venció: vuelve a entrar'
   if (/violates (check|foreign key|not-null|unique)|null value in column|invalid input syntax|out of range/i.test(error)) return 'la nube no aceptó algunos datos (revisa Ajustes)'
   return explicarError(error, 70)
 }
@@ -55,7 +56,9 @@ export function EstadoConexion() {
   const [ahora, setAhora] = useState(() => Date.now())
   useEffect(() => { const t = setInterval(() => setAhora(Date.now()), 5000); return () => clearInterval(t) }, [])
   // Una sincronización en marcha (por ejemplo la primera, con muchos cambios juntos) no es una señal fantasma.
-  const sinSalir = masViejo != null && ahora - masViejo > ESPERA_COLA_MS && !sync.enCurso
+  // Una ronda en marcha no es una señal fantasma… salvo que la anterior ya haya dejado un error: ahí la pastilla se queda (si
+  // desapareciera y apareciera la franja roja, el contenido saltaría ~80 px en cada reintento y el botón se iría bajo el dedo).
+  const sinSalir = masViejo != null && ahora - masViejo > ESPERA_COLA_MS && (!sync.enCurso || !!sync.error)
   // La señal va y viene en el súper: ese aviso flota abajo a la izquierda, sobre la barra, y no empuja la lista ni tapa el saldo (si la moviera,
   // un toque caería en el producto de al lado). Solo un error de verdad, que no parpadea, ocupa su franja.
   let pastilla: string | null = null
@@ -83,7 +86,7 @@ export function EstadoConexion() {
         className="fixed left-3 z-30 flex max-w-[calc(100vw-6rem)] items-center rounded-2xl bg-stone-800/90 text-xs font-medium text-white shadow"
         style={{ bottom: 'calc(env(safe-area-inset-bottom) + 4.25rem + var(--barra-acciones, 0rem))' }}
       >
-        <a href="#/ajustes" className={`min-w-0 pl-3 pr-2 ${reintentable ? 'flex min-h-11 items-center' : 'py-1.5'}`}>
+        <a href="#/ajustes" title={pastilla} className={`min-w-0 pl-3 pr-2 ${reintentable ? 'flex min-h-11 items-center' : 'py-1.5'}`}>
           <span className={reintentable ? 'line-clamp-2' : undefined}>{pastilla}</span>
         </a>
         {reintentable && (

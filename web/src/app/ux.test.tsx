@@ -261,7 +261,7 @@ describe('señal fantasma: dice la causa y deja reintentar', () => {
   it('si el envío falló por una causa que no es de red, la pastilla la dice en palabras de persona', async () => {
     await conCola("Could not find the table 'public.productos' in the schema cache")
     render(<EstadoConexion />)
-    expect(await screen.findByText(/1 por enviar · a tu base en la nube le faltan tablas o columnas/)).toBeInTheDocument()
+    expect(await screen.findByText(/1 por enviar · faltan migraciones en tu nube/)).toBeInTheDocument()
     expect(screen.queryByText(/sin respuesta de la nube/)).toBeNull()
   })
 
@@ -269,7 +269,7 @@ describe('señal fantasma: dice la causa y deja reintentar', () => {
     await guardarMeta('estadoSync', { enCurso: false, ultimoOk: Date.now(), error: 'Tu sesión venció o no tiene acceso a tus datos. Inicia sesión de nuevo.' })
     await conCola('otro error')
     render(<EstadoConexion />)
-    expect(await screen.findByText(/tu sesión venció o no tiene acceso a tus datos: vuelve a entrar/)).toBeInTheDocument()
+    expect(await screen.findByText(/1 por enviar · tu sesión venció: vuelve a entrar/)).toBeInTheDocument()
   })
 
   it('un error de red sigue siendo "señal inestable" y no ofrece reintentar', async () => {
@@ -291,6 +291,15 @@ describe('señal fantasma: dice la causa y deja reintentar', () => {
     expect(document.documentElement.style.getPropertyValue('--pastilla')).toBe('')
   })
 
+  it('mientras la ronda corre con un error de la anterior, la pastilla se queda (no salta a la franja roja y vuelve)', async () => {
+    await guardarMeta('estadoSync', { enCurso: true, ultimoOk: null, error: 'Error: new row for relation "x" violates check constraint "y"' })
+    await conCola('Error: new row for relation "x" violates check constraint "y"')
+    render(<EstadoConexion />)
+    expect(await screen.findByText(/1 por enviar · la nube no aceptó algunos datos/)).toBeInTheDocument()
+    expect(screen.queryByText(/No se pudo sincronizar/)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Reintentar' })).toBeInTheDocument()
+  })
+
   it('"Reintentar" quita la espera de los cambios para que salgan ya', async () => {
     await conCola('algo falló')
     render(<EstadoConexion />)
@@ -306,7 +315,8 @@ describe('señal fantasma: dice la causa y deja reintentar', () => {
     // En la pastilla (chica) los rechazos de datos se resumen; la franja roja sigue mostrando el texto completo.
     expect(causaCorta('new row for relation "x" violates check constraint "y"')).toMatch(/no aceptó algunos datos/)
     expect(causaCorta('null value in column "borrado" of relation "productos" violates not-null constraint')).toMatch(/no aceptó algunos datos/)
-    expect(causaCorta('JWT expired')).toMatch(/sesión venció/)
+    expect(causaCorta('JWT expired')).toBe('tu sesión venció: vuelve a entrar')
+    expect(causaCorta("Could not find the table 'public.productos' in the schema cache")).toBe('faltan migraciones en tu nube')
     expect(causaCorta('x'.repeat(200))).toHaveLength(71)
     expect(explicarError('new row for relation "x" violates check constraint "y"')).toMatch(/violates check constraint/)
     expect(explicarError('Error: raro')).toBe('raro')

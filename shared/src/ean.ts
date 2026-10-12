@@ -15,7 +15,13 @@ export function eanValido(codigo: string): boolean {
   return (10 - (suma % 10)) % 10 === control
 }
 
+/** En forma GTIN-14: EAN-8, UPC-A, EAN-13 y GTIN-14 son el mismo código con ceros adelante (a veces la tienda o el lector los quita o los agrega). */
+const gtin14 = (codigo: string | null | undefined): string => {
+  const d = String(codigo ?? '').replace(/\D/g, '')
+  return d.length >= 8 && d.length <= 14 ? d.padStart(14, '0') : ''
+}
+
 export function mismoEan(a: string | null | undefined, b: string | null | undefined): boolean {
-  const x = normalizarEan(a ?? '')
-  return x.length >= 8 && x === normalizarEan(b ?? '')
+  const x = gtin14(a)
+  return x !== '' && x === gtin14(b)
 }

@@ -183,7 +183,7 @@ export async function buscarPreciosSolo(forzar = false) {
     : r.dudosos ? `${r.dudosos} productos necesitan que elijas cuál es: toca “Buscar precios” en Productos.` : ''
   // Si no se alcanzó a buscar todo, se dice y se explica cuándo sigue.
   const faltan = r.sinBuscar
-    ? `${hechos ? ' ' : ''}Quedaron ${r.sinBuscar} ${r.sinBuscar === 1 ? 'producto' : 'productos'} sin buscar${r.limite ? ': el servicio pidió esperar un minuto' : ''}; se buscan solos en unos minutos, o toca “Buscar precios” en Productos.`
+    ? `${hechos ? ' ' : ''}Quedaron ${r.sinBuscar} ${r.sinBuscar === 1 ? 'producto' : 'productos'} sin buscar${r.limite ? ': el servicio pidió esperar un minuto' : ''}. Toca “Buscar precios” en Productos, o vuelve a abrir la app en unos minutos.`
     : ''
   avisar(`${hechos}${faltan}`)
 }

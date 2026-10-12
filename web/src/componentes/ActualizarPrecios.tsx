@@ -92,7 +92,7 @@ export function ActualizarPrecios() {
         ? `Se consultaron ${actualizadas}; faltan ${faltan}${errores ? ` (y ${errores} no se pudieron actualizar)` : ''}. Espera un minuto y toca de nuevo: sigue por las que faltan.`
         : actualizadas || errores
           ? `Listo: ${actualizadas} precios consultados${errores ? `; ${errores} no se pudieron actualizar` : ''}.`
-          : pendientes.length === 0 && todas.some((p) => p.activo && p.auto)
+          : pendientes.length === 0 && presentacionesPorActualizar(todas, productos, precios, Infinity).length > 0
             ? 'Los precios de internet ya están al día (se consultaron hace menos de 10 minutos).'
             : 'No hay presentaciones online para actualizar todavía.')
     } catch (e) {
