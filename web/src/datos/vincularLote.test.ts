@@ -93,7 +93,7 @@ describe('vincular automático', () => {
   it('vincula solo lo seguro, completa la otra tienda por código de barras y guarda el precio', async () => {
     const llamadas = servidor()
     const r = await autoVincular()
-    expect(r).toEqual({ vinculados: 1, dudosos: 1, sinResultado: 1 })
+    expect(r).toMatchObject({ vinculados: 1, dudosos: 1, sinResultado: 1, sinBuscar: 0 })
     const pres = await db.presentaciones.toArray()
     expect(pres.map((p) => p.tienda).sort()).toEqual(['EXITO', 'OLIMPICA'])
     expect(pres.every((p) => p.contenido === 1000 && p.auto)).toBe(true)
@@ -102,7 +102,7 @@ describe('vincular automático', () => {
     expect((await productosSinVincular()).map((p) => p.nombre).sort()).toEqual(['Leche', 'Tornillo'])
   })
 
-  it('no se repite en el mismo día; con "forzar" sí, y lo revisado no se busca solo por unos días', async () => {
+  it('no se repite en el mismo día; con "forzar" la búsqueda principal sí, pero lo ya revisado en D1 no se vuelve a preguntar', async () => {
     const llamadas = servidor()
     // Las búsquedas de las tres tiendas (la principal y la de completar por código) y las que solo completan D1.
     const principales = () => llamadas.filter((l) => l.tiendas.length > 1)
@@ -113,10 +113,11 @@ describe('vincular automático', () => {
     expect(soloD1()).toHaveLength(1) // Arroz quedó vinculado en Olímpica y Éxito: se completa D1
     await autoVincular({ forzar: true })
     expect(principales()).toHaveLength(3)
-    expect(soloD1()).toHaveLength(2)
+    // Forzar salta el límite de «una vez al día», no la memoria de lo ya revisado en D1 (cada pregunta gasta cuota).
+    expect(soloD1()).toHaveLength(1)
     await guardarMeta('autoVinculo', { ...(await db.meta.get('autoVinculo'))!.valor as object, ultimo: 0 })
-    expect(await autoVincular()).toEqual({ vinculados: 0, dudosos: 0, sinResultado: 0 })
-    expect(soloD1()).toHaveLength(2) // sin forzar, lo revisado hace poco no se vuelve a buscar en D1
+    expect(await autoVincular()).toMatchObject({ vinculados: 0, dudosos: 0, sinResultado: 0 })
+    expect(soloD1()).toHaveLength(1) // y sin forzar tampoco
   })
 })
 
@@ -205,14 +206,14 @@ describe('VincularTodos', () => {
 describe('cuando el servicio de precios falla', () => {
   it('no se cae y dice por qué se detuvo', async () => {
     h.manejar = () => ({ tipo: 'error', codigo: 'rate_limit', mensaje: 'Espera un minuto antes de volver a consultar precios.' })
-    expect(await autoVincular()).toEqual({ vinculados: 0, dudosos: 0, sinResultado: 0 })
+    expect(await autoVincular()).toMatchObject({ vinculados: 0, dudosos: 0, sinResultado: 0 })
     render(createElement(VincularTodos, { onListo: () => {} }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Espera un minuto antes de volver a consultar precios.')
   })
 
   it('una respuesta rara (sin resultados) no rompe nada', async () => {
     h.manejar = () => ({ tipo: 'ok', data: {} })
-    expect(await autoVincular()).toEqual({ vinculados: 0, dudosos: 0, sinResultado: 0 })
+    expect(await autoVincular()).toMatchObject({ vinculados: 0, dudosos: 0, sinResultado: 0 })
   })
 })
 
@@ -391,5 +392,131 @@ describe('el precio anotado en el estante no se duplica con el de internet (D1)'
     const cand = { ...opcion('D1', 'Arroz Roa 1000 g', 4000, 1000, 'g', true, '7709999999999'), region: 'DEFAULT' as const }
     await crearDesdeCandidato(arroz, cand as never, 1000)
     expect((await db.presentaciones.toArray()).filter((x) => x.tienda === 'D1')).toHaveLength(2)
+  })
+})
+
+describe('marca preferida al completar las otras tiendas', () => {
+  /** Arroz de marca Diana, vinculado en Olímpica con otra marca (Roa): Diana no apareció allí. */
+  async function conRoaEnOlimpica() {
+    await db.productos.clear()
+    const [arroz] = await guardar('Productos', nuevoProducto({ nombre: 'Arroz', unidad_base: 'g', marca: 'Diana' }))
+    await guardar('Presentaciones', nuevaPresentacion({
+      producto_id: arroz.producto_id, tienda: 'OLIMPICA', sku_id: 'o-roa', ean: '770-roa', contenido: 1000, auto: true, nombre_en_tienda: 'Arroz Roa 1000 g', marca: 'Roa',
+    }))
+    return arroz
+  }
+  const roa = { ...opcion('D1', 'Arroz Roa 1000 g', 4400, 1000, 'g', true, '770-roa'), marca: 'Roa', region: 'DEFAULT' }
+  const diana = { ...opcion('D1', 'Arroz Diana 1000 g', 5100, 1000, 'g', true, '770-diana'), marca: 'Diana', region: 'DEFAULT' }
+
+  it('si D1 vende la marca preferida, se vincula esa y no la otra marca por el código de barras de Roa', async () => {
+    const arroz = await conRoaEnOlimpica()
+    const pedidos: { items: (Item & { marca?: string })[]; tiendas: string[] }[] = []
+    h.manejar = (accion, params) => {
+      if (accion !== 'buscarVarios') return { tipo: 'ok', data: {} }
+      pedidos.push(params as never)
+      const resultados = (params.items as (Item & { marca?: string })[]).map((it) => ({
+        id: it.id,
+        porTienda: { D1: it.ean === '770-roa' ? [roa] : it.marca === 'Diana' ? [diana] : [], OLIMPICA: [], EXITO: [] },
+      }))
+      return { tipo: 'ok', data: { resultados, errores: [], marcas: true } }
+    }
+    await autoVincular({ forzar: true })
+    const d1 = (await db.presentaciones.toArray()).filter((p) => p.tienda === 'D1')
+    expect(d1.map((p) => p.nombre_en_tienda)).toEqual(['Arroz Diana 1000 g'])
+    // Se buscó primero por nombre y marca, no por el código de barras de la otra marca.
+    const aD1 = pedidos.filter((p) => p.tiendas.length === 1 && p.tiendas[0] === 'D1')
+    expect(aD1[0].items.find((i) => i.id === arroz.producto_id)).toMatchObject({ q: 'Arroz', marca: 'Diana' })
+  })
+
+  it('si D1 no tiene la marca preferida, queda la otra marca por su código de barras (mejor un precio de otra marca que ninguno)', async () => {
+    await conRoaEnOlimpica()
+    h.manejar = (accion, params) => {
+      if (accion !== 'buscarVarios') return { tipo: 'ok', data: {} }
+      const resultados = (params.items as (Item & { marca?: string })[]).map((it) => ({
+        id: it.id, porTienda: { D1: it.ean === '770-roa' ? [roa] : [], OLIMPICA: [], EXITO: [] },
+      }))
+      return { tipo: 'ok', data: { resultados, errores: [], marcas: true } }
+    }
+    await autoVincular({ forzar: true })
+    expect((await db.presentaciones.toArray()).filter((p) => p.tienda === 'D1').map((p) => p.nombre_en_tienda)).toEqual(['Arroz Roa 1000 g'])
+  })
+})
+
+describe('la cuota del servicio de precios', () => {
+  /** Productos ya vinculados en Olímpica (con código de barras) que Éxito y D1 no tienen. */
+  async function conVinculados(n: number) {
+    await db.productos.clear()
+    const productos = await guardar('Productos', Array.from({ length: n }, (_, i) => nuevoProducto({ nombre: `Prod ${String(i).padStart(2, '0')}`, unidad_base: 'g' })))
+    await guardar('Presentaciones', productos.map((p, i) => nuevaPresentacion({ producto_id: p.producto_id, tienda: 'OLIMPICA', sku_id: `o${i}`, ean: `77${i}`, contenido: 1000, auto: true })))
+    return productos
+  }
+  const sinNada = (params: Record<string, unknown>) => ({
+    tipo: 'ok', data: { resultados: (params.items as Item[]).map((it) => ({ id: it.id, porTienda: { OLIMPICA: [], EXITO: [], D1: [] } })), errores: [], marcas: true },
+  })
+
+  it('pegar la lista otra vez no vuelve a preguntar por lo que ya se revisó hace poco (aunque se fuerce)', async () => {
+    const [p] = await conVinculados(1)
+    const pedidos: { items: Item[]; tiendas: string[] }[] = []
+    h.manejar = (accion, params) => {
+      if (accion !== 'buscarVarios') return { tipo: 'ok', data: {} }
+      pedidos.push(params as never)
+      return sinNada(params)
+    }
+    await autoVincular({ forzar: true })
+    const primera = pedidos.filter((x) => x.items.some((i) => i.id === p.producto_id)).length
+    expect(primera).toBeGreaterThan(0) // Éxito y D1 se preguntaron
+    await autoVincular({ forzar: true })
+    expect(pedidos.filter((x) => x.items.some((i) => i.id === p.producto_id)).length).toBe(primera) // y no otra vez
+  })
+
+  it('con más de 40 productos por completar, cada vuelta sigue por los que faltan (no repite siempre los mismos 40)', async () => {
+    const productos = await conVinculados(45)
+    const vistos = new Set<string>()
+    let ronda = new Set<string>()
+    h.manejar = (accion, params) => {
+      if (accion !== 'buscarVarios') return { tipo: 'ok', data: {} }
+      for (const it of params.items as Item[]) { vistos.add(it.id); ronda.add(it.id) }
+      return sinNada(params)
+    }
+    await autoVincular({ forzar: true })
+    expect(ronda.size).toBe(40)
+    ronda = new Set()
+    await autoVincular({ forzar: true })
+    expect(ronda.size).toBe(5)
+    expect(vistos.size).toBe(productos.length)
+  })
+
+  it('el paso por código de barras pide solo las tiendas que faltan', async () => {
+    const pedidos: { items: Item[]; tiendas: string[] }[] = []
+    h.manejar = (accion, params) => {
+      if (accion !== 'buscarVarios') return { tipo: 'ok', data: {} }
+      pedidos.push(params as never)
+      return { tipo: 'ok', data: { resultados: (params.items as Item[]).map((it) => ({ id: it.id, porTienda: { OLIMPICA: it.q === 'Arroz' ? [opcion('OLIMPICA', 'Arroz Diana 1000 g', 5200, 1000, 'g', true, '770')] : [], EXITO: [], D1: [] } })), errores: [], marcas: true } }
+    }
+    await autoVincular()
+    // Arroz salió en Olímpica: por código de barras se pregunta solo en Éxito y D1 (no otra vez en Olímpica).
+    const porCodigo = pedidos.filter((x) => x.tiendas.length > 1 && x.items.some((i) => i.ean === '770'))
+    expect(porCodigo).toHaveLength(1)
+    expect([...porCodigo[0].tiendas].sort()).toEqual(['D1', 'EXITO'])
+  })
+
+  it('si el servicio pide esperar a mitad de la lista, dice cuántos quedaron sin buscar y reintenta en minutos, no en una hora', async () => {
+    await guardar('Productos', Array.from({ length: 20 }, (_, i) => nuevoProducto({ nombre: `Extra ${i}`, unidad_base: 'g' })))
+    let llamadas = 0
+    h.manejar = (accion, params) => {
+      if (accion !== 'buscarVarios') return { tipo: 'ok', data: {} }
+      llamadas++
+      return llamadas === 1 ? sinNada(params) : { tipo: 'error', codigo: 'rate_limit', mensaje: 'Espera un minuto antes de volver a consultar precios.' }
+    }
+    const r = await autoVincular()
+    expect(r).toMatchObject({ limite: true })
+    expect(r!.sinBuscar).toBeGreaterThan(0)
+    const estado = (await db.meta.get('autoVinculo'))!.valor as { fallo?: number; espera?: number }
+    expect(estado.fallo).toBeGreaterThan(0)
+    expect(estado.espera).toBeLessThanOrEqual(5 * 60_000)
+    // Pasado ese rato vuelve a intentar solo (no una hora después).
+    await db.meta.put({ clave: 'autoVinculo', valor: { ...estado, fallo: Date.now() - 6 * 60_000, ultimo: 0, revisados: {} } })
+    llamadas = 0
+    expect(await autoVincular()).not.toBeNull()
   })
 })

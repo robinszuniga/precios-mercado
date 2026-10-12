@@ -275,3 +275,72 @@ describe('planCompra · misma cuenta en todo', () => {
     expect(x.alternativa).toMatchObject({ tienda: 'EXITO', diferencia: 3000 })
   })
 })
+
+describe('precio nacional de internet (D1 no atiende Riohacha)', () => {
+  const costo = (v: number, nacional: boolean): ItemPlan['costos'][Tienda] => ({
+    opcion: { efectivo: { distintivo: nacional ? 'online_nac' : 'online' } } as never, paquetes: 1, costoReal: v, costoEquivalente: v,
+  })
+
+  it('el plan marca qué totales y qué tiendas dependen de un precio nacional', () => {
+    const items: ItemPlan[] = [
+      { id: 'a', costos: { D1: costo(800, true), EXITO: costo(1000, false) } },
+      { id: 'b', costos: { D1: costo(600, false), EXITO: costo(500, false) } },
+    ]
+    const p = planCompra(items, ['EXITO', 'D1'], 0)
+    expect(p.todoEn.find((x) => x.tienda === 'D1')?.nacional).toBe(true)
+    expect(p.todoEn.find((x) => x.tienda === 'EXITO')?.nacional).toBe(false)
+    expect(p.grupos.find((g) => g.tienda === 'D1')?.nacional).toBe(true) // 'a' sale más barato en D1 con el precio nacional
+    expect(p.grupos.find((g) => g.tienda === 'EXITO')?.nacional).toBe(false)
+  })
+
+  const productos = new Map([['arroz', producto()]])
+  const presentaciones = [pres('arroz-exito', 'EXITO', 1000), pres('arroz-d1', 'D1', 1000)]
+  const detalle = (precio: number): Detalle => ({
+    detalle_id: '1', compra_id: 'c1', producto_id: 'arroz', nombre_libre: '', necesidad: null, presentacion_id: 'arroz-exito', tienda: 'EXITO',
+    cantidad: 1, precio_unitario: precio, subtotal: precio, estado: 'en_carrito', orden: 0, updated_at: AHORA, borrado: false,
+  })
+
+  it('al cerrar, la tienda de referencia no es una que solo se compara por su precio nacional si hay otra completa con precios de Riohacha', () => {
+    const r = resumenCierre({
+      compraId: 'c1',
+      detalles: [detalle(5500)],
+      productos,
+      presentaciones,
+      actualesPorPresentacion: mapa([
+        actual('arroz-exito', 'EXITO', 'online', 5000, 0),
+        actual('arroz-d1', 'D1', 'online', 4000, 0, { region: 'DEFAULT' }), // el nacional es más barato, pero no es de Riohacha
+      ]),
+      vigencias: V,
+      ahora: AHORA,
+    })
+    expect(r.referencia).toMatchObject({ tienda: 'EXITO', total: 5000, ahorro: -500, nacional: false })
+    // El total de D1 sigue en el resumen, pero marcado como el que depende de un precio nacional.
+    expect(r.filas.find((f) => f.tienda === 'D1')).toBeDefined()
+  })
+
+  it('si la única tienda completa es la del precio nacional, se usa y se avisa que lo es', () => {
+    const r = resumenCierre({
+      compraId: 'c1',
+      detalles: [detalle(5500)],
+      productos,
+      presentaciones,
+      actualesPorPresentacion: mapa([actual('arroz-d1', 'D1', 'online', 4000, 0, { region: 'DEFAULT' })]),
+      vigencias: V,
+      ahora: AHORA,
+    })
+    expect(r.referencia).toMatchObject({ tienda: 'D1', total: 4000, nacional: true })
+  })
+
+  it('un precio de D1 anotado en el estante (de tienda) no es nacional', () => {
+    const r = resumenCierre({
+      compraId: 'c1',
+      detalles: [detalle(5500)],
+      productos,
+      presentaciones,
+      actualesPorPresentacion: mapa([actual('arroz-exito', 'EXITO', 'online', 5000, 0), actual('arroz-d1', 'D1', 'tienda', 4000, 0)]),
+      vigencias: V,
+      ahora: AHORA,
+    })
+    expect(r.referencia).toMatchObject({ tienda: 'D1', total: 4000, nacional: false })
+  })
+})

@@ -65,11 +65,17 @@ interface Fila {
   total: number | null
   items: number
   de: number
+  /** Algún precio de ese total es el nacional de internet (D1 no atiende Riohacha). */
+  nacional: boolean
 }
 
 const completa = (f: Fila | undefined) => !!f && f.total != null && f.items === f.de && f.de > 0
 /** "$ 8.800", o "$ 5.800 (2 de 3)" si la tienda no tiene todo: un total parcial nunca se muestra como si fuera el total. */
-const textoTotal = (f: Fila | undefined) => (f?.total == null ? '' : completa(f) ? pesos(f.total) : `${pesos(f.total)} (${f.items} de ${f.de})`)
+const textoTotal = (f: Fila | undefined) => {
+  if (f?.total == null) return ''
+  const total = completa(f) ? pesos(f.total) : `${pesos(f.total)} (${f.items} de ${f.de})`
+  return f.nacional ? `${total} · con precio nacional` : total
+}
 
 export function Mapa() {
   const cat = useCatalogo()
@@ -100,7 +106,7 @@ export function Mapa() {
 
   const filas: Fila[] = TIENDAS.map((t) => {
     const x = todas?.todoEn.find((e) => e.tienda === t)
-    return { tienda: t, total: x && x.items > 0 ? x.total : null, items: x?.items ?? 0, de: x?.de ?? 0 }
+    return { tienda: t, total: x && x.items > 0 ? x.total : null, items: x?.items ?? 0, de: x?.de ?? 0, nacional: x?.nacional ?? false }
   }).sort((a, b) => {
     if (completa(a) !== completa(b)) return completa(a) ? -1 : 1
     if (a.items !== b.items) return b.items - a.items
@@ -173,7 +179,7 @@ export function Mapa() {
   function compartir() {
     if (!ruta?.paradas.length) return
     const paradas = ruta.paradas.map((p, i) => ({ tienda: p.sede.tienda, nombre: p.sede.nombre, km: yo || i > 0 ? p.km : 0 }))
-    void compartirTexto(textoRuta(paradas, ruta.totalKm, enlaceRuta, hoy?.total ?? null))
+    void compartirTexto(textoRuta(paradas, ruta.totalKm, enlaceRuta, hoy?.total ?? null, new Date(), !!hoy?.grupos.some((g) => g.nacional)))
   }
 
   return (
@@ -217,6 +223,7 @@ export function Mapa() {
                 <p className="text-sm">
                   Tu lista aquí: <strong>{pesos(filaDe.get(elegida.tienda)!.total!)}</strong>
                   {!completa(filaDe.get(elegida.tienda)) && <span className="text-stone-600"> (solo {filaDe.get(elegida.tienda)!.items} de {filaDe.get(elegida.tienda)!.de} productos)</span>}
+                  {filaDe.get(elegida.tienda)!.nacional && <span className="text-stone-600"> · incluye precio nacional de internet</span>}
                 </p>
               )}
             </div>
@@ -309,6 +316,7 @@ export function Mapa() {
                         : completa(f)
                           ? <>Toda tu lista: <strong>{pesos(f.total)}</strong></>
                           : <>Tiene {f.items} de {f.de} productos: <strong>{pesos(f.total)}</strong> <span className="text-stone-600">(solo lo que tiene)</span></>}
+                      {f.total != null && f.nacional && <span className="text-stone-600"> · incluye precio nacional de internet</span>}
                     </p>
                     {destino ? (
                       <>

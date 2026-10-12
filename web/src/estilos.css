@@ -76,7 +76,8 @@
 }
 
 @utility pb-seguro {
-  padding-bottom: calc(env(safe-area-inset-bottom) + 5rem);
+  /* --pastilla: el alto que reserva el aviso «N por enviar» mientras está a la vista (ver EstadoConexion). */
+  padding-bottom: calc(env(safe-area-inset-bottom) + 5rem + var(--pastilla, 0rem));
 }
 
 @utility abajo-seguro {

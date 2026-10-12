@@ -5,6 +5,8 @@ import { INFO_TIENDAS, type Tienda } from '@shared/tiendas.ts'
 export interface GrupoCompartir {
   tienda: Tienda
   total: number
+  /** Algún precio es el nacional de internet (la tienda no atiende Riohacha). */
+  nacional?: boolean
   lineas: { nombre: string; detalle: string; costo: number }[]
 }
 
@@ -19,7 +21,7 @@ export function textoPlan(grupos: GrupoCompartir[], sinPrecio: string[], total: 
   const dia = fecha.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })
   const partes = [`🛒 Mercado · ${dia}`]
   for (const g of grupos) {
-    partes.push('', `*${INFO_TIENDAS[g.tienda].nombre}* · ${plata(g.total)}`)
+    partes.push('', `*${INFO_TIENDAS[g.tienda].nombre}* · ${plata(g.total)}${g.nacional ? ' (incluye precio nacional de internet)' : ''}`)
     for (const l of g.lineas) partes.push(`▢ ${limpio(l.nombre)} — ${limpio(l.detalle)} · ${plata(l.costo)}`)
   }
   const pendientes = sinPrecio.map(limpio).filter(Boolean)
@@ -38,7 +40,7 @@ export interface ParadaCompartir {
 }
 
 /** La ruta de hoy como mensaje: paradas en orden, distancia aproximada y el enlace para abrirla en Google Maps. */
-export function textoRuta(paradas: ParadaCompartir[], totalKm: number, enlace: string | null, total: number | null, fecha = new Date()): string {
+export function textoRuta(paradas: ParadaCompartir[], totalKm: number, enlace: string | null, total: number | null, fecha = new Date(), nacional = false): string {
   const dia = fecha.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })
   const partes = [`🗺️ Ruta de mercado · ${dia}`]
   paradas.forEach((p, i) => {
@@ -47,7 +49,7 @@ export function textoRuta(paradas: ParadaCompartir[], totalKm: number, enlace: s
     partes.push(`${i + 1}. *${base}*${nombre && nombre !== base ? ` · ${nombre}` : ''}${p.km > 0 ? ` (${i === 0 ? '' : '+'}${formatoKm(p.km)})` : ''}`)
   })
   if (paradas.length > 1 && totalKm > 0) partes.push('', `Recorrido aproximado: ${formatoKm(totalKm)}`)
-  if (total != null && total > 0) partes.push(`Total estimado: *${plata(total)}*`)
+  if (total != null && total > 0) partes.push(`Total estimado: *${plata(total)}*${nacional ? ' (incluye precio nacional de internet)' : ''}`)
   if (enlace) partes.push('', enlace)
   return partes.join('\n')
 }

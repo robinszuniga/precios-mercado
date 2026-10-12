@@ -125,7 +125,12 @@ export interface GrupoTienda {
   tienda: Tienda
   items: ItemAsignado[]
   total: number
+  /** Algún precio de este grupo es el nacional de internet (la tienda no atiende Riohacha), no uno de la ciudad. */
+  nacional: boolean
 }
+
+/** El precio de este costo es el nacional de internet. */
+export const esNacional = (c: CostoEnTienda | undefined): boolean => c?.opcion?.efectivo?.distintivo === 'online_nac'
 
 export interface TodoEn {
   tienda: Tienda
@@ -136,6 +141,8 @@ export interface TodoEn {
   faltan: string[]
   /** Lo que cuesta el plan en esos mismos ítems, para comparar peras con peras. */
   planMismosItems: number
+  /** Algún precio de este total es el nacional de internet. */
+  nacional: boolean
 }
 
 export interface Plan {
@@ -214,7 +221,7 @@ export function planCompra(items: readonly ItemPlan[], tiendasHoy: readonly Tien
     const c = t ? it.costos[t] : undefined
     if (!t || !c) { sinPrecio.push(it.id); continue }
     let g = grupos.find((x) => x.tienda === t)
-    if (!g) { g = { tienda: t, items: [], total: 0 }; grupos.push(g) }
+    if (!g) { g = { tienda: t, items: [], total: 0, nacional: false }; grupos.push(g) }
     let alternativa: Alternativa | null = null
     for (const otra of tiendasHoy) {
       const co = it.costos[otra]
@@ -225,6 +232,7 @@ export function planCompra(items: readonly ItemPlan[], tiendasHoy: readonly Tien
     }
     g.items.push({ id: it.id, costo: c, alternativa })
     g.total += c.costoReal
+    if (esNacional(c)) g.nacional = true
     costoPlan.set(it.id, c.costoReal)
   }
   // Mismo orden de tiendas en todas las pantallas: el de las tiendas de hoy.
@@ -239,6 +247,7 @@ export function planCompra(items: readonly ItemPlan[], tiendasHoy: readonly Tien
       de: items.length,
       faltan: items.filter((i) => !i.costos[t]).map((i) => i.id),
       planMismosItems: con.reduce((s, i) => s + (costoPlan.get(i.id) ?? 0), 0),
+      nacional: con.some((i) => esNacional(i.costos[t])),
     }
   })
   const completas = todoEn.filter((x) => x.items === x.de && x.de > 0).sort((a, b) => a.total - b.total)

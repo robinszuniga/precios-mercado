@@ -185,7 +185,7 @@ export function Compra() {
   const libreDialogo = dialogo && typeof dialogo === 'object' && 'libre' in dialogo ? dialogo : null
 
   return (
-    <section className="space-y-3 pb-20">
+    <section className="space-y-3 pb-[calc(5rem+var(--pastilla,0rem))]">
       <Titulo sub={`${enCarrito.length} de ${total} en el carrito`}>Tu compra de hoy</Titulo>
       <div ref={barraRef}>
         <BarraPresupuesto estado={estado} onEditar={() => setDialogo('presupuesto')} compacta />

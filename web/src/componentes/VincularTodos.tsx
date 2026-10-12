@@ -177,8 +177,13 @@ export function AvisoSinVincular({ className = '' }: { className?: string }) {
 /** Lo automático con aviso: se llama al abrir la app y después de pegar la lista. */
 export async function buscarPreciosSolo(forzar = false) {
   const r = await autoVincular({ forzar })
-  if (!r || (!r.vinculados && !r.dudosos)) return
-  avisar(r.vinculados
+  if (!r || (!r.vinculados && !r.dudosos && !r.sinBuscar)) return
+  const hechos = r.vinculados
     ? `Precios de internet: ${r.vinculados === 1 ? '1 producto vinculado' : `${r.vinculados} productos vinculados`} solos${r.dudosos ? `; ${r.dudosos} para revisar en Productos` : ''}.`
-    : `${r.dudosos} productos necesitan que elijas cuál es: toca “Buscar precios” en Productos.`)
+    : r.dudosos ? `${r.dudosos} productos necesitan que elijas cuál es: toca “Buscar precios” en Productos.` : ''
+  // Si no se alcanzó a buscar todo, se dice y se explica cuándo sigue.
+  const faltan = r.sinBuscar
+    ? `${hechos ? ' ' : ''}Quedaron ${r.sinBuscar} ${r.sinBuscar === 1 ? 'producto' : 'productos'} sin buscar${r.limite ? ': el servicio pidió esperar un minuto' : ''}; se buscan solos en unos minutos, o toca “Buscar precios” en Productos.`
+    : ''
+  avisar(`${hechos}${faltan}`)
 }

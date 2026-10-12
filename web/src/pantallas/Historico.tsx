@@ -119,6 +119,7 @@ function ResumenCompra({ cat, compraId }: { cat: Catalogo; compraId: string }) {
               frente a comprar todo en {INFO_TIENDAS[ref].nombre}
               {!compraCompleta && ` (comparado sobre ${compra.items_comparados} de ${compra.items_total} productos: a los demás les faltaba precio)`}
             </p>
+            {ref === 'D1' && <p className="text-xs text-stone-600">D1 no atiende Riohacha en línea: si ese total salió de su precio de internet, es el nacional.</p>}
           </>
         )}
         <div className="flex justify-between pt-2 text-lg font-semibold"><span>Gastaste</span><span>{pesos(compra.total_final)}</span></div>

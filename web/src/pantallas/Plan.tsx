@@ -46,6 +46,7 @@ export function Plan() {
     const grupos = plan.grupos.map((g) => ({
       tienda: g.tienda,
       total: g.total,
+      nacional: g.nacional,
       lineas: ordenados(g.items).map(({ id, costo }) => {
         const p = cat!.producto.get(porId.get(id)!.producto_id)!
         const cuanto = costo.opcion.presentacion.granel ? formatoCantidadVisible(costo.paquetes, p.unidad_base) : `${costo.paquetes} ×`
@@ -95,8 +96,8 @@ export function Plan() {
           {plan.ahorro != null && plan.mejorUnica && (
             <p className={`font-medium ${plan.ahorro > 0 ? 'text-ok' : 'text-stone-700'}`}>
               {plan.ahorro > 0
-                ? `Ahorras ${pesos(plan.ahorro)} frente a comprar todo en ${INFO_TIENDAS[plan.mejorUnica.tienda].nombre}`
-                : `Lo más conveniente: todo en ${INFO_TIENDAS[plan.mejorUnica.tienda].nombre}`}
+                ? `Ahorras ${pesos(plan.ahorro)} frente a comprar todo en ${INFO_TIENDAS[plan.mejorUnica.tienda].nombre}${plan.mejorUnica.nacional ? ' (con su precio nacional de internet)' : ''}`
+                : `Lo más conveniente: todo en ${INFO_TIENDAS[plan.mejorUnica.tienda].nombre}${plan.mejorUnica.nacional ? ' (con su precio nacional de internet)' : ''}`}
             </p>
           )}
           <button type="button" className="min-h-11 text-left text-sm text-stone-700" onClick={() => setEditandoPresupuesto(true)}>
@@ -122,6 +123,7 @@ export function Plan() {
             <NombreTienda tienda={g.tienda} className="font-semibold" tam={22} />
             <span className="font-semibold">{pesos(g.total)}</span>
           </div>
+          {g.nacional && <p className="px-1 pb-1 text-xs text-stone-600">Incluye precios nacionales de internet: esta tienda no atiende Riohacha en línea.</p>}
           <ul className="divide-y divide-stone-100">
             {ordenados(g.items).map(({ id, costo, alternativa }) => {
               const d = porId.get(id)!
@@ -179,6 +181,7 @@ export function Plan() {
                 </p>
               )}
               {x.items === 0 && <p className="text-xs text-stone-700">No hay precios de esta tienda para tu compra.</p>}
+              {x.items > 0 && x.nacional && <p className="text-xs text-stone-600">Incluye precio nacional de internet.</p>}
             </div>
           ))}
           <p className="text-xs text-stone-600">Solo se propone ir a otra tienda si ahorras más de {pesos(cat.cfg.ahorroMinimoTienda)} por viaje (se cambia en Ajustes).</p>

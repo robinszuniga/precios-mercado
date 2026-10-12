@@ -4,7 +4,7 @@ import { claveSede, MAX_SEDES, sedesDeConfig, valorSede, type Punto, type Sede }
 import type { PinSede } from '../componentes/MapaLeaflet.tsx'
 import { leerRuta } from '../app/ruta.ts'
 import { db } from '../datos/db.ts'
-import { agregarALaCompra, asegurarCompra, guardar, guardarConfig, nuevaPresentacion, nuevoProducto, registrarPrecioManual } from '../datos/escritura.ts'
+import { agregarALaCompra, asegurarCompra, guardar, guardarConfig, nuevaPresentacion, nuevoProducto, observacion, registrarObservaciones, registrarPrecioManual } from '../datos/escritura.ts'
 import { agregarSede } from '../datos/sedes.ts'
 import { Mapa } from './Mapa.tsx'
 
@@ -93,6 +93,19 @@ describe('Mapa · lo que cuesta tu lista en cada tienda', () => {
     expect(tarjetas[1]).toHaveTextContent(/5\.800/)
     expect(tarjetas[2]).toHaveTextContent(/Sin precios de tu lista todavía/)
     expect(tarjetas[3]).toHaveTextContent(/Sin precios de tu lista todavía/)
+  })
+
+  it('un total que usa el precio nacional de internet de D1 sale marcado como tal (pines y tarjeta)', async () => {
+    const [arroz] = await guardar('Productos', nuevoProducto({ nombre: 'Arroz', unidad_base: 'g', cantidad_habitual: 1 }))
+    const [d1] = await guardar('Presentaciones', nuevaPresentacion({ producto_id: arroz.producto_id, tienda: 'D1', contenido: 1000, sku_id: 's1', auto: true }))
+    await registrarObservaciones([observacion({ presentacion: d1, precio: 4000, origen: 'online', fuente: 'auto', region: 'DEFAULT' })])
+    await asegurarCompra(['D1'])
+    await agregarALaCompra(arroz, ['D1'])
+    await conSedes([sede('d1', 'D1', 11.5, -72.9, 'D1 Calle 15')])
+    render(<Mapa />)
+    expect(await screen.findByRole('button', { name: /pin D1 .*con precio nacional/ }, { timeout: ESPERA })).toBeInTheDocument()
+    const tarjeta = (await screen.findAllByRole('listitem')).find((li) => /Toda tu lista/.test(li.textContent ?? ''))!
+    expect(tarjeta).toHaveTextContent(/incluye precio nacional de internet/)
   })
 
   it('con sedes: los pines llevan lo que cuesta la lista y marcan la más barata; elegir uno muestra cómo ir', async () => {

@@ -18,7 +18,7 @@ import { Compra } from '../pantallas/Compra.tsx'
 import { Historico } from '../pantallas/Historico.tsx'
 import { Lista } from '../pantallas/Lista.tsx'
 import { Plan } from '../pantallas/Plan.tsx'
-import { EstadoConexion, explicarError } from './EstadoConexion.tsx'
+import { causaCorta, EstadoConexion, explicarError } from './EstadoConexion.tsx'
 import { InstalarEnIphone } from './InstalarEnIphone.tsx'
 
 beforeEach(async () => {
@@ -279,6 +279,18 @@ describe('señal fantasma: dice la causa y deja reintentar', () => {
     expect(screen.queryByRole('button', { name: 'Reintentar' })).toBeNull()
   })
 
+  it('un rechazo en inglés de la base se dice en palabras de persona; la pastilla es de 2 líneas como máximo, tiene un enlace de 44 px y reserva su alto abajo', async () => {
+    await conCola('Error: new row for relation "precios_actuales" violates check constraint "precios_actuales_precio_check"')
+    const { unmount } = render(<EstadoConexion />)
+    const texto = await screen.findByText(/1 por enviar · la nube no aceptó algunos datos \(revisa Ajustes\)/)
+    expect(texto.textContent).not.toMatch(/precios_actuales|constraint/)
+    expect(texto).toHaveClass('line-clamp-2')
+    expect(texto.closest('a')).toHaveClass('min-h-11')
+    await waitFor(() => expect(document.documentElement.style.getPropertyValue('--pastilla')).toBe('5rem'))
+    unmount()
+    expect(document.documentElement.style.getPropertyValue('--pastilla')).toBe('')
+  })
+
   it('"Reintentar" quita la espera de los cambios para que salgan ya', async () => {
     await conCola('algo falló')
     render(<EstadoConexion />)
@@ -291,6 +303,12 @@ describe('señal fantasma: dice la causa y deja reintentar', () => {
     expect(explicarError('Could not find the \'borrado\' column of \'productos\' in the schema cache')).toMatch(/faltan tablas/)
     expect(explicarError('JWT expired')).toMatch(/sesión venció/)
     expect(explicarError('new row violates row-level security policy')).toMatch(/sesión venció/)
+    // En la pastilla (chica) los rechazos de datos se resumen; la franja roja sigue mostrando el texto completo.
+    expect(causaCorta('new row for relation "x" violates check constraint "y"')).toMatch(/no aceptó algunos datos/)
+    expect(causaCorta('null value in column "borrado" of relation "productos" violates not-null constraint')).toMatch(/no aceptó algunos datos/)
+    expect(causaCorta('JWT expired')).toMatch(/sesión venció/)
+    expect(causaCorta('x'.repeat(200))).toHaveLength(71)
+    expect(explicarError('new row for relation "x" violates check constraint "y"')).toMatch(/violates check constraint/)
     expect(explicarError('Error: raro')).toBe('raro')
     expect(explicarError('x'.repeat(200))).toHaveLength(91)
   })

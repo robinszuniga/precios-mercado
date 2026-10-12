@@ -15,6 +15,8 @@ export interface Referencia {
   /** Positivo = ahorraste. Negativo = gastaste más que comprando todo ahí. */
   ahorro: number
   completa: boolean
+  /** Lo comparado depende de un precio nacional de internet (la tienda no atiende Riohacha), no de uno de la ciudad. */
+  nacional: boolean
 }
 
 export interface ResultadoCierre {
@@ -59,8 +61,8 @@ export function resumenCierre(args: {
     comparables.push({ detalle: d, producto, cantidadVisible: (d.cantidad * pres.contenido) / factorVisible(producto.unidad_base) })
   }
 
-  const porTienda = new Map<Tienda, { total: number; gastado: number; ids: Set<string> }>()
-  for (const t of TIENDAS) porTienda.set(t, { total: 0, gastado: 0, ids: new Set() })
+  const porTienda = new Map<Tienda, { total: number; gastado: number; ids: Set<string>; nacional: boolean }>()
+  for (const t of TIENDAS) porTienda.set(t, { total: 0, gastado: 0, ids: new Set(), nacional: false })
   for (const c of comparables) {
     const presDelProducto = presentaciones.filter((p) => p.producto_id === c.producto.producto_id)
     const ops = opcionesProducto(presDelProducto, actualesPorPresentacion, c.producto.unidad_base, vigencias, ahora)
@@ -71,6 +73,7 @@ export function resumenCierre(args: {
       acc.total += c.cantidadVisible * op.precioUnidad
       acc.gastado += c.detalle.subtotal ?? 0
       acc.ids.add(c.detalle.detalle_id)
+      if (op.efectivo.distintivo === 'online_nac') acc.nacional = true
     }
   }
 
@@ -90,10 +93,13 @@ export function resumenCierre(args: {
   })
 
   let referencia: Referencia | null = null
-  const completas = filas.filter((f) => f.completo).sort((a, b) => a.total_hipotetico - b.total_hipotetico)
+  // Con un precio nacional de internet (D1 no atiende Riohacha) no se afirma «habrías ahorrado en D1»: la referencia es una
+  // tienda con precios de la ciudad, y solo si no hay otra se usa la del precio nacional (marcada como tal).
+  const deLaCiudad = (xs: ResumenTienda[]) => { const l = xs.filter((f) => !porTienda.get(f.tienda)!.nacional); return l.length ? l : xs }
+  const completas = deLaCiudad(filas.filter((f) => f.completo)).sort((a, b) => a.total_hipotetico - b.total_hipotetico)
   const elegida =
     completas[0] ??
-    [...filas].sort((a, b) => b.items_con_precio - a.items_con_precio || a.total_hipotetico - b.total_hipotetico)[0]
+    [...deLaCiudad(filas)].sort((a, b) => b.items_con_precio - a.items_con_precio || a.total_hipotetico - b.total_hipotetico)[0]
   if (elegida && n > 0) {
     const acc = porTienda.get(elegida.tienda)!
     const gastado = Math.round(acc.gastado)
@@ -105,6 +111,7 @@ export function resumenCierre(args: {
       itemsTotal: n,
       ahorro: elegida.total_hipotetico - gastado,
       completa: elegida.completo,
+      nacional: acc.nacional,
     }
   }
   return { totalFinal, filas, referencia, noComparables: enCarrito.length - n }
