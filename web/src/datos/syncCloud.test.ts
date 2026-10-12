@@ -101,7 +101,7 @@ vi.mock('./supabase.ts', () => ({
 import { cerrarCompra } from './cierre.ts'
 import { CuentaCambiada, db, usarBaseLocal, invalidarCuenta } from './db.ts'
 import { guardar, nuevoProducto, nuevaPresentacion, registrarPrecioManual } from './escritura.ts'
-import { actualMasNuevo, clasificarError, ErrorCloud, filaCloud, filaLocalDeCloud, motivosRechazo, reenviarRechazados, sincronizar } from './sync.ts'
+import { actualMasNuevo, clasificarError, ErrorCloud, filaCloud, filaLocalDeCloud, motivosRechazo, reenviarRechazados, reintentarAhora, sincronizar } from './sync.ts'
 
 const cuenta = (id: string) => ({ user: { id }, access_token: `token-${id}` })
 
@@ -375,6 +375,39 @@ describe('lo que el servidor ignora o lo que se cancela', () => {
     await expect(cierre).rejects.toBeInstanceOf(CuentaCambiada)
     expect(await db.compras.count()).toBe(0)
     expect(await db.outbox.count()).toBe(0)
+  })
+})
+
+describe('un lote que se corta a mitad', () => {
+  it('lo que ya salió no se repite: cada entrada se borra de la cola apenas se envía', async () => {
+    const f = '2026-10-12T10:00:00.000-05:00'
+    const entrada = (tabla: string, fila: Record<string, unknown>) => ({ tipo: 'upsert' as const, payload: { cambios: [{ tabla, fila }] }, intentos: 0, proximo: 0, creado: Date.now() })
+    await db.outbox.add(entrada('Categorias', { categoria_id: 'c1', nombre: 'Granos', orden: 1, updated_at: f, borrado: false }))
+    await db.outbox.add(entrada('Config', { clave: 'k', valor: 'v', updated_at: f }))
+    h.servidor.rechazar = (tabla) => (tabla === 'config' ? { message: 'Failed to fetch', code: '', status: 0 } : null) // se corta en la segunda
+    await sincronizar()
+    const quedan = await db.outbox.toArray()
+    expect(quedan).toHaveLength(1)
+    expect((quedan[0].payload.cambios as { tabla: string }[])[0].tabla).toBe('Config')
+    expect(h.servidor.envios.filter((e) => e.tabla === 'categorias')).toHaveLength(1)
+    // Vuelve la señal: sale lo que faltaba y la primera no se manda otra vez.
+    h.servidor.rechazar = () => null
+    await reintentarAhora()
+    expect(await db.outbox.count()).toBe(0)
+    expect(h.servidor.envios.filter((e) => e.tabla === 'categorias')).toHaveLength(1)
+  })
+})
+
+describe('reenviar los rechazados', () => {
+  it('dos pedidos a la vez (dos toques, o el reparo automático junto a un toque) comparten la misma ronda: no suben la base dos veces', async () => {
+    const a = reenviarRechazados()
+    const b = reenviarRechazados()
+    expect(b).toBe(a)
+    await a
+    // Terminada, un pedido nuevo vuelve a correr.
+    const c = reenviarRechazados()
+    expect(c).not.toBe(a)
+    await c
   })
 })
 

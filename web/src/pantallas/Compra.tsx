@@ -15,6 +15,7 @@ import { describirPresentacion } from '../componentes/RegistrarPrecio.tsx'
 import { avisar, Boton, Campo, Cargando, ChipTienda, hace, Hoja, leerNumero, NombreTienda, pesos, Tarjeta, Titulo, Vacio } from '../componentes/ui.tsx'
 import { cerrarCompra } from '../datos/cierre.ts'
 import { comparadorPasillo, itemsDelPlan, useCatalogo, useMeta, type Catalogo } from '../datos/consultas.ts'
+import { lineasVisibles } from '../datos/lineas.ts'
 import { db, guardarMeta } from '../datos/db.ts'
 import { agregarALaCompra, asegurarCompra, compraAbierta, guardar, nuevoDetalle } from '../datos/escritura.ts'
 import { ahoraIso } from '../datos/sync.ts'
@@ -117,7 +118,9 @@ export function Compra() {
     return () => clearTimeout(t)
   }, [porAbrir, datos])
   if (!cat || !datos) return <Cargando />
-  const { compra, detalles } = datos
+  const { compra } = datos
+  // Una línea de un producto que ya no existe: comprada, se ve como texto; pendiente, no aparece (ver `lineaVisible`).
+  const detalles = lineasVisibles(datos.detalles, (id) => cat.producto.has(id))
   if (!compra || compra.estado === 'borrador') return <Empezar compra={compra} tiendasHoy={tiendasHoy} alternar={alternar} />
 
   const ahora = ahoraIso()

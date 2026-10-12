@@ -2,7 +2,9 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Avisos } from '../componentes/ui.tsx'
 import { buscarPreciosSolo } from '../componentes/VincularTodos.tsx'
+import { productoEliminado } from '@shared/esquema.ts'
 import { useMeta } from '../datos/consultas.ts'
+import { lineasVisibles } from '../datos/lineas.ts'
 import { db, guardarMeta } from '../datos/db.ts'
 import { compraAbierta } from '../datos/escritura.ts'
 import type { EstadoSync } from '../datos/sync.ts'
@@ -38,7 +40,10 @@ function usePendientesCompra(): number {
   return useLiveQuery(async () => {
     const c = await compraAbierta()
     if (!c || c.estado !== 'en_curso') return 0
-    return (await db.detalle.where('compra_id').equals(c.compra_id).toArray()).filter((d) => !d.borrado && d.estado === 'pendiente').length
+    const lineas = await db.detalle.where('compra_id').equals(c.compra_id).toArray()
+    // Una línea pendiente de un producto que se eliminó no cuenta (no se muestra).
+    const vivos = new Set((await db.productos.toArray()).filter((p) => !productoEliminado(p)).map((p) => p.producto_id))
+    return lineasVisibles(lineas, (id) => vivos.has(id)).filter((d) => d.estado === 'pendiente').length
   }, []) ?? 0
 }
 

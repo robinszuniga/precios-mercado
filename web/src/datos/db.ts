@@ -129,6 +129,8 @@ export async function guardarMeta(clave: string, valor: unknown, base: BaseLocal
  * `presentaciones` son los ids de las presentaciones que se van; las nuevas que solo existen en la cola se suman solas.
  */
 function cuelgaDeEliminado(tabla: string, fila: Record<string, unknown>, productos: ReadonlySet<string>, presentaciones: Set<string>): boolean {
+  // Una edición vieja del propio producto eliminado ya no sirve (la marca propia, con borrado, sí se envía).
+  if (tabla === 'Productos') return productos.has(String(fila.producto_id)) && fila.borrado !== true
   if (tabla === 'Presentaciones') {
     if (!productos.has(String(fila.producto_id))) return false
     presentaciones.add(String(fila.presentacion_id))
@@ -162,26 +164,45 @@ export function sinLoEliminado(tipo: string, payload: Record<string, unknown>, p
 }
 
 /**
+ * Una edición de este celular perdió contra el servidor: se saca de lo pendiente (de la cola, no de los rechazados). Si no, un
+ * reintento del mismo envío (porque otra tabla de la misma entrada falló) volvería a mandar su copia vieja y le pisaría al
+ * servidor la versión que ganó. `perdidas` dice, por id, hasta qué fecha de edición se descarta: una edición más nueva que esa
+ * (la persona volvió a tocar la fila) se conserva. Va dentro de la transacción de quien la llama (con `outbox`).
+ */
+export async function quitarEdicionesPerdidas(base: BaseLocal, tabla: NombreTabla, idCol: string, perdidas: ReadonlyMap<string, number>): Promise<void> {
+  if (!perdidas.size) return
+  const pierde = (fila: Record<string, unknown>) => {
+    const hasta = perdidas.get(String(fila[idCol]))
+    const fecha = typeof fila.updated_at === 'string' ? Date.parse(fila.updated_at) : NaN
+    return hasta != null && !(fecha > hasta)
+  }
+  for (const e of await base.outbox.toArray()) {
+    let payload = e.payload
+    if (e.tipo === 'upsert') {
+      const cambios = (payload.cambios ?? []) as { tabla: string; fila: Record<string, unknown> }[]
+      const quedan = cambios.filter((c) => !(c.tabla === tabla && pierde(c.fila)))
+      if (quedan.length === cambios.length) continue
+      if (!quedan.length) { await base.outbox.delete(e.seq!); continue }
+      payload = { ...payload, cambios: quedan }
+    } else if (tabla === 'Compras_detalle') {
+      const detalle = (payload.detalle ?? []) as Record<string, unknown>[]
+      const quedan = detalle.filter((f) => !pierde(f))
+      if (quedan.length === detalle.length) continue
+      payload = { ...payload, detalle: quedan }
+    } else continue
+    await base.outbox.update(e.seq!, { payload })
+  }
+}
+
+/**
  * Borra de este celular lo que depende de productos eliminados: sus marcas y tamaños, su precio actual, su historial de
  * precios, lo que había en "Novedades" y lo que seguía esperando en la cola de envío o en los rechazados (si no, volvería a
- * subir lo que la nube ya borró, o dejaría un aviso rojo que ya no se puede arreglar). También arregla las líneas de compra
- * que usaban esos productos: en una compra abierta salen; en las ya cerradas quedan con el nombre como texto (`nombres` trae el
- * de antes, que la marca de eliminado ya no tiene). Estas líneas se derivan en cada celular, no se envían.
- * Va dentro de la transacción de quien la llama (esas tablas, `outbox`, `rechazados`, `detalle` y `compras`, deben estar en ella).
- * En la nube lo hace un disparador de la base.
+ * subir lo que la nube ya borró, o dejaría un aviso rojo que ya no se puede arreglar). Las líneas de compra no se tocan: qué
+ * se muestra de ellas se decide al mostrar (ver `lineaVisible`). Va dentro de la transacción de quien la llama (esas tablas, y
+ * `outbox` y `rechazados`, deben estar en ella). En la nube lo hace un disparador de la base de datos.
  */
-export async function purgarDatosDeProductos(base: BaseLocal, ids: ReadonlySet<string>, nombres: ReadonlyMap<string, string> = new Map()): Promise<void> {
+export async function purgarDatosDeProductos(base: BaseLocal, ids: ReadonlySet<string>): Promise<void> {
   if (!ids.size) return
-  const lineas = (await base.detalle.toArray()).filter((d) => !!d.producto_id && ids.has(d.producto_id))
-  if (lineas.length) {
-    const abiertas = new Set((await base.compras.toArray()).filter((c) => !c.borrado && (c.estado === 'borrador' || c.estado === 'en_curso')).map((c) => c.compra_id))
-    await base.detalle.bulkPut(lineas.flatMap((d) => {
-      if (abiertas.has(d.compra_id)) return d.borrado ? [] : [{ ...d, borrado: true }]
-      // En una compra cerrada lo que estaba en el carrito se compró: se conserva (aunque el otro celular la haya sacado cuando la
-      // compra seguía abierta), si no el total gastado incluiría una línea que el historial no muestra.
-      return [{ ...d, borrado: d.estado === 'en_carrito' ? false : d.borrado, producto_id: '', nombre_libre: d.nombre_libre || nombres.get(d.producto_id) || '' }]
-    }))
-  }
   const presentaciones = (await base.presentaciones.where('producto_id').anyOf([...ids]).primaryKeys()) as string[]
   const fuera = new Set(presentaciones)
   if (presentaciones.length) {

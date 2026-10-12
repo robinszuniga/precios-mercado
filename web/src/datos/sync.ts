@@ -4,7 +4,7 @@ import { aMs, esIso, isoBogota } from '@shared/fechas.ts'
 import { detectarCambio, type CambioPrecio } from '@shared/novedades.ts'
 import { conservarOpcionales, ganaRemoto } from '@shared/sync.ts'
 import { llamar, type Conexion } from './api.ts'
-import { type BaseLocal, CuentaCambiada, db, generacionActual, guardarMeta, leerMeta, propietarioDb, purgarDatosDeProductos, sinLoEliminado, TABLA_LOCAL, type EntradaOutbox } from './db.ts'
+import { type BaseLocal, CuentaCambiada, db, generacionActual, guardarMeta, leerMeta, propietarioDb, purgarDatosDeProductos, quitarEdicionesPerdidas, sinLoEliminado, TABLA_LOCAL, type EntradaOutbox } from './db.ts'
 import { clienteDeCuenta, supabase } from './supabase.ts'
 
 export interface EstadoSync {
@@ -307,12 +307,9 @@ async function aplicarLapidas(ctx: ContextoCuenta, filas: Record<string, unknown
   if (!filas.length) return
   if (!vigente(ctx)) throw new CuentaCambiada()
   const base = ctx.base
-  await base.transaction('rw', [base.productos, base.presentaciones, base.preciosActuales, base.historial, base.cambios, base.outbox, base.rechazados, base.detalle, base.compras], async () => {
-    const ids = filas.map((f) => String(f.producto_id))
-    const antes = await base.productos.bulkGet(ids)
-    const nombres = new Map(ids.flatMap((id, i) => (antes[i]?.nombre ? [[id, antes[i]!.nombre] as const] : [])))
+  await base.transaction('rw', [base.productos, base.presentaciones, base.preciosActuales, base.historial, base.cambios, base.outbox, base.rechazados], async () => {
     await base.productos.bulkPut(filas as unknown as Producto[])
-    await purgarDatosDeProductos(base, new Set(ids), nombres)
+    await purgarDatosDeProductos(base, new Set(filas.map((f) => String(f.producto_id))))
   })
 }
 
@@ -380,17 +377,22 @@ async function resolverConflictos(ctx: ContextoCuenta, tabla: NombreTabla, desti
   await aplicarLapidas(ctx, lapidas)
   if (quedanDelServidor.length) {
     if (!vigente(ctx)) throw new CuentaCambiada()
-    const tabla = ctx.base.table(local)
-    const llave = tabla.schema.primKey.name
+    const tablaLocal = ctx.base.table(local)
+    const llave = tablaLocal.schema.primKey.name
     const enviadas = new Map(conflictos.map((x) => [x.id, instante(x.fila.editado_en)]))
-    await ctx.base.transaction('rw', tabla, async () => {
+    await ctx.base.transaction('rw', [tablaLocal, ctx.base.outbox], async () => {
+      const perdidas = new Map<string, number>()
       for (const s of quedanDelServidor) {
-        const actual = await tabla.get(s[llave] as string) as { updated_at?: string } | undefined
+        const id = String(s[llave])
+        const actual = await tablaLocal.get(id) as { updated_at?: string } | undefined
         // Si mientras se consultaba la persona volvió a editar la fila, esa edición nueva se conserva: tiene su propia
         // entrada en la cola y se resolverá en su turno, sobre la versión actual.
-        if (actual && instante(actual.updated_at) > (enviadas.get(String(s[llave])) ?? Infinity)) continue
-        await tabla.put(s)
+        if (actual && instante(actual.updated_at) > (enviadas.get(id) ?? Infinity)) continue
+        await tablaLocal.put(s)
+        perdidas.set(id, enviadas.get(id) ?? Infinity)
       }
+      // La edición que perdió ya no se envía (ni en un reintento del mismo envío): se saca de lo pendiente.
+      await quitarEdicionesPerdidas(ctx.base, tabla, llave, perdidas)
     })
   }
   for (const x of reintentar) {
@@ -466,8 +468,11 @@ async function vaciarOutbox(ctx: ContextoCuenta): Promise<boolean> {
       lote.push(e)
     }
     try {
-      for (const entrada of lote) await enviarEntrada(ctx, entrada)
-      await ctx.base.outbox.bulkDelete(lote.map((e) => e.seq!))
+      // Cada entrada se borra apenas sale: si el envío se corta a mitad de un lote (una resubida grande), lo ya enviado no se repite.
+      for (const entrada of lote) {
+        await enviarEntrada(ctx, entrada)
+        await ctx.base.outbox.delete(entrada.seq!)
+      }
     } catch (e) {
       if (!vigente(ctx)) return false
       const clase = clasificarError(e)
@@ -568,7 +573,15 @@ export async function resubirBase(): Promise<number> {
  * era una llave foránea (un precio de algo que el servidor no tiene), primero se vuelve a subir lo de arriba. Lo que se
  * rechazó otra vez vuelve a la lista con su motivo. Los rechazos viejos que no guardaron su contenido no se pueden reenviar.
  */
-export async function reenviarRechazados(): Promise<number> {
+let reenviando: Promise<number> | null = null
+
+/** Una sola vez a la vez: dos toques seguidos, o el reparo automático junto a un toque, no suben la base dos veces. */
+export function reenviarRechazados(): Promise<number> {
+  if (!reenviando) reenviando = reenviarRechazadosAhora().finally(() => { reenviando = null })
+  return reenviando
+}
+
+async function reenviarRechazadosAhora(): Promise<number> {
   // Primero se baja lo que cambió en el servidor: si un producto fue eliminado, lo que dependía de él se descarta ahora
   // (también de los rechazados) en vez de reenviarse para que falle igual.
   try {
@@ -819,8 +832,6 @@ async function traerCloud(ctx: ContextoCuenta, completo = false): Promise<boolea
   const tablasDeTransaccion = new Set([...instancias, base.meta, base.outbox, base.rechazados, base.presentaciones, base.preciosActuales, base.historial, base.cambios])
   await base.transaction('rw', [...tablasDeTransaccion], async () => {
     const eliminados = new Set<string>()
-    const nombres = new Map<string, string>()
-    const lineasLlegadas: { producto_id?: string }[] = []
     // Filas con cambios sin enviar: de esas decide el envío (por versión). Las demás son iguales a las del servidor.
     const sucias = await filasPendientes(base)
     for (const { local, tablaCloud, remoto, cursor, versionada } of todas) {
@@ -842,7 +853,7 @@ async function traerCloud(ctx: ContextoCuenta, completo = false): Promise<boolea
             // Una marca de eliminado se acepta siempre —aun con un cambio sin enviar de ese producto—, porque eliminar es definitivo y
             // la edición pendiente perdería igual. Cubre también la copia viva de la misma versión que dejó una edición «aceptada»
             // pero reescrita por el servidor. Sin esto, lo que dependía del producto no se limpiaría hasta resolver esa edición.
-            if (local === 'productos' && fila.borrado === true && previo && previo.borrado !== true && versionDe(fila) >= versionDe(previo)) {
+            if (local === 'productos' && fila.borrado === true && previo && previo.borrado !== true) {
               aceptar.push(fila)
               return
             }
@@ -857,17 +868,8 @@ async function traerCloud(ctx: ContextoCuenta, completo = false): Promise<boolea
           if (!comparable || ganaRemoto(previo as { updated_at: string }, fila as { updated_at: string })) aceptar.push(fila)
         })
         if (aceptar.length) await tabla.bulkPut(aceptar)
-        if (local === 'detalle') lineasLlegadas.push(...(aceptar as { producto_id?: string }[]))
         // Otro celular (o este, antes) eliminó un producto: aquí también se va todo lo que dependía de él.
-        if (local === 'productos') {
-          for (const f of aceptar) {
-            if (f.borrado !== true) continue
-            eliminados.add(String(f.producto_id))
-            // El nombre de antes (la marca llega vacía) se guarda como texto en las compras ya cerradas que lo usaban.
-            const nombre = (actuales[lote.indexOf(f)] as Producto | undefined)?.nombre
-            if (nombre) nombres.set(String(f.producto_id), nombre)
-          }
-        }
+        if (local === 'productos') for (const f of aceptar) if (f.borrado === true) eliminados.add(String(f.producto_id))
       }
       if (cursor) {
         // Cada tabla avanza por separado.
@@ -875,14 +877,10 @@ async function traerCloud(ctx: ContextoCuenta, completo = false): Promise<boolea
         await base.meta.put({ clave: `cursorCloud:${tablaCloud}`, valor: cursorConSolape })
       }
     }
-    // También los que ya eran marca aquí pero conservan algo colgando: una presentación que llegó o quedó después, o una línea de
-    // compra que llegó en esta descarga. Solo esos: limpiar todo, cada minuto, recorrería las compras enteras sin necesidad.
+    // También los que ya eran marca aquí pero conservan una presentación colgada (llegó o se guardó después).
     const marcas = new Set((await base.productos.filter((p) => p.borrado === true).primaryKeys()).map(String))
-    if (marcas.size) {
-      for (const pres of await base.presentaciones.where('producto_id').anyOf([...marcas]).toArray()) eliminados.add(pres.producto_id)
-      for (const d of lineasLlegadas) if (d.producto_id && marcas.has(d.producto_id)) eliminados.add(d.producto_id)
-    }
-    await purgarDatosDeProductos(base, eliminados, nombres)
+    if (marcas.size) for (const pres of await base.presentaciones.where('producto_id').anyOf([...marcas]).toArray()) eliminados.add(pres.producto_id)
+    await purgarDatosDeProductos(base, eliminados)
   })
   return true
 }

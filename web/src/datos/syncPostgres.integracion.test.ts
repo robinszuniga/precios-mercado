@@ -104,6 +104,7 @@ vi.mock('./supabase.ts', () => ({
 }))
 
 import { cerrarCompra } from './cierre.ts'
+import { lineasVisibles } from './lineas.ts'
 import { db, guardarMeta, usarBaseLocal } from './db.ts'
 import { agregarALaCompra, compraAbierta, eliminarProductos, guardar, guardarConfig, nuevaPresentacion, nuevoProducto, registrarPrecioManual } from './escritura.ts'
 import { reenviarRechazados, resubirBase, sincronizar } from './sync.ts'
@@ -706,7 +707,14 @@ describe('app + Postgres real', () => {
       expect(await cuenta('select count(*)::int n from public.observaciones where presentacion_id = $1', [prL.presentacion_id])).toBeGreaterThanOrEqual(2)
     })
 
-    it('la línea de compra de un producto eliminado por otro celular sale de la compra abierta', async () => {
+    /** Lo que muestra el Historial de una compra cerrada en ESTE celular: las líneas visibles en el carrito, y su suma. */
+    async function historialDe(compraId: string) {
+      const productos = new Set((await db.productos.toArray()).filter((p) => !p.borrado).map((p) => p.producto_id))
+      const lineas = lineasVisibles((await db.detalle.where('compra_id').equals(compraId).toArray()), (id) => productos.has(id)).filter((d) => d.estado === 'en_carrito')
+      return { nombres: lineas.map((d) => d.nombre_libre || 'vivo').sort(), suma: lineas.reduce((t, d) => t + (d.subtotal ?? 0), 0) }
+    }
+
+    it('una línea pendiente de un producto eliminado por otro celular no aparece; no se reescribe nada y agregarlo con la copia vieja no hace nada', async () => {
       const [pa] = await guardar('Productos', nuevoProducto({ nombre: 'Arroz' }))
       await guardar('Productos', nuevoProducto({ nombre: 'Leche' }))
       await sincronizar()
@@ -717,7 +725,88 @@ describe('app + Postgres real', () => {
       const linea = await agregarALaCompra(pa, ['D1']) // el celular 2 lo agrega sin saber que ya no existe
       await sincronizar()
       await sincronizar()
-      expect(await db.detalle.get(linea.detalle_id)).toMatchObject({ borrado: true })
+      // La línea queda como se guardó (nadie la deriva ni la envía distinto), pero no se muestra.
+      const guardada = (await db.detalle.get(linea.detalle_id))!
+      expect(guardada).toMatchObject({ producto_id: pa.producto_id, borrado: false, estado: 'pendiente' })
+      const vivos = new Set((await db.productos.toArray()).filter((p) => !p.borrado).map((p) => p.producto_id))
+      expect(lineasVisibles([guardada], (id) => vivos.has(id))).toEqual([])
+      // Una vez que este celular ya sabe que es marca, agregarlo con la copia vieja no crea nada.
+      const antes = await db.detalle.count()
+      await agregarALaCompra(pa, ['D1'])
+      expect(await db.detalle.count()).toBe(antes)
+    })
+
+    it('los tres celulares terminan viendo lo mismo: el Historial suma exactamente el total de la compra (uno elimina, otro se entera, el tercero cierra sin saber)', async () => {
+      const { pa } = await compraConArrozYLeche()
+      const compra = (await compraAbierta())!
+      const inicial = await instantanea()
+      await eliminarProductos([pa.producto_id]) // D elimina con la compra abierta (arroz y leche en el carrito)
+      await sincronizar()
+      const d = await instantanea()
+      await restaurar(inicial)
+      await sincronizar() // O se entera
+      const o = await instantanea()
+      await restaurar(inicial)
+      await cerrarCompra((await compraAbierta())!) // S cierra sin enterarse
+      await sincronizar()
+      const s = await instantanea()
+      const vistas: { nombres: string[]; suma: number; total: number | null | undefined }[] = []
+      for (const celular of [d, o, s]) {
+        await restaurar(celular)
+        await sincronizar()
+        await sincronizar()
+        vistas.push({ ...(await historialDe(compra.compra_id)), total: (await db.compras.get(compra.compra_id))?.total_final })
+      }
+      // Los tres igual, y la suma de las líneas que se ven es el total que se cerró.
+      expect(vistas[1]).toEqual(vistas[0])
+      expect(vistas[2]).toEqual(vistas[0])
+      expect(vistas[0].nombres).toEqual(['Arroz', 'vivo'])
+      expect(vistas[0].suma).toBe(7700)
+      expect(vistas[0].total).toBe(7700)
+      expect(await db.rechazados.count()).toBe(0)
+    })
+
+    it('una línea que la persona quitó a mano del carrito no reaparece como comprada cuando otro celular elimina el producto', async () => {
+      const { pa } = await compraConArrozYLeche()
+      const compra = (await compraAbierta())!
+      const inicial = await instantanea()
+      // El celular de la tienda: quita el arroz del carrito y cierra solo con la leche.
+      const linea = (await db.detalle.where('compra_id').equals(compra.compra_id).toArray()).find((x) => x.producto_id === pa.producto_id)!
+      await guardar('Compras_detalle', { ...linea, borrado: true })
+      await cerrarCompra((await compraAbierta())!)
+      await sincronizar()
+      const tienda = await instantanea()
+      // Otro celular que no sabía de eso elimina el arroz.
+      await restaurar(inicial)
+      await eliminarProductos([pa.producto_id])
+      await sincronizar()
+      const otro = await instantanea()
+      for (const celular of [tienda, otro]) {
+        await restaurar(celular)
+        await sincronizar()
+        await sincronizar()
+        expect(await historialDe(compra.compra_id)).toEqual({ nombres: ['vivo'], suma: 3100 })
+      }
+    })
+
+    it('la marca de eliminado se acepta con cualquier versión: un celular con una copia de versión mayor también queda eliminado', async () => {
+      const { pa } = await compraConArrozYLeche()
+      await h.pg.exec(`update public.productos set borrado = true where producto_id = '${pa.producto_id}'`) // la marca queda en v2 en el servidor
+      await db.table('productos').update(pa.producto_id, { version: 7 }) // el celular conserva una copia de una base anterior (v7)
+      await sincronizar({ completo: true })
+      await sincronizar({ completo: true })
+      expect(await db.productos.get(pa.producto_id)).toMatchObject({ borrado: true, nombre: '' })
+      expect(await db.presentaciones.where('producto_id').equals(pa.producto_id).count()).toBe(0)
+    })
+
+    it('una edición vieja rechazada del producto que ya se eliminó no deja el aviso rojo', async () => {
+      const { pa } = await compraConArrozYLeche()
+      await db.rechazados.add({ tabla: 'upsert', filaId: '1', mensaje: 'violates check constraint', fecha: Date.now(),
+        payload: { cambios: [{ tabla: 'Productos', fila: { ...(await db.productos.get(pa.producto_id))!, cantidad_habitual: -5 } }] } })
+      await eliminarProductos([pa.producto_id])
+      await sincronizar()
+      expect(await db.rechazados.count()).toBe(0)
+      expect((await estadoSync())?.error).toBeNull()
     })
 
     it('en una compra ya cerrada la línea conserva el nombre como texto, aunque el producto lo haya eliminado otro celular', async () => {

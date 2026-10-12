@@ -12,6 +12,7 @@ import { describirPresentacion } from '../componentes/RegistrarPrecio.tsx'
 import { Boton, Campo, Cargando, ChipTienda, Distintivo, hace, Hoja, leerNumero, NombreTienda, pesos, Tarjeta, Titulo, Vacio } from '../componentes/ui.tsx'
 import { compartirTexto, textoPlan } from '../datos/compartir.ts'
 import { comparadorPasillo, itemsDelPlan, useCatalogo } from '../datos/consultas.ts'
+import { lineasVisibles } from '../datos/lineas.ts'
 import { db } from '../datos/db.ts'
 import { asegurarCompra, compraAbierta, guardar } from '../datos/escritura.ts'
 import { ahoraIso } from '../datos/sync.ts'
@@ -28,7 +29,8 @@ export function Plan() {
     return { compra, detalles }
   }, [])
   if (!cat || !datos) return <Cargando />
-  const { compra, detalles } = datos
+  const { compra } = datos
+  const detalles = lineasVisibles(datos.detalles, (id) => cat.producto.has(id))
   const ahora = ahoraIso()
   const items = itemsDelPlan(cat, detalles, ahora, tiendasHoy)
   const plan = planCompra(items, tiendasHoy, cat.cfg.ahorroMinimoTienda)

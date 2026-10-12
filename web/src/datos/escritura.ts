@@ -27,6 +27,20 @@ export async function guardar<T extends object>(tabla: NombreTabla, filas: T | T
   return lista
 }
 
+/**
+ * Como `guardar`, pero SIN cambiar la fecha de edición: para arreglos que no son una edición de la persona (conservar el nombre
+ * de un producto eliminado). Si otro celular cambió esa fila mientras tanto, gana el otro: este arreglo nunca pisa lo de nadie.
+ */
+async function guardarSinCambiarFecha<T extends object>(tabla: NombreTabla, filas: T[]) {
+  const local = TABLA_LOCAL[tabla]
+  if (!local || !filas.length) return
+  await db.transaction('rw', db.table(local), db.outbox, async () => {
+    await db.table(local).bulkPut(filas)
+    for (let i = 0; i < filas.length; i += 100) await encolar('upsert', { cambios: filas.slice(i, i + 100).map((fila) => ({ tabla, fila })) })
+  })
+  sincronizarPronto()
+}
+
 export async function guardarConfig(clave: string, valor: string) {
   await guardar('Config', { clave, valor })
 }
@@ -43,18 +57,14 @@ export async function eliminarProductos(ids: readonly string[]): Promise<number>
   const quitar = (await db.productos.bulkGet([...new Set(ids)])).filter((p): p is Producto => !!p && !productoEliminado(p))
   if (!quitar.length) return 0
   const fuera = new Map(quitar.map((p) => [p.producto_id, p]))
-  const compras = new Map((await db.compras.toArray()).map((c) => [c.compra_id, c]))
-  const abierta = (d: Detalle) => {
-    const c = compras.get(d.compra_id)
-    return !!c && !c.borrado && (c.estado === 'borrador' || c.estado === 'en_curso')
-  }
-  const lineas = (await db.detalle.toArray()).filter((d) => !!d.producto_id && fuera.has(d.producto_id))
-  const cambiadas = lineas.map((d) => (abierta(d)
-    ? { ...d, borrado: true }
-    : { ...d, producto_id: '', nombre_libre: d.nombre_libre || fuera.get(d.producto_id)!.nombre }))
-  if (cambiadas.length) await guardar('Compras_detalle', cambiadas)
+  // Lo que ya se compró (en el carrito) se queda como texto con el nombre, en la compra que sea: es el único momento en que se
+  // conoce el nombre, y así el Historial lo muestra igual en todos los celulares. Nunca se marca una línea como borrada: eso
+  // significa «la quité yo». Lo pendiente no se toca; al mostrar, una línea pendiente de un producto eliminado no aparece.
+  const lineas = (await db.detalle.toArray()).filter((d) => !d.borrado && d.estado === 'en_carrito' && !!d.producto_id && fuera.has(d.producto_id))
+  const cambiadas = lineas.map((d) => ({ ...d, producto_id: '', nombre_libre: d.nombre_libre || fuera.get(d.producto_id)!.nombre }))
+  await guardarSinCambiarFecha('Compras_detalle', cambiadas)
   await guardar('Productos', quitar.map((p) => ({ ...p, nombre: '', notas: '', marca: '', activo: false, recurrente: false, borrado: true })))
-  await db.transaction('rw', [db.presentaciones, db.preciosActuales, db.historial, db.cambios, db.outbox, db.rechazados, db.detalle, db.compras], () => purgarDatosDeProductos(db, new Set(fuera.keys()), new Map(quitar.map((p) => [p.producto_id, p.nombre]))))
+  await db.transaction('rw', [db.presentaciones, db.preciosActuales, db.historial, db.cambios, db.outbox, db.rechazados], () => purgarDatosDeProductos(db, new Set(fuera.keys())))
   return quitar.length
 }
 
@@ -217,6 +227,8 @@ async function asegurarCompraAhora(tiendasHoy: Tienda[]): Promise<Compra> {
 export function agregarALaCompra(producto: Producto, tiendasHoy: Tienda[]): Promise<Detalle> {
   return enSerie(async () => {
     const compra = await asegurarCompraAhora(tiendasHoy)
+    // Con un producto que aquí ya se sabe eliminado (una pantalla con la copia vieja) no se agrega nada.
+    if ((await db.productos.get(producto.producto_id))?.borrado === true) return nuevoDetalle(compra.compra_id, { producto_id: '', nombre_libre: producto.nombre, borrado: true })
     const ya = (await db.detalle.where('compra_id').equals(compra.compra_id).toArray()).find((d) => !d.borrado && d.producto_id === producto.producto_id)
     if (ya) return ya
     const [d] = await guardar('Compras_detalle', nuevoDetalle(compra.compra_id, { producto_id: producto.producto_id, necesidad: producto.cantidad_habitual }))

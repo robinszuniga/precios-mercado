@@ -8,6 +8,7 @@ import { avisar, Boton, Campo, Cargando, Hoja, NombreTienda, pesos, Tarjeta, Tit
 import { pagina } from '../app/recargar.ts'
 import { compartirTexto, textoRuta } from '../datos/compartir.ts'
 import { itemsDelPlan, useCatalogo } from '../datos/consultas.ts'
+import { lineasVisibles } from '../datos/lineas.ts'
 import { db } from '../datos/db.ts'
 import { compraAbierta } from '../datos/escritura.ts'
 import { agregarSede, agregarSedesEncontradas, buscarSedesEnLinea, quitarSede, restaurarSede } from '../datos/sedes.ts'
@@ -97,10 +98,11 @@ export function Mapa() {
 
   const sedes = cat.cfg.sedes
   const ahora = ahoraIso()
-  const hayLista = !!datos.compra && datos.detalles.some((d) => d.estado === 'pendiente' && d.producto_id)
+  const detalles = lineasVisibles(datos.detalles, (id) => cat.producto.has(id))
+  const hayLista = !!datos.compra && detalles.some((d) => d.estado === 'pendiente' && d.producto_id)
   // Cuánto costaría tu lista completa en cada cadena (no solo en las de hoy), y el plan de hoy con las tiendas que elegiste.
-  const todas = hayLista ? planCompra(itemsDelPlan(cat, datos.detalles, ahora, TIENDAS), TIENDAS, cat.cfg.ahorroMinimoTienda) : null
-  const hoy = hayLista ? planCompra(itemsDelPlan(cat, datos.detalles, ahora, tiendasHoy), tiendasHoy, cat.cfg.ahorroMinimoTienda) : null
+  const todas = hayLista ? planCompra(itemsDelPlan(cat, detalles, ahora, TIENDAS), TIENDAS, cat.cfg.ahorroMinimoTienda) : null
+  const hoy = hayLista ? planCompra(itemsDelPlan(cat, detalles, ahora, tiendasHoy), tiendasHoy, cat.cfg.ahorroMinimoTienda) : null
   const masBarata = todas?.mejorUnica?.tienda ?? null
   const enPlan = new Set<Tienda>(hoy?.tiendas ?? [])
 

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { productoEliminado } from '@shared/esquema.ts'
 import { cargarCatalogo } from './consultas.ts'
 import { db } from './db.ts'
+import { lineasVisibles } from './lineas.ts'
 import { agregarALaCompra, archivarProductos, asegurarCompra, crearCategoria, deshacerReemplazo, empezarDeCero, eliminarProductos, guardar, nuevaPresentacion, nuevoProducto, registrarPrecioManual } from './escritura.ts'
 
 beforeEach(async () => {
@@ -19,8 +20,9 @@ async function sembrar() {
   await registrarPrecioManual(ps, 1500)
   // Una compra cerrada con arroz y sal.
   const cerrada = await asegurarCompra(['D1'])
-  const dArroz = await agregarALaCompra(arroz, ['D1'])
-  const dSal = await agregarALaCompra(sal, ['D1'])
+  const lineas = [await agregarALaCompra(arroz, ['D1']), await agregarALaCompra(sal, ['D1'])]
+  // Lo que se compró (en el carrito) y se cierra, como pasa de verdad.
+  const [dArroz, dSal] = await guardar('Compras_detalle', lineas.map((d) => ({ ...d, estado: 'en_carrito' as const, cantidad: 1, precio_unitario: 4600, subtotal: 4600 })))
   await guardar('Compras', { ...cerrada, estado: 'cerrada', fecha_cierre: '2026-09-20T10:00:00.000-05:00' })
   // Una compra abierta con arroz.
   const abierta = await asegurarCompra(['D1'])
@@ -46,11 +48,15 @@ describe('eliminar productos para siempre', () => {
     expect((await db.productos.get(s.sal.producto_id))?.nombre).toBe('Sal')
   })
 
-  it('la compra ya cerrada conserva la línea con el nombre como texto; en la compra abierta, el producto sale', async () => {
+  it('lo comprado se conserva como texto con el nombre; lo pendiente de la compra abierta no aparece; y nunca se marca nada como borrado', async () => {
     const s = await sembrar()
     await eliminarProductos([s.arroz.producto_id])
     expect(await db.detalle.get(s.dArroz.detalle_id)).toMatchObject({ producto_id: '', nombre_libre: 'Arroz', borrado: false })
-    expect(await db.detalle.get(s.dAbierta.detalle_id)).toMatchObject({ borrado: true })
+    // La línea pendiente de la compra abierta no se reescribe (no se toca nada que signifique «la quité yo»): al mostrar, no aparece.
+    const pendiente = (await db.detalle.get(s.dAbierta.detalle_id))!
+    expect(pendiente).toMatchObject({ producto_id: s.arroz.producto_id, borrado: false })
+    const cat = await cargarCatalogo()
+    expect(lineasVisibles([pendiente], (id) => cat.producto.has(id))).toEqual([])
     // Lo de otro producto en la compra cerrada no se toca.
     expect(await db.detalle.get(s.dSal.detalle_id)).toMatchObject({ producto_id: s.sal.producto_id })
   })
@@ -61,7 +67,7 @@ describe('eliminar productos para siempre', () => {
     await eliminarProductos([s.arroz.producto_id])
     const cambios = (await db.outbox.toArray()).flatMap((e) => (e.payload.cambios ?? []) as { tabla: string; fila: Record<string, unknown> }[])
     expect(cambios.find((c) => c.tabla === 'Productos')?.fila).toMatchObject({ producto_id: s.arroz.producto_id, borrado: true, nombre: '', activo: false })
-    expect(cambios.filter((c) => c.tabla === 'Compras_detalle')).toHaveLength(2) // la cerrada (texto) y la abierta (sale)
+    expect(cambios.filter((c) => c.tabla === 'Compras_detalle')).toHaveLength(1) // solo la comprada (queda como texto)
   })
 
   it('no aparece en ninguna parte: ni en el catálogo ni en sus presentaciones; y repetirlo no hace nada', async () => {
