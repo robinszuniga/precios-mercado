@@ -111,6 +111,13 @@ El código de acceso bloquea la app si falta la configuración. Antes de invitar
 migración de límites, desplegar y probar la función, configurar Google OAuth y publicar el sitio. El código local ya no
 pide la URL/token de Apps Script; la actualización manual de precios sustituye por ahora la tarea diaria antigua.
 
+**Mapa de tiendas** (Plan → «Ver mapa», ruta `#/mapa`). Muestra dónde queda cada tienda y cuánto cuesta tu lista en cada una, ordena
+las paradas del plan de hoy y abre la ruta en Google Maps o Waze. Los precios son por cadena, no por local. Las sedes (locales) se
+traen de OpenStreetMap con «Buscar sedes cerca» (consulta pública a Overpass con un punto redondeado a ~1 km) o se marcan a mano; se
+guardan una por fila en la configuración de la cuenta (`sede.<id>`), así que se sincronizan sin migraciones nuevas. La ubicación de la
+persona solo se usa en pantalla y los enlaces no llevan punto de partida. Las distancias son estimadas (línea recta × 1,3).
+Leaflet se carga solo al abrir el mapa; las teselas vienen de tile.openstreetmap.org (uso ligero, con atribución).
+
 **Archivar y eliminar.** Archivar esconde un producto y se puede recuperar (Ajustes → Archivados). «Eliminar para siempre»
 (en Editar producto o en la lista de archivados) pide confirmación y no se puede deshacer: el producto queda en la nube solo
 como una marca `borrado` sin nombre, sus marcas/tamaños y precios se borran en todos los celulares de la cuenta, y las compras

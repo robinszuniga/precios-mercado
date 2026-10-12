@@ -1,4 +1,5 @@
 import type { FilaConfig } from './esquema.ts'
+import { sedesDeConfig, type Sede } from './mapa.ts'
 import type { Vigencias } from './precioEfectivo.ts'
 import type { TiendaVtex } from './tiendas.ts'
 
@@ -26,6 +27,8 @@ export interface Config {
   regiones: Partial<Record<TiendaVtex, RegionGuardada>>
   /** D1 solo va automático si su API atiende Riohacha. */
   autoD1: boolean
+  /** Dónde queda cada tienda (para el mapa). */
+  sedes: Sede[]
 }
 
 export const CONFIG_POR_DEFECTO: Record<string, string> = {
@@ -71,5 +74,6 @@ export function leerConfig(filas: readonly Pick<FilaConfig, 'clave' | 'valor'>[]
     horaTrigger: num(m.get('hora_trigger'), 6),
     regiones,
     autoD1: m.get('tienda_auto.D1') === 'si',
+    sedes: sedesDeConfig(filas),
   }
 }

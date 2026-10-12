@@ -4,6 +4,7 @@ export type Ruta =
   | { vista: 'lista' }
   | { vista: 'producto'; id: string }
   | { vista: 'plan' }
+  | { vista: 'mapa' }
   | { vista: 'compra' }
   | { vista: 'historico'; productoId?: string; compraId?: string }
   | { vista: 'ajustes' }
@@ -14,6 +15,7 @@ export function leerRuta(hash: string): Ruta {
   switch (partes[0]) {
     case 'producto': return partes[1] ? { vista: 'producto', id: partes[1] } : { vista: 'lista' }
     case 'plan': return { vista: 'plan' }
+    case 'mapa': return { vista: 'mapa' }
     case 'compra': return { vista: 'compra' }
     case 'historico':
       if (partes[1] === 'producto' && partes[2]) return { vista: 'historico', productoId: partes[2] }

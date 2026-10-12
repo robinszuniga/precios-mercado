@@ -10,6 +10,7 @@ import { Ajustes } from '../pantallas/Ajustes.tsx'
 import { Compra } from '../pantallas/Compra.tsx'
 import { Historico } from '../pantallas/Historico.tsx'
 import { Lista } from '../pantallas/Lista.tsx'
+import { Mapa } from '../pantallas/Mapa.tsx'
 import { Plan } from '../pantallas/Plan.tsx'
 import { DetalleProducto } from '../pantallas/Producto.tsx'
 import { AvisoVersion } from './AvisoVersion.tsx'
@@ -64,6 +65,7 @@ export function App() {
         {ruta.vista === 'lista' && <Lista />}
         {ruta.vista === 'producto' && <DetalleProducto id={ruta.id} />}
         {ruta.vista === 'plan' && <Plan />}
+        {ruta.vista === 'mapa' && <Mapa />}
         {ruta.vista === 'compra' && <Compra />}
         {ruta.vista === 'historico' && <Historico productoId={ruta.productoId} compraId={ruta.compraId} />}
         {ruta.vista === 'ajustes' && <Ajustes />}
@@ -72,7 +74,7 @@ export function App() {
       <nav aria-label="Principal" className="fixed inset-x-0 bottom-0 z-30 border-t border-stone-200 bg-white/95 backdrop-blur" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <div className="mx-auto flex max-w-lg">
           {PESTANAS.map((p) => {
-            const activa = p.vista === ruta.vista || (p.vista === 'lista' && ruta.vista === 'producto')
+            const activa = p.vista === ruta.vista || (p.vista === 'lista' && ruta.vista === 'producto') || (p.vista === 'plan' && ruta.vista === 'mapa')
             return (
               <a
                 key={p.vista}

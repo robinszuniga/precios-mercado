@@ -82,3 +82,11 @@
 @utility abajo-seguro {
   padding-bottom: max(1rem, env(safe-area-inset-bottom));
 }
+
+/* Mapa: controles de zoom de al menos 44 px (los de fábrica miden 30). */
+.leaflet-touch .leaflet-bar a {
+  width: 44px;
+  height: 44px;
+  line-height: 44px;
+  font-size: 22px;
+}

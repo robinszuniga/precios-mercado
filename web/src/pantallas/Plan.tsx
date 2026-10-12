@@ -65,7 +65,7 @@ export function Plan() {
 
   return (
     <section className="space-y-3">
-      <Titulo>Dónde comprar</Titulo>
+      <Titulo accion={<a href="#/mapa" className="inline-flex min-h-11 items-center rounded-xl bg-white px-3 text-sm font-medium text-marca ring-1 ring-stone-300">Ver mapa</a>}>Dónde comprar</Titulo>
       <div>
         <p className="mb-1 text-sm text-stone-700">Tiendas que visito hoy</p>
         <div className="flex flex-wrap gap-2">

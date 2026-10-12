@@ -1,4 +1,5 @@
 import { formatoCop } from '@shared/dinero.ts'
+import { formatoKm } from '@shared/mapa.ts'
 import { INFO_TIENDAS, type Tienda } from '@shared/tiendas.ts'
 
 export interface GrupoCompartir {
@@ -27,6 +28,27 @@ export function textoPlan(grupos: GrupoCompartir[], sinPrecio: string[], total: 
     for (const n of pendientes) partes.push(`▢ ${n}`)
   }
   if (grupos.length) partes.push('', `Total estimado: *${plata(total)}*`)
+  return partes.join('\n')
+}
+
+export interface ParadaCompartir {
+  tienda: Tienda
+  nombre: string
+  km: number
+}
+
+/** La ruta de hoy como mensaje: paradas en orden, distancia aproximada y el enlace para abrirla en Google Maps. */
+export function textoRuta(paradas: ParadaCompartir[], totalKm: number, enlace: string | null, total: number | null, fecha = new Date()): string {
+  const dia = fecha.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })
+  const partes = [`🗺️ Ruta de mercado · ${dia}`]
+  paradas.forEach((p, i) => {
+    const nombre = limpio(p.nombre)
+    const base = INFO_TIENDAS[p.tienda].nombre
+    partes.push(`${i + 1}. *${base}*${nombre && nombre !== base ? ` · ${nombre}` : ''}${p.km > 0 ? ` (${i === 0 ? '' : '+'}${formatoKm(p.km)})` : ''}`)
+  })
+  if (paradas.length > 1 && totalKm > 0) partes.push('', `Recorrido aproximado: ${formatoKm(totalKm)}`)
+  if (total != null && total > 0) partes.push(`Total estimado: *${plata(total)}*`)
+  if (enlace) partes.push('', enlace)
   return partes.join('\n')
 }
 
