@@ -83,7 +83,7 @@ export async function crearDesdeCandidato(producto: Producto, c: Cand, contenido
 }
 
 /**
- * Productos activos sin ninguna presentación online en Olímpica ni Éxito. Los que tuvieron un vínculo automático
+ * Productos activos sin ninguna presentación online en Olímpica, Éxito ni D1. Los que tuvieron un vínculo automático
  * que el usuario quitó ya se revisaron: no se vuelven a buscar solos (se pueden vincular a mano).
  */
 export async function productosSinVincular(): Promise<Producto[]> {

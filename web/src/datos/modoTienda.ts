@@ -65,7 +65,7 @@ export async function resolverCodigo(ean: string, tienda: Tienda): Promise<Resue
 
 /**
  * El usuario dijo a qué producto corresponde el código. Con lo que sabe internet se crea su presentación en esta
- * tienda (nombre, marca, tamaño) y, de paso, se vincula el precio online de Olímpica/Éxito donde el producto aún
+ * tienda (nombre, marca, tamaño) y, de paso, se vincula el precio online de Olímpica/Éxito/D1 donde el producto aún
  * no tenga. Sin tamaño comparable devuelve null: el formulario de precio lo pregunta.
  */
 export async function asignarCodigo(producto: Producto, tienda: Tienda, ean: string, sugerencia: Sugerencia | null): Promise<Presentacion | null> {

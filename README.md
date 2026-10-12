@@ -112,10 +112,12 @@ migración de límites, desplegar y probar la función, configurar Google OAuth 
 pide la URL/token de Apps Script; la actualización manual de precios sustituye por ahora la tarea diaria antigua.
 
 **Mapa de tiendas** (Plan → «Ver mapa», ruta `#/mapa`). Muestra dónde queda cada tienda y cuánto cuesta tu lista en cada una, ordena
-las paradas del plan de hoy y abre la ruta en Google Maps o Waze. Los precios son por cadena, no por local. Las sedes (locales) se
+las paradas del plan de hoy. Google Maps abre la ruta completa con sus paradas; Waze va a una tienda por vez. Los precios son por cadena, no por local. Las sedes (locales) se
 traen de OpenStreetMap con «Buscar sedes cerca» (consulta pública a Overpass con un punto redondeado a ~1 km) o se marcan a mano; se
-guardan una por fila en la configuración de la cuenta (`sede.<id>`), así que se sincronizan sin migraciones nuevas. La ubicación de la
-persona solo se usa en pantalla y los enlaces no llevan punto de partida. Las distancias son estimadas (línea recta × 1,3).
+guardan una por fila en la configuración de la cuenta (`sede.<id>`), así que se sincronizan sin migraciones nuevas. Una sede que
+quitas no vuelve con la siguiente búsqueda. Tu ubicación de ahora no se guarda ni se sincroniza: se usa en pantalla, y «Buscar sedes
+cerca» solo envía a Overpass un punto aproximado (~1 km). Eso sí, una sede que marcas tú (incluida «Estoy en una tienda») guarda su
+punto en tu cuenta y se ve en tus otros celulares. Los enlaces no llevan punto de partida. Las distancias son estimadas (línea recta × 1,3).
 Leaflet se carga solo al abrir el mapa; las teselas vienen de tile.openstreetmap.org (uso ligero, con atribución).
 
 **Armar tu lista desde cero.** En Productos, «Seleccionar» deja marcar varios (uno a uno, por pasillo o todos) para archivarlos (se
@@ -125,8 +127,11 @@ Ajustes) elimina todos los productos y pasillos, con confirmación, para pegar l
 **Archivar y eliminar.** Archivar esconde un producto y se puede recuperar (Ajustes → Archivados). «Eliminar para siempre»
 (en Editar producto o en la lista de archivados) pide confirmación y no se puede deshacer: el producto queda en la nube solo
 como una marca `borrado` sin nombre, sus marcas/tamaños y precios se borran en todos los celulares de la cuenta, y las compras
-pasadas conservan el nombre como texto. Requiere la migración `20261005000200_eliminar_productos.sql`; sin ella el celular
-igual lo oculta y borra lo suyo, pero el servidor conserva las presentaciones hasta que se aplique.
+pasadas conservan el nombre como texto. Requiere las migraciones `20261005000200_eliminar_productos.sql` y
+`20261012000100_presentaciones_de_eliminados.sql` (esta última hace que el servidor rechace presentaciones nuevas de un producto
+eliminado, por si otro celular no se había enterado); sin ellas el celular igual lo oculta y borra lo suyo, pero el servidor
+conserva las presentaciones hasta que se apliquen. Una eliminación siempre gana: si otro celular editó el producto, pierde su
+edición y queda eliminado también ahí. `supabase/diagnostico.sql` (solo lee) dice si falta alguna migración.
 
 En **Ajustes → Este celular** puedes descargar un respaldo o importar uno. La importación combina los datos con los
 de ese celular: si una fila tiene la misma clave, gana la del archivo; las demás se conservan. La conexión y el token
@@ -153,8 +158,9 @@ Google Lens (*Copiar texto*) o, en iPhone, manteniendo el dedo sobre el texto de
 
 ## Precios de internet, solos
 
-Con la copia en Google activa, la app busca sola en Olímpica y Éxito los productos que todavía no tienen precio de
-internet: al abrir la app (una vez al día) y justo después de pegar tu lista.
+La app busca sola en Olímpica, Éxito y D1 los productos que todavía no tienen precio de internet: al abrir la app
+(una vez al día) y justo después de pegar tu lista. El servicio de precios deja unas 120 unidades por minuto; si una lista larga
+se corta a la mitad, la app dice cuántos productos quedaron sin buscar y sigue por ellos a los pocos minutos.
 
 - Si la coincidencia es **segura** (tiene todas las palabras de tu producto, ninguna que lo cambie —"integral",
   "en polvo", "con pollo"—, tamaño comparable, precio y disponible), lo vincula sin preguntar. Si en la otra tienda
@@ -162,7 +168,10 @@ internet: al abrir la app (una vez al día) y justo después de pegar tu lista.
 - Los **dudosos** quedan en *Productos → "N productos sin precio de internet" → Buscar precios*, con la opción más
   parecida ya elegida: confirmas, cambias o marcas "Ninguno".
 - Si tu producto lleva la marca en el nombre ("Arroz Diana"), solo se acepta esa marca como segura.
-- Después, los precios se actualizan solos cada día a las 6 a. m. D1 y Ara se anotan en la tienda.
+- Después, los precios se actualizan con **Traer precios** (en Plan): por ahora es un botón, no una tarea diaria. Empieza por los
+  más atrasados y, si el servicio pide esperar, sigue por los que faltan al tocarlo de nuevo.
+- D1 se busca como las demás, pero no atiende Riohacha: su precio de internet sale marcado como **precio nacional** (también
+  en los totales del plan, el mapa y los mensajes), y el que anotas en el estante manda. Ara no vende en línea y se anota en la tienda.
 
 ## Uso
 
