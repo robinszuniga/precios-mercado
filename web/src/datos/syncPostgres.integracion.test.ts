@@ -104,9 +104,9 @@ vi.mock('./supabase.ts', () => ({
 }))
 
 import { cerrarCompra } from './cierre.ts'
-import { db, usarBaseLocal } from './db.ts'
+import { db, guardarMeta, usarBaseLocal } from './db.ts'
 import { agregarALaCompra, compraAbierta, eliminarProductos, guardar, nuevaPresentacion, nuevoProducto, registrarPrecioManual } from './escritura.ts'
-import { sincronizar } from './sync.ts'
+import { reenviarRechazados, sincronizar } from './sync.ts'
 
 const A = '11111111-1111-1111-1111-111111111111'
 const B = '22222222-2222-2222-2222-222222222222'
@@ -282,6 +282,71 @@ describe('app + Postgres real', () => {
     expect((await admin('select count(*)::int n from public.compras_detalle'))[0].n).toBe(1)
     expect((await admin('select count(*)::int n from public.compras_resumen'))[0].n).toBeGreaterThanOrEqual(1)
     expect((await admin('select count(*)::int n from public.observaciones'))[0].n).toBeGreaterThanOrEqual(2)
+  })
+
+  describe('una base de la nube a la que le faltan los datos de arriba (el servidor perdió o nunca recibió la presentación)', () => {
+    /** El celular cree que ya subió la presentación (versión > 0), pero el servidor no la tiene. */
+    async function conPresentacionPerdida() {
+      const [p] = await guardar('Productos', nuevoProducto({ nombre: 'Arroz' }))
+      const [pres] = await guardar('Presentaciones', nuevaPresentacion({ producto_id: p.producto_id, tienda: 'EXITO', contenido: 1000 }))
+      await sincronizar()
+      expect(await db.presentaciones.get(pres.presentacion_id)).toMatchObject({ version: 1 })
+      await h.pg.exec('delete from public.presentaciones')
+      return { p, pres }
+    }
+
+    it('un precio nuevo de esa presentación se rechaza por la llave foránea (reproduce el error de la persona)', async () => {
+      const { pres } = await conPresentacionPerdida()
+      await guardarMeta('reparoFk', Date.now()) // sin la reparación automática, para ver el rechazo
+      await registrarPrecioManual(pres, 4500)
+      await sincronizar()
+      const rechazos = await db.rechazados.toArray()
+      expect(rechazos.length).toBeGreaterThan(0)
+      expect(rechazos[0].mensaje).toMatch(/foreign key constraint "observaciones_user_id_presentacion_id_fkey"/)
+    })
+
+    it('la app lo repara sola (una vez cada 6 horas) en cuanto ve el rechazo', async () => {
+      const { pres } = await conPresentacionPerdida()
+      await registrarPrecioManual(pres, 4500)
+      await sincronizar()
+      await vi.waitFor(async () => {
+        expect(await db.rechazados.count()).toBe(0)
+        expect(await db.outbox.count()).toBe(0)
+        expect((await admin('select count(*)::int n from public.observaciones'))[0].n).toBe(1)
+      }, { timeout: 10_000 })
+      expect((await admin('select count(*)::int n from public.presentaciones'))[0].n).toBe(1)
+    })
+
+    it('si la reparación no alcanza, no se repite en bucle: espera sus 6 horas', async () => {
+      const { pres } = await conPresentacionPerdida()
+      await guardarMeta('reparoFk', Date.now() - 60_000)
+      await registrarPrecioManual(pres, 4500)
+      await sincronizar()
+      await new Promise((r) => setTimeout(r, 300))
+      expect(await db.rechazados.count()).toBeGreaterThan(0) // no se tocó
+    })
+
+    it('"Reenviar" repara: vuelve a subir lo de arriba y luego los precios rechazados, sin duplicar ni pisar nada', async () => {
+      const { p, pres } = await conPresentacionPerdida()
+      await guardarMeta('reparoFk', Date.now()) // aquí la repara la persona, no la reparación automática
+      await registrarPrecioManual(pres, 4500)
+      await sincronizar()
+      expect(await db.rechazados.count()).toBeGreaterThan(0)
+
+      expect(await reenviarRechazados()).toBeGreaterThan(0)
+      expect(await db.rechazados.count()).toBe(0)
+      expect(await db.outbox.count()).toBe(0)
+      expect((await estadoSync())?.error).toBeNull()
+      expect(await admin('select presentacion_id from public.presentaciones')).toEqual([{ presentacion_id: pres.presentacion_id }])
+      expect((await admin('select count(*)::int n from public.observaciones'))[0].n).toBe(1)
+      expect((await admin('select count(*)::int n from public.precios_actuales'))[0].n).toBe(1)
+      // Lo que ya estaba bien no se duplicó ni se tocó.
+      expect((await admin('select count(*)::int n from public.productos'))[0].n).toBe(1)
+      expect(Number((await admin('select version from public.productos where producto_id = $1', [p.producto_id]))[0].version)).toBe(1)
+      // Una segunda vez no cambia nada.
+      expect(await reenviarRechazados()).toBe(0)
+      expect((await admin('select count(*)::int n from public.presentaciones'))[0].n).toBe(1)
+    })
   })
 
   describe('eliminar productos para siempre', () => {

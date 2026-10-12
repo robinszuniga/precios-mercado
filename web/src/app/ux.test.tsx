@@ -296,3 +296,22 @@ describe('señal fantasma: dice la causa y deja reintentar', () => {
   })
 })
 
+describe('aviso de cambios rechazados', () => {
+  it('muestra el motivo y un botón que los reenvía', async () => {
+    await guardarMeta('estadoSync', { enCurso: false, ultimoOk: Date.now(), error: '137 cambios no fueron aceptados por el servidor: insert or update on table "observaciones" violates foreign key constraint "observaciones_user_id_presentacion_id_fkey" (revisa Ajustes).' })
+    await db.rechazados.add({ tabla: 'upsert', filaId: '1', mensaje: 'otro motivo', fecha: 1, payload: { cambios: [] } })
+    render(<EstadoConexion />)
+    expect(await screen.findByText(/violates foreign key constraint "observaciones_user_id_presentacion_id_fkey"/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Reenviar los rechazados' }))
+    await waitFor(async () => expect(await db.rechazados.count()).toBe(0))
+    expect(await db.outbox.count()).toBe(1)
+  })
+
+  it('otros errores no ofrecen reenviar', async () => {
+    await guardarMeta('estadoSync', { enCurso: false, ultimoOk: Date.now(), error: 'No se pudo guardar algo raro' })
+    render(<EstadoConexion />)
+    expect(await screen.findByText(/No se pudo sincronizar: No se pudo guardar algo raro/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Reenviar los rechazados' })).toBeNull()
+  })
+})
+

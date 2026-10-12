@@ -415,10 +415,36 @@ export function motivosRechazo(rechazos: readonly { mensaje: string }[]): [motiv
 }
 
 /**
- * Vuelve a poner en la cola lo que el servidor rechazó (por ejemplo, después de corregir la base) y lo envía. Lo que se
+ * Vuelve a poner en la cola lo que el celular tiene de "arriba" (pasillos, productos, presentaciones, compras), por si el
+ * servidor no lo tiene: lo que depende de eso (precios, líneas de compra) se rechaza si falta. Se sube con versión 0, que
+ * le dice a la subida "esta fila el servidor no la tiene": se agrega si falta y, si ya existía, no se pisa (gana la más
+ * nueva de las dos, como en cualquier choque entre celulares). Es seguro repetirlo. Devuelve cuántas filas puso en la cola.
+ */
+export async function resubirBase(): Promise<number> {
+  const orden: NombreTabla[] = ['Categorias', 'Productos', 'Presentaciones', 'Compras', 'Compras_detalle']
+  const locales = orden.map((t) => db.table(TABLA_LOCAL[t]!))
+  return db.transaction('rw', [...locales, db.outbox], async () => {
+    let n = 0
+    for (const [i, tabla] of orden.entries()) {
+      const filas = (await locales[i].toArray()) as Record<string, unknown>[]
+      if (!filas.length) continue
+      const sinVersion = filas.map((f) => ({ ...f, version: 0 }))
+      await locales[i].bulkPut(sinVersion)
+      for (let j = 0; j < sinVersion.length; j += 100) await encolar('upsert', { cambios: sinVersion.slice(j, j + 100).map((fila) => ({ tabla, fila })) })
+      n += filas.length
+    }
+    return n
+  })
+}
+
+/**
+ * Vuelve a poner en la cola lo que el servidor rechazó (por ejemplo, después de corregir la base) y lo envía. Si el motivo
+ * era una llave foránea (un precio de algo que el servidor no tiene), primero se vuelve a subir lo de arriba. Lo que se
  * rechazó otra vez vuelve a la lista con su motivo. Los rechazos viejos que no guardaron su contenido no se pueden reenviar.
  */
 export async function reenviarRechazados(): Promise<number> {
+  const rechazos = (await db.rechazados.orderBy('id').toArray()).filter((r) => r.payload && (r.tabla === 'upsert' || r.tabla === 'cerrarCompra'))
+  if (rechazos.some((r) => /foreign key/i.test(r.mensaje))) await resubirBase()
   const reenviados = await db.transaction('rw', db.outbox, db.rechazados, async () => {
     const reenviables = (await db.rechazados.orderBy('id').toArray())
       .filter((r) => r.payload && (r.tabla === 'upsert' || r.tabla === 'cerrarCompra'))
@@ -710,6 +736,21 @@ export async function reintentarAhora(): Promise<void> {
   await sincronizar()
 }
 
+/** Tras un rechazo por llave foránea, la reparación automática se intenta como máximo una vez cada tanto. */
+const ESPERA_REPARO_MS = 6 * 3600_000
+
+/**
+ * Si el servidor rechazó cambios porque falta algo de lo que dependían (típicamente precios de una presentación que el
+ * servidor no tiene), se vuelve a subir lo de arriba y se reenvía lo rechazado, sin que la persona tenga que hacer nada.
+ */
+async function repararSiHaceFalta() {
+  const rechazos = await db.rechazados.toArray()
+  if (!rechazos.some((r) => r.payload && /foreign key/i.test(r.mensaje))) return
+  if (Date.now() - (await leerMeta<number>('reparoFk', 0)) < ESPERA_REPARO_MS) return
+  await guardarMeta('reparoFk', Date.now())
+  await reenviarRechazados()
+}
+
 let enCurso: Promise<void> | null = null
 
 /** Envía lo pendiente y trae lo nuevo. Si ya hay una sincronización corriendo, espera esa. */
@@ -741,6 +782,8 @@ export function sincronizar(opciones: { completo?: boolean } = {}): Promise<void
       // Siempre se libera, también cuando todavía no hay conexión configurada.
       enCurso = null
     }
+    // Ya liberado (reenviar vuelve a sincronizar): la reparación corre aparte, nunca dentro de esta ronda.
+    if (supabase) setTimeout(() => void repararSiHaceFalta().catch(() => undefined), 0)
   })()
   return enCurso
 }

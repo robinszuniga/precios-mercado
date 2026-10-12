@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useMeta } from '../datos/consultas.ts'
 import { db } from '../datos/db.ts'
 import { supabase } from '../datos/supabase.ts'
-import { reintentarAhora, type EstadoSync } from '../datos/sync.ts'
+import { reenviarRechazados, reintentarAhora, type EstadoSync } from '../datos/sync.ts'
 
 function useEnLinea() {
   const [en, setEn] = useState(() => navigator.onLine)
@@ -73,9 +73,12 @@ export function EstadoConexion() {
     )
   }
   if (!sync.error) return null
+  // Cambios que el servidor rechazó: un toque los reenvía (si falta algo de lo que dependían, primero se vuelve a subir).
+  const rechazos = /no fue(ron)? aceptados?/.test(sync.error)
   return (
-    <div role="status">
-      <a href="#/ajustes" className="block min-h-11 bg-red-100 px-4 py-3 text-center text-sm text-red-900">No se pudo sincronizar: {explicarError(sync.error, 260)}</a>
+    <div role="status" className="bg-red-100 px-4 py-3 text-center text-sm text-red-900">
+      <a href="#/ajustes" className="block min-h-11">No se pudo sincronizar: {explicarError(sync.error, 260)}</a>
+      {rechazos && <button type="button" className="min-h-11 px-3 font-semibold underline" onClick={() => void reenviarRechazados()}>Reenviar los rechazados</button>}
     </div>
   )
 }
