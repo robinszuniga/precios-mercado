@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { productoEliminado } from '@shared/esquema.ts'
 import { db } from '../datos/db.ts'
 import { empezarDeCero } from '../datos/escritura.ts'
-import { avisar, Boton, Hoja } from './ui.tsx'
+import { avisar, Boton, BotonConfirmar, Hoja } from './ui.tsx'
 
 /**
  * Confirmación de «Empezar de cero»: borra todos los productos y pasillos para armar los propios. Dice cuántos son, qué se
@@ -51,12 +51,16 @@ export function EmpezarDeCero({ abierta, onCerrar, onHecho }: { abierta: boolean
               <li>Tus compras pasadas se quedan, con el nombre de cada producto como texto.</li>
               <li><strong>No se puede deshacer.</strong> Si solo quieres quitar algunos, usa «Seleccionar» en Productos.</li>
             </ul>
-            <Boton variante="peligro" className="w-full" disabled={trabajando} onClick={() => void confirmar()}>
-              {trabajando ? 'Borrando…' : 'Sí, borrar todo y empezar de cero'}
-            </Boton>
           </>
         )}
-        <Boton variante="secundario" className="w-full" onClick={onCerrar}>{contando || nada ? 'Cerrar' : 'No, conservar'}</Boton>
+        {/* La salida segura va primero y con el foco, siempre en el mismo lugar (así el foco no se pierde cuando termina de
+            contar); lo irreversible, debajo y con una pausa (ver BotonConfirmar). */}
+        <Boton variante="secundario" className="w-full" data-autofocus onClick={onCerrar}>{contando || nada ? 'Cerrar' : 'No, conservar'}</Boton>
+        {!contando && !nada && (
+          <BotonConfirmar className="w-full" disabled={trabajando} onClick={() => void confirmar()}>
+            {trabajando ? 'Borrando…' : 'Sí, borrar todo y empezar de cero'}
+          </BotonConfirmar>
+        )}
       </div>
     </Hoja>
   )

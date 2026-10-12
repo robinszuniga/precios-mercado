@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { cargarCatalogo } from '../datos/consultas.ts'
 import { db } from '../datos/db.ts'
 import { agregarALaCompra, asegurarCompra, crearCategoria, guardar, nuevaPresentacion, nuevoProducto, registrarPrecioManual } from '../datos/escritura.ts'
+import { confirmarIrreversible } from '../componentes/pruebasConfirmar.ts'
 import { Avisos } from '../componentes/ui.tsx'
 import { Ajustes } from './Ajustes.tsx'
 import { Lista } from './Lista.tsx'
@@ -104,7 +105,7 @@ describe('Productos · seleccionar varios', () => {
     expect(filas()).toHaveLength(3) // sigue en modo selección, con lo marcado
 
     fireEvent.click(screen.getByRole('button', { name: /^Eliminar/ }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Sí, eliminar para siempre' }))
+    await confirmarIrreversible('Sí, eliminar para siempre')
     await waitFor(async () => expect((await db.productos.get(arroz.producto_id))?.borrado).toBe(true))
     expect((await db.productos.get(frijol.producto_id))?.borrado).toBe(true)
     expect((await db.productos.get(leche.producto_id))?.borrado).toBeFalsy()
@@ -128,7 +129,7 @@ describe('Empezar de cero', () => {
     expect((await db.productos.get(arroz.producto_id))?.borrado).toBeFalsy()
 
     fireEvent.click(screen.getByRole('button', { name: /Empezar de cero…/ }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Sí, borrar todo y empezar de cero' }))
+    await confirmarIrreversible('Sí, borrar todo y empezar de cero')
     expect(await screen.findByText('Empieza aquí')).toBeInTheDocument()
     await waitFor(async () => {
       const cat = await cargarCatalogo()
@@ -143,7 +144,7 @@ describe('Empezar de cero', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Empezar de cero…' }, { timeout: ESPERA }))
     const hoja = await screen.findByRole('dialog', { name: 'Empezar de cero' })
     await waitFor(() => expect(hoja).toHaveTextContent('3 productos'), { timeout: ESPERA })
-    fireEvent.click(screen.getByRole('button', { name: 'Sí, borrar todo y empezar de cero' }))
+    await confirmarIrreversible('Sí, borrar todo y empezar de cero')
     await waitFor(async () => {
       const cat = await cargarCatalogo()
       expect(cat.productos).toEqual([])

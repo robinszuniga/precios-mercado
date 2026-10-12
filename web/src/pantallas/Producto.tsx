@@ -26,6 +26,22 @@ export function DetalleProducto({ id }: { id: string }) {
   const presentaciones = (cat.presentacionesDe.get(id) ?? []).filter((p) => p.activo)
   const u = etiquetaVisible(producto.unidad_base)
   const cerrar = () => setDialogo(null)
+  // Tras eliminar, la entrada de este producto en el historial ya no sirve: Atrás no debe caer en «Ese producto no existe».
+  // Dos casos: la hoja de confirmación sigue abierta (al cerrarse, el historial vuelve a la entrada del producto y ahí se
+  // reemplaza por la lista) o ya se cerró sola, porque al borrarse el producto esta pantalla se desmontó antes de avisar.
+  const alEliminar = () => {
+    if (!history.state?.hoja) { location.replace('#/lista'); return }
+    let hecho = false
+    const irALista = () => {
+      if (hecho) return
+      hecho = true
+      window.removeEventListener('popstate', irALista)
+      location.replace('#/lista')
+    }
+    window.addEventListener('popstate', irALista)
+    setTimeout(irALista, 1500) // por si el navegador no avisa del regreso
+    cerrar()
+  }
   const segunda = ops.mejor
     ? Object.values(ops.porTienda).filter((o) => o.tienda !== ops.mejor!.tienda && o.precioUnidad != null).sort((a, b) => a.precioUnidad! - b.precioUnidad!)[0]
     : undefined
@@ -147,7 +163,7 @@ export function DetalleProducto({ id }: { id: string }) {
         }}>Eliminar para siempre…</Boton>
         <p className="mt-1 text-center text-xs text-stone-600">Borra el producto y sus precios. No se puede deshacer.</p>
       </Hoja>
-      <EliminarProductos productos={[producto]} abierta={dialogo === 'eliminar'} onCerrar={cerrar} onHecho={() => { cerrar(); ir('lista') }} />
+      <EliminarProductos productos={[producto]} abierta={dialogo === 'eliminar'} onCerrar={cerrar} onHecho={alEliminar} />
       <Hoja abierta={dialogo === 'vincular'} titulo="Buscar en la tienda online" onCerrar={cerrar}>
         <Vincular producto={producto} yaVinculadas={presentaciones} onListo={cerrar} />
       </Hoja>

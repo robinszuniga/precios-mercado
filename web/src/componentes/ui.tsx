@@ -11,12 +11,29 @@ type Variante = 'primario' | 'secundario' | 'peligro' | 'fantasma'
 const VARIANTES: Record<Variante, string> = {
   primario: 'bg-marca text-white active:bg-teal-800 disabled:bg-stone-200 disabled:text-stone-600',
   secundario: 'bg-white text-tinta border border-stone-300 active:bg-stone-100 disabled:bg-stone-100 disabled:text-stone-500',
-  peligro: 'bg-white text-peligro border border-red-200 active:bg-red-50',
+  peligro: 'bg-white text-peligro border border-red-200 active:bg-red-50 disabled:border-stone-200 disabled:bg-stone-100 disabled:text-stone-500 disabled:active:bg-stone-100',
   fantasma: 'text-marca active:bg-marca-suave disabled:text-stone-500',
 }
 
-export function Boton({ variante = 'primario', className = '', ...p }: ButtonHTMLAttributes<HTMLButtonElement> & { variante?: Variante }) {
+export function Boton({ variante = 'primario', className = '', ...p }: ButtonHTMLAttributes<HTMLButtonElement> & { variante?: Variante; ref?: Ref<HTMLButtonElement> }) {
   return <button type="button" className={`min-h-11 rounded-xl px-4 py-2.5 font-medium transition-colors ${VARIANTES[variante]} ${className}`} {...p} />
+}
+
+/** Lo que tarda en activarse un botón que confirma algo irreversible (ver `BotonConfirmar`). */
+export const ESPERA_CONFIRMAR_MS = 700
+
+/**
+ * El botón que confirma algo que no se puede deshacer, dentro de una hoja. Tarda un instante en activarse: la hoja sube
+ * justo donde estaba el botón que la abrió, y un doble toque (o repetir el toque porque el celular tardó) caería encima y
+ * borraría sin querer.
+ */
+export function BotonConfirmar({ espera = ESPERA_CONFIRMAR_MS, disabled, ...p }: ButtonHTMLAttributes<HTMLButtonElement> & { espera?: number }) {
+  const [listo, setListo] = useState(false)
+  useEffect(() => {
+    const t = setTimeout(() => setListo(true), espera)
+    return () => clearTimeout(t)
+  }, [espera])
+  return <Boton variante="peligro" disabled={disabled || !listo} {...p} />
 }
 
 /** Botón de solo ícono: siempre 44 × 44 px, lo mínimo para el pulgar. */

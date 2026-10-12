@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { confirmarIrreversible } from '../componentes/pruebasConfirmar.ts'
 import { db } from '../datos/db.ts'
 import { guardar, nuevaPresentacion, nuevoProducto, registrarPrecioManual } from '../datos/escritura.ts'
 import { Ajustes } from './Ajustes.tsx'
@@ -32,7 +33,7 @@ describe('eliminar para siempre · pantallas', () => {
     expect(await db.presentaciones.get(pres.presentacion_id)).toBeDefined()
 
     fireEvent.click(screen.getByRole('button', { name: 'Eliminar Lentejas para siempre' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Sí, eliminar para siempre' }))
+    await confirmarIrreversible('Sí, eliminar para siempre')
     await waitFor(async () => expect((await db.productos.get(p.producto_id))?.borrado).toBe(true))
     expect(await db.presentaciones.get(pres.presentacion_id)).toBeUndefined()
     await waitFor(() => expect(screen.queryByText(/Productos archivados/)).toBeNull())
@@ -45,7 +46,7 @@ describe('eliminar para siempre · pantallas', () => {
     fireEvent.click(await screen.findByText(/Productos archivados \(2\)/, {}, { timeout: ESPERA }))
     fireEvent.click(screen.getByRole('button', { name: /Eliminar todos los archivados/ }))
     expect(await screen.findByRole('dialog', { name: 'Eliminar 2 productos para siempre' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Sí, eliminar para siempre' }))
+    await confirmarIrreversible('Sí, eliminar para siempre')
     await waitFor(async () => {
       expect((await db.productos.get(a.p.producto_id))?.borrado).toBe(true)
       expect((await db.productos.get(b.p.producto_id))?.borrado).toBe(true)
@@ -58,9 +59,9 @@ describe('eliminar para siempre · pantallas', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Editar' }, { timeout: ESPERA }))
     fireEvent.click(await screen.findByRole('button', { name: /Eliminar para siempre/ }))
     // La confirmación se abre un instante después de que se cierra Editar.
-    const confirmar = await screen.findByRole('button', { name: 'Sí, eliminar para siempre' }, { timeout: 3000 })
+    await screen.findByRole('button', { name: 'Sí, eliminar para siempre' }, { timeout: 3000 })
     expect(screen.queryByRole('dialog', { name: 'Editar producto' })).toBeNull()
-    fireEvent.click(confirmar)
+    await confirmarIrreversible('Sí, eliminar para siempre')
     await waitFor(async () => expect((await db.productos.get(p.producto_id))?.borrado).toBe(true))
     await waitFor(() => expect(location.hash).toContain('lista'))
   }, ESPERA * 2)

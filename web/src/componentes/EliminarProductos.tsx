@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { Producto } from '@shared/esquema.ts'
 import { eliminarProductos } from '../datos/escritura.ts'
-import { avisar, Boton, Hoja } from './ui.tsx'
+import { avisar, Boton, BotonConfirmar, Hoja } from './ui.tsx'
 
 const MAX_NOMBRES = 6
 
@@ -42,10 +42,11 @@ export function EliminarProductos({ productos, abierta, onCerrar, onHecho }: {
           <li>Tus compras pasadas se quedan, con el nombre como texto.</li>
           <li><strong>No se puede deshacer.</strong> Si solo quieres que no te estorbe, archívalo: se puede recuperar.</li>
         </ul>
-        <Boton variante="peligro" className="w-full" disabled={trabajando} onClick={() => void confirmar()}>
+        {/* La salida segura va primero y con el foco; lo irreversible, debajo y con una pausa (ver BotonConfirmar). */}
+        <Boton variante="secundario" className="w-full" data-autofocus onClick={onCerrar}>No, conservar</Boton>
+        <BotonConfirmar className="w-full" disabled={trabajando} onClick={() => void confirmar()}>
           {trabajando ? 'Eliminando…' : 'Sí, eliminar para siempre'}
-        </Boton>
-        <Boton variante="secundario" className="w-full" onClick={onCerrar}>No, conservar</Boton>
+        </BotonConfirmar>
       </div>
     </Hoja>
   )

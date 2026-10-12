@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { normalizar } from '@shared/contenido.ts'
 import type { Producto } from '@shared/esquema.ts'
 import { INFO_TIENDAS } from '@shared/tiendas.ts'
@@ -132,6 +132,17 @@ export function Lista() {
   const [eliminando, setEliminando] = useState(false)
   const [reiniciando, setReiniciando] = useState(false)
   const seleccionando = seleccion !== null
+  // Al salir de «Seleccionar» tras archivar o eliminar, el botón que se tocó desaparece y el foco caería en el <body>
+  // (quien usa teclado o lector de pantalla volvería al inicio): se lleva al botón «Seleccionar», que sigue ahí.
+  const botonSeleccionar = useRef<HTMLButtonElement>(null)
+  const estabaSeleccionando = useRef(false)
+  useEffect(() => {
+    if (estabaSeleccionando.current && !seleccionando) {
+      const activo = document.activeElement
+      if (!activo || activo === document.body) botonSeleccionar.current?.focus({ preventScroll: true })
+    }
+    estabaSeleccionando.current = seleccionando
+  }, [seleccionando])
   // La barra de acciones fija tapa el borde de abajo: los avisos y la pastilla de señal suben por encima.
   useEffect(() => {
     if (!seleccionando) return
@@ -196,7 +207,7 @@ export function Lista() {
         sub={hayProductos ? (seleccionando ? 'Marca los productos que quieres archivar o eliminar' : '★ = entra solo en cada compra') : undefined}
         accion={hayProductos ? (
           <div className="flex shrink-0 items-center">
-            <Boton variante="fantasma" className="text-sm" onClick={() => (seleccionando ? salirSeleccion() : setSeleccion(new Set()))}>{seleccionando ? 'Cancelar' : 'Seleccionar'}</Boton>
+            <Boton ref={botonSeleccionar} variante="fantasma" className="text-sm" onClick={() => (seleccionando ? salirSeleccion() : setSeleccion(new Set()))}>{seleccionando ? 'Cancelar' : 'Seleccionar'}</Boton>
             {!seleccionando && <BotonPegarLista variante="fantasma" className="shrink-0 text-sm" texto="Pegar lista" />}
           </div>
         ) : undefined}
