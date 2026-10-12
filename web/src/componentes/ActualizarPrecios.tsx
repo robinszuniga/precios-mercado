@@ -60,6 +60,9 @@ export function ActualizarPrecios() {
           exigirCuenta(cuenta)
           const p = lote.find((x) => x.presentacion_id === resultado.presentacion_id)
           if (!p) continue
+          // La búsqueda dura minutos: si mientras tanto esa presentación se borró (su producto se eliminó en otro celular), guardarla
+          // de nuevo la repondría con su precio. Se lee otra vez y, si ya no está, se salta.
+          if (!(await db.presentaciones.get(p.presentacion_id))) continue
           if (resultado.error) {
             errores++
             await guardar<Presentacion>('Presentaciones', { ...p, ultimo_error: `${new Date().toISOString().slice(0, 10)} ${resultado.error}` })

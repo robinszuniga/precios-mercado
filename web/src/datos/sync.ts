@@ -820,6 +820,7 @@ async function traerCloud(ctx: ContextoCuenta, completo = false): Promise<boolea
   await base.transaction('rw', [...tablasDeTransaccion], async () => {
     const eliminados = new Set<string>()
     const nombres = new Map<string, string>()
+    const lineasLlegadas: { producto_id?: string }[] = []
     // Filas con cambios sin enviar: de esas decide el envío (por versión). Las demás son iguales a las del servidor.
     const sucias = await filasPendientes(base)
     for (const { local, tablaCloud, remoto, cursor, versionada } of todas) {
@@ -856,6 +857,7 @@ async function traerCloud(ctx: ContextoCuenta, completo = false): Promise<boolea
           if (!comparable || ganaRemoto(previo as { updated_at: string }, fila as { updated_at: string })) aceptar.push(fila)
         })
         if (aceptar.length) await tabla.bulkPut(aceptar)
+        if (local === 'detalle') lineasLlegadas.push(...(aceptar as { producto_id?: string }[]))
         // Otro celular (o este, antes) eliminó un producto: aquí también se va todo lo que dependía de él.
         if (local === 'productos') {
           for (const f of aceptar) {
@@ -873,8 +875,13 @@ async function traerCloud(ctx: ContextoCuenta, completo = false): Promise<boolea
         await base.meta.put({ clave: `cursorCloud:${tablaCloud}`, valor: cursorConSolape })
       }
     }
-    // También los que ya eran marca aquí pero conservan algo colgando (una presentación que llegó o quedó después).
-    for (const id of await base.productos.filter((p) => p.borrado === true).primaryKeys()) eliminados.add(String(id))
+    // También los que ya eran marca aquí pero conservan algo colgando: una presentación que llegó o quedó después, o una línea de
+    // compra que llegó en esta descarga. Solo esos: limpiar todo, cada minuto, recorrería las compras enteras sin necesidad.
+    const marcas = new Set((await base.productos.filter((p) => p.borrado === true).primaryKeys()).map(String))
+    if (marcas.size) {
+      for (const pres of await base.presentaciones.where('producto_id').anyOf([...marcas]).toArray()) eliminados.add(pres.producto_id)
+      for (const d of lineasLlegadas) if (d.producto_id && marcas.has(d.producto_id)) eliminados.add(d.producto_id)
+    }
     await purgarDatosDeProductos(base, eliminados, nombres)
   })
   return true

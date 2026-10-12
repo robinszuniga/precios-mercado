@@ -314,7 +314,7 @@ describe('precio nacional de internet (D1 no atiende Riohacha)', () => {
       ahora: AHORA,
     })
     expect(r.referencia).toMatchObject({ tienda: 'EXITO', total: 5000, ahorro: -500, nacional: false })
-    // El total de D1 sigue en el resumen, pero marcado como el que depende de un precio nacional.
+    // El total de D1 sigue entre las tiendas comparadas del resumen.
     expect(r.filas.find((f) => f.tienda === 'D1')).toBeDefined()
   })
 

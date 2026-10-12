@@ -71,4 +71,24 @@ describe('Traer precios', () => {
     expect(await screen.findByText('No hay presentaciones online para actualizar todavía.', {}, { timeout: ESPERA })).toBeInTheDocument()
     expect(screen.queryByText(/ya están al día/)).toBeNull()
   })
+
+  it('si una presentación se borró mientras duraba la búsqueda (su producto se eliminó en otro celular), no se repone ni se le guarda precio', async () => {
+    await sembrar(2)
+    const respuesta = (cuerpo: { presentaciones: { presentacion_id: string; tienda: string }[] }) => {
+      // Mientras la tienda contesta, llega la eliminación y se borra la primera presentación del lote.
+      return db.presentaciones.delete(cuerpo.presentaciones[0].presentacion_id).then(() => ({
+        tipo: 'ok',
+        data: { resultados: cuerpo.presentaciones.map((p) => ({ presentacion_id: p.presentacion_id, tienda: p.tienda, region: 'RIOHACHA', precio: 5000, precio_lista: null, disponible: true, ean: '', sku_id: '9', vtex_product_id: '9', fecha_observado: new Date().toISOString() })) },
+      }))
+    }
+    h.respuestas = [respuesta]
+    render(<ActualizarPrecios />)
+    const boton = await screen.findByRole('button', { name: /Traer precios/ }, { timeout: ESPERA })
+    await vi.waitFor(() => expect(boton).toBeEnabled(), { timeout: ESPERA })
+    fireEvent.click(boton)
+    await screen.findByText(/Listo: 1 precios consultados\./, {}, { timeout: ESPERA })
+    expect(await db.presentaciones.get('p00')).toBeUndefined()
+    expect(await db.preciosActuales.where('presentacion_id').equals('p00').count()).toBe(0)
+    expect(await db.presentaciones.get('p01')).toBeDefined()
+  })
 })

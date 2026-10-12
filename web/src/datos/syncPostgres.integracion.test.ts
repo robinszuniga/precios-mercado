@@ -679,6 +679,16 @@ describe('app + Postgres real', () => {
       expect(await cuenta(`select count(*)::int n from public.observaciones where obs_id = 'x-${prL.presentacion_id}'`)).toBe(1)
     })
 
+    it('una presentación que queda colgada de un producto ya eliminado (llegó o se guardó después) se barre en la siguiente sincronización', async () => {
+      const { pa } = await compraConArrozYLeche()
+      await eliminarProductos([pa.producto_id])
+      await sincronizar()
+      await db.presentaciones.put({ ...nuevaPresentacion({ producto_id: pa.producto_id, tienda: 'EXITO', contenido: 500 }), version: 1 } as never)
+      expect(await db.presentaciones.where('producto_id').equals(pa.producto_id).count()).toBe(1)
+      await sincronizar()
+      expect(await db.presentaciones.where('producto_id').equals(pa.producto_id).count()).toBe(0)
+    })
+
     it('el cierre de una compra llega completo aunque detrás haya una edición pendiente del producto que otro celular eliminó', async () => {
       const { pa, prL } = await compraConArrozYLeche()
       const celular2 = await instantanea()
