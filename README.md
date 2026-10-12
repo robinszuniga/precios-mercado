@@ -118,6 +118,10 @@ guardan una por fila en la configuración de la cuenta (`sede.<id>`), así que s
 persona solo se usa en pantalla y los enlaces no llevan punto de partida. Las distancias son estimadas (línea recta × 1,3).
 Leaflet se carga solo al abrir el mapa; las teselas vienen de tile.openstreetmap.org (uso ligero, con atribución).
 
+**Armar tu lista desde cero.** En Productos, «Seleccionar» deja marcar varios (uno a uno, por pasillo o todos) para archivarlos (se
+recuperan en Ajustes → Archivados, con «Deshacer») o eliminarlos para siempre. «Empezar de cero» (al final de Productos y en
+Ajustes) elimina todos los productos y pasillos, con confirmación, para pegar la lista propia; el historial de compras se queda.
+
 **Archivar y eliminar.** Archivar esconde un producto y se puede recuperar (Ajustes → Archivados). «Eliminar para siempre»
 (en Editar producto o en la lista de archivados) pide confirmación y no se puede deshacer: el producto queda en la nube solo
 como una marca `borrado` sin nombre, sus marcas/tamaños y precios se borran en todos los celulares de la cuenta, y las compras

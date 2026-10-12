@@ -6,6 +6,7 @@ import { productoEliminado, TABLAS, type NombreTabla, type Producto } from '@sha
 import { validarFila } from '@shared/seguridad.ts'
 import { INFO_TIENDAS, TIENDAS_VTEX, type TiendaVtex } from '@shared/tiendas.ts'
 import { EliminarProductos } from '../componentes/EliminarProductos.tsx'
+import { EmpezarDeCero } from '../componentes/EmpezarDeCero.tsx'
 import { BotonPegarLista } from '../componentes/PegarLista.tsx'
 import { avisar, Boton, Campo, Cargando, ErrorTexto, leerNumero, NombreTienda, Tarjeta, Titulo } from '../componentes/ui.tsx'
 import { llamarVtex } from '../datos/apiVtex.ts'
@@ -128,6 +129,19 @@ function Archivados() {
         <p className="mt-1 text-xs text-stone-600">Archivar los esconde y se pueden recuperar. Eliminar los borra para siempre.</p>
       </details>
       <EliminarProductos productos={porEliminar} abierta={porEliminar.length > 0} onCerrar={() => setPorEliminar([])} onHecho={() => setPorEliminar([])} />
+    </Tarjeta>
+  )
+}
+
+/** Para quien quiere dejar atrás los productos de ejemplo y armar los suyos. */
+function Reiniciar() {
+  const [abierta, setAbierta] = useState(false)
+  return (
+    <Tarjeta className="space-y-2 text-sm">
+      <h3 className="font-semibold">Empezar de cero</h3>
+      <p className="text-stone-700">Borra todos los productos y pasillos para armar los tuyos con «Pegar lista». Tus compras pasadas se quedan.</p>
+      <Boton variante="secundario" className="w-full text-peligro" onClick={() => setAbierta(true)}>Empezar de cero…</Boton>
+      <EmpezarDeCero abierta={abierta} onCerrar={() => setAbierta(false)} onHecho={() => setAbierta(false)} />
     </Tarjeta>
   )
 }
@@ -366,6 +380,7 @@ export function Ajustes() {
         <Reglas />
         <Pasillos />
         <Archivados />
+        <Reiniciar />
       </Seccion>
       <Seccion titulo="Tus datos y precios de internet">
         <ServicioVtex />

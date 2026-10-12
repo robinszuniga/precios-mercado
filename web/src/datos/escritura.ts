@@ -58,6 +58,37 @@ export async function eliminarProductos(ids: readonly string[]): Promise<number>
   return quitar.length
 }
 
+/**
+ * Archiva varios productos a la vez: salen de la lista y del plan, y se pueden recuperar en Ajustes → Archivados. Lo que
+ * tenían pendiente en la compra abierta sale de ella (salvo lo que ya está en el carrito). Devuelve lo necesario para
+ * deshacerlo con `deshacerReemplazo`.
+ */
+export async function archivarProductos(ids: readonly string[]): Promise<{ archivados: Producto[]; quitados: Detalle[] }> {
+  const archivados = (await db.productos.bulkGet([...new Set(ids)])).filter((p): p is Producto => !!p && p.activo && !productoEliminado(p))
+  let quitados: Detalle[] = []
+  if (!archivados.length) return { archivados, quitados }
+  await guardar('Productos', archivados.map((p) => ({ ...p, activo: false })))
+  const compra = await compraAbierta()
+  if (compra) {
+    const fuera = new Set(archivados.map((p) => p.producto_id))
+    quitados = (await db.detalle.where('compra_id').equals(compra.compra_id).toArray())
+      .filter((d) => !d.borrado && !!d.producto_id && fuera.has(d.producto_id) && d.estado !== 'en_carrito')
+    if (quitados.length) await guardar('Compras_detalle', quitados.map((d) => ({ ...d, borrado: true })))
+  }
+  return { archivados, quitados }
+}
+
+/**
+ * «Empezar de cero»: elimina para siempre todos los productos (los de la lista y los archivados) y los pasillos, para que la
+ * persona arme los suyos. Las compras ya cerradas se quedan (con los nombres como texto), igual que en `eliminarProductos`.
+ */
+export async function empezarDeCero(): Promise<{ productos: number; pasillos: number }> {
+  const productos = await eliminarProductos((await db.productos.toArray()).filter((p) => !productoEliminado(p)).map((p) => p.producto_id))
+  const pasillos = (await db.categorias.toArray()).filter((c) => !c.borrado)
+  if (pasillos.length) await guardar('Categorias', pasillos.map((c) => ({ ...c, borrado: true })))
+  return { productos, pasillos: pasillos.length }
+}
+
 export function nuevoProducto(p: Partial<Producto> & Pick<Producto, 'nombre'>): Producto {
   return {
     producto_id: nuevoId(), categoria_id: '', unidad_base: 'g', recurrente: false, cantidad_habitual: 1, notas: '',
