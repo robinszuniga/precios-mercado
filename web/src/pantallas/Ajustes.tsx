@@ -2,8 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import type { RegionGuardada } from '@shared/config.ts'
 import { formatoNumero } from '@shared/dinero.ts'
-import { productoEliminado, TABLAS, type NombreTabla, type Producto } from '@shared/esquema.ts'
-import { validarFila } from '@shared/seguridad.ts'
+import { productoEliminado, type Producto } from '@shared/esquema.ts'
 import { INFO_TIENDAS, TIENDAS_VTEX, type TiendaVtex } from '@shared/tiendas.ts'
 import { EliminarProductos } from '../componentes/EliminarProductos.tsx'
 import { EmpezarDeCero } from '../componentes/EmpezarDeCero.tsx'
@@ -13,6 +12,7 @@ import { llamarVtex } from '../datos/apiVtex.ts'
 import { useCatalogo, useMeta } from '../datos/consultas.ts'
 import { db, exigirCuenta, generacionActual, guardarMeta } from '../datos/db.ts'
 import { guardar, guardarConfig } from '../datos/escritura.ts'
+import { armarRespaldo, ESQUEMA_RESPALDO, leerRespaldo } from '../datos/respaldo.ts'
 import { motivosRechazo, reenviarRechazados, sincronizar, sincronizarPronto, type EstadoSync } from '../datos/sync.ts'
 
 function hora(ms: number | null) {
@@ -193,11 +193,8 @@ function Dispositivo() {
   const entradaRespaldo = useRef<HTMLInputElement>(null)
   useEffect(() => { void navigator.storage?.persisted?.().then(setPersistente) }, [])
   async function respaldo() {
-    const datos: Record<string, unknown> = {}
-    for (const t of TABLAS_RESPALDO) {
-      datos[t] = await db.table(t).toArray()
-    }
-    const blob = new Blob([JSON.stringify({ app: 'precios-mercado', fecha: new Date().toISOString(), datos }, null, 1)], { type: 'application/json' })
+    const copia = await armarRespaldo(db)
+    const blob = new Blob([JSON.stringify(copia, null, 1)], { type: 'application/json' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
     a.download = `precios-mercado-${new Date().toISOString().slice(0, 10)}.json`
@@ -221,37 +218,8 @@ function Dispositivo() {
       if (archivo.size > 25 * 1024 * 1024) throw new Error('El archivo supera el límite de 25 MB.')
       const copia: unknown = JSON.parse(await archivo.text())
       exigirCuenta(cuenta)
-      if (!esRegistro(copia) || copia.app !== 'precios-mercado' || !esRegistro(copia.datos)) {
-        throw new Error('El archivo no parece un respaldo de Precios de Mercado.')
-      }
-
-      const datosCopia = copia.datos
-      const tablas = TABLAS_RESPALDO.filter((nombre) => nombre in datosCopia)
-      if (!tablas.length) throw new Error('El respaldo no contiene datos que esta versión pueda importar.')
-
-      const filas = new Map<string, Record<string, unknown>[]>()
-      let total = 0
-      for (const nombre of tablas) {
-        const valor = copia.datos[nombre]
-        if (!Array.isArray(valor)) throw new Error(`La tabla “${nombre}” no tiene un formato válido.`)
-        const tabla = db.table(nombre)
-        const clave = tabla.schema.primKey.name
-        const lista = valor.map((fila) => {
-          const valida = validarFila(ESQUEMA_RESPALDO[nombre], fila, false)
-          if (!esRegistro(fila)) throw new Error(`Fila inválida en “${nombre}”: debe ser un objeto.`)
-          const opcionales = COLUMNAS_RESPALDO_OPCIONALES[nombre]
-          const faltante = Object.keys(TABLAS[ESQUEMA_RESPALDO[nombre]].cols)
-            .find((col) => col !== '_srv' && !opcionesTiene(opcionales, col) && !(col in fila))
-          if (fila[clave] == null || !['string', 'number'].includes(typeof fila[clave]) || faltante || !valida.ok) {
-            const detalle = faltante ? `falta la columna ${faltante}` : valida.ok ? 'clave inválida' : valida.error
-            throw new Error(`Fila inválida en “${nombre}”: ${detalle}.`)
-          }
-          return fila
-        })
-        filas.set(nombre, lista)
-        total += lista.length
-      }
-      if (total === 0) throw new Error('El respaldo está vacío.')
+      const { filas, total } = leerRespaldo(copia, db)
+      const tablas = [...filas.keys()]
 
       const confirmacion = window.confirm(
         `Se combinarán ${total} registros con los datos de esta cuenta. Si una fila tiene la misma clave, la del archivo la reemplazará; las demás se conservan. Al confirmar, los datos se sincronizarán con tu cuenta. ¿Continuar?`,
@@ -302,34 +270,6 @@ function Dispositivo() {
       </details>
     </Tarjeta>
   )
-}
-
-const TABLAS_RESPALDO = ['config', 'categorias', 'productos', 'presentaciones', 'preciosActuales', 'compras', 'detalle', 'resumen', 'historial'] as const
-type TablaRespaldo = typeof TABLAS_RESPALDO[number]
-
-const ESQUEMA_RESPALDO: Record<TablaRespaldo, NombreTabla> = {
-  config: 'Config',
-  categorias: 'Categorias',
-  productos: 'Productos',
-  presentaciones: 'Presentaciones',
-  preciosActuales: 'Precios_actuales',
-  compras: 'Compras',
-  detalle: 'Compras_detalle',
-  resumen: 'Compras_resumen',
-  historial: 'Precios',
-}
-
-const COLUMNAS_RESPALDO_OPCIONALES: Partial<Record<TablaRespaldo, readonly string[]>> = {
-  productos: ['marca'],
-  detalle: ['precio_confirmado'],
-}
-
-function opcionesTiene(opcionales: readonly string[] | undefined, columna: string): boolean {
-  return opcionales?.includes(columna) ?? false
-}
-
-function esRegistro(valor: unknown): valor is Record<string, unknown> {
-  return typeof valor === 'object' && valor !== null && !Array.isArray(valor)
 }
 
 function Avanzado() {

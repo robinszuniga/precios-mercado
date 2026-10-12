@@ -1,3 +1,4 @@
+import { mismoEan } from '@shared/ean.ts'
 import type { Presentacion, Producto, Region } from '@shared/esquema.ts'
 import type { TiendaVtex } from '@shared/tiendas.ts'
 import type { UnidadBase } from '@shared/unidades.ts'
@@ -42,12 +43,22 @@ export async function crearDesdeCandidato(producto: Producto, c: Cand, contenido
   const cuenta = opciones.cuenta ?? generacionActual()
   const revisarCuenta = () => exigirCuenta(cuenta)
   revisarCuenta()
-  const previa = (await db.presentaciones.where('producto_id').equals(producto.producto_id).toArray())
-    .find((x) => x.tienda === c.tienda && x.sku_id === c.skuId)
+  const deLaTienda = (await db.presentaciones.where('producto_id').equals(producto.producto_id).toArray()).filter((x) => x.tienda === c.tienda)
+  // Si la persona ya tiene en esa tienda el mismo producto (mismo código de barras) sin vínculo online —la que se crea al
+  // escanear en el estante—, se vincula esa: dos presentaciones del mismo producto en una tienda competirían por precio y
+  // la de internet (más barata, nacional) taparía el precio anotado en el estante.
+  const delEstante = c.ean ? deLaTienda.filter((x) => !x.sku_id && mismoEan(x.ean, c.ean)).sort((a, b) => Number(b.activo) - Number(a.activo))[0] : undefined
+  const previa = deLaTienda.find((x) => x.sku_id === c.skuId) ?? delEstante
   revisarCuenta()
   if (previa && !previa.activo && !opciones.reactivar) return null
+  const vincula = !!previa && previa.sku_id !== c.skuId
   const [p] = previa
-    ? previa.activo ? [previa] : await guardar<Presentacion>('Presentaciones', { ...previa, activo: true, contenido: contenido ?? previa.contenido })
+    ? previa.activo && !vincula ? [previa] : await guardar<Presentacion>('Presentaciones', {
+      ...previa,
+      activo: true,
+      contenido: contenido ?? previa.contenido,
+      ...(vincula ? { sku_id: c.skuId, vtex_product_id: c.productId, url: c.url || previa.url, auto: true, nombre_en_tienda: previa.nombre_en_tienda || c.nombre, marca: previa.marca || c.marca } : {}),
+    })
     : await guardar<Presentacion>('Presentaciones', nuevaPresentacion({
       // Id fijo: si dos celulares vinculan lo mismo, en el Sheet queda una sola fila.
       presentacion_id: `auto-${producto.producto_id}-${c.tienda}-${c.skuId}`,
@@ -227,8 +238,12 @@ const MAX_COMPLETAR = 40
  */
 export async function productosSinTienda(t: TiendaVtex): Promise<Producto[]> {
   const [productos, presentaciones] = await Promise.all([db.productos.toArray(), db.presentaciones.toArray()])
-  const vinculados = new Set(presentaciones.filter((p) => p.activo && p.sku_id && TIENDAS_LOTE.includes(p.tienda as TiendaVtex)).map((p) => p.producto_id))
-  const yaEnTienda = new Set(presentaciones.filter((p) => p.tienda === t && p.sku_id).map((p) => p.producto_id))
+  const vinculadas = presentaciones.filter((p) => p.activo && p.sku_id && TIENDAS_LOTE.includes(p.tienda as TiendaVtex))
+  const vinculados = new Set(vinculadas.map((p) => p.producto_id))
+  // «Ya está en la tienda»: tiene su vínculo online allí (aunque la persona lo quitara) o una presentación creada al escanear
+  // en el estante, que es el mismo producto (mismo código de barras que una de sus presentaciones vinculadas).
+  const delEstante = (p: Presentacion) => p.activo && !!p.ean && vinculadas.some((v) => v.producto_id === p.producto_id && mismoEan(v.ean, p.ean))
+  const yaEnTienda = new Set(presentaciones.filter((p) => p.tienda === t && (p.sku_id || delEstante(p))).map((p) => p.producto_id))
   return productos.filter((p) => p.activo && vinculados.has(p.producto_id) && !yaEnTienda.has(p.producto_id))
 }
 

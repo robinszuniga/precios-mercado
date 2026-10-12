@@ -119,7 +119,8 @@ describe('Empezar de cero', () => {
     montar()
     fireEvent.click(await screen.findByRole('button', { name: /Empezar de cero…/ }, { timeout: ESPERA }))
     const hoja = await screen.findByRole('dialog', { name: 'Empezar de cero' })
-    expect(hoja).toHaveTextContent('3 productos')
+    // La hoja cuenta primero: hasta entonces no dice cantidades ni «ya estás de cero».
+    await waitFor(() => expect(hoja).toHaveTextContent('3 productos'), { timeout: ESPERA })
     expect(hoja).toHaveTextContent('2 pasillos')
     expect(hoja).toHaveTextContent('No se puede deshacer')
     fireEvent.click(screen.getByRole('button', { name: 'No, conservar' }))
@@ -140,7 +141,8 @@ describe('Empezar de cero', () => {
     await conLista()
     render(<Ajustes />)
     fireEvent.click(await screen.findByRole('button', { name: 'Empezar de cero…' }, { timeout: ESPERA }))
-    expect(await screen.findByRole('dialog', { name: 'Empezar de cero' })).toHaveTextContent('3 productos')
+    const hoja = await screen.findByRole('dialog', { name: 'Empezar de cero' })
+    await waitFor(() => expect(hoja).toHaveTextContent('3 productos'), { timeout: ESPERA })
     fireEvent.click(screen.getByRole('button', { name: 'Sí, borrar todo y empezar de cero' }))
     await waitFor(async () => {
       const cat = await cargarCatalogo()

@@ -1,10 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { TABLAS, type NombreTabla, type PrecioActual } from '@shared/esquema.ts'
+import { TABLAS, type NombreTabla, type PrecioActual, type Producto } from '@shared/esquema.ts'
 import { aMs, esIso, isoBogota } from '@shared/fechas.ts'
 import { detectarCambio, type CambioPrecio } from '@shared/novedades.ts'
 import { conservarOpcionales, ganaRemoto } from '@shared/sync.ts'
 import { llamar, type Conexion } from './api.ts'
-import { type BaseLocal, CuentaCambiada, db, generacionActual, guardarMeta, leerMeta, propietarioDb, purgarDatosDeProductos, TABLA_LOCAL, type EntradaOutbox } from './db.ts'
+import { type BaseLocal, CuentaCambiada, db, generacionActual, guardarMeta, leerMeta, propietarioDb, purgarDatosDeProductos, sinLoEliminado, TABLA_LOCAL, type EntradaOutbox } from './db.ts'
 import { clienteDeCuenta, supabase } from './supabase.ts'
 
 export interface EstadoSync {
@@ -140,6 +140,13 @@ function conFechaDeEdicion(tabla: TablaCloudApp): boolean {
   return tabla !== 'Observaciones' && 'updated_at' in TABLAS[tabla].cols
 }
 
+/**
+ * Columnas que una fila de este celular puede no traer (la creó una versión anterior o el celular mismo: `borrado`,
+ * `marca`, `precio_confirmado`) y que en la nube son NOT NULL. Al enviar varias filas juntas, PostgREST manda NULL en las
+ * que no traen la clave si otra del mismo envío sí la trae; sin un valor aquí, todo el envío se rechazaría (23502).
+ */
+const VALOR_SI_FALTA: Readonly<Record<string, unknown>> = { borrado: false, marca: '', precio_confirmado: false }
+
 export function filaCloud(tabla: TablaCloudApp, fila: Record<string, unknown>) {
   const destino = TABLA_CLOUD[tabla]
   if (!destino) throw new Error(`No se puede sincronizar la tabla ${tabla}.`)
@@ -148,6 +155,7 @@ export function filaCloud(tabla: TablaCloudApp, fila: Record<string, unknown>) {
   for (const [clave, valor] of Object.entries(fila)) if (permitidas.has(clave)) limpia[clave] = valor
   // Postgres espera NULL para fechas vacías; el modelo local usa '' en campos opcionales.
   if (limpia.fecha_cierre === '') limpia.fecha_cierre = null
+  for (const [col, valor] of Object.entries(VALOR_SI_FALTA)) if (permitidas.has(col) && limpia[col] == null) limpia[col] = valor
   if (conFechaDeEdicion(tabla)) {
     // El servidor pone su propio `updated_at` (cursor de descarga) y su propia `version`. La fecha en que se editó
     // viaja aparte, en `editado_en`: solo sirve para decidir un choque real entre dos celulares (ver resolverConflictos).
@@ -161,7 +169,22 @@ export function filaCloud(tabla: TablaCloudApp, fila: Record<string, unknown>) {
 const falloCloud = (error: { message: string; code?: string }, status: number | null | undefined) =>
   new ErrorCloud(error.message, error.code ?? '', status ?? 0)
 
-async function guardarFilasCloud(ctx: ContextoCuenta, cambios: CambioCloud[]) {
+/**
+ * Lo que cuelga de un producto que aquí ya es una marca de eliminado no se envía: la nube lo borró (o lo está borrando) y
+ * subirlo lo resucitaría. Importa sobre todo cuando la limpieza ocurre en medio de un envío que ya estaba armado.
+ */
+async function sinDeEliminados(ctx: ContextoCuenta, cambios: CambioCloud[]): Promise<CambioCloud[]> {
+  const ids = [...new Set(cambios.filter((c) => c.tabla === 'Presentaciones').map((c) => String(c.fila.producto_id)))]
+  if (!ids.length) return cambios
+  const locales = await ctx.base.productos.bulkGet(ids)
+  const eliminados = new Set(ids.filter((_, i) => locales[i]?.borrado === true))
+  if (!eliminados.size) return cambios
+  const quedan = sinLoEliminado('upsert', { cambios }, eliminados, new Set())
+  return quedan ? (quedan.cambios as CambioCloud[]) : []
+}
+
+async function guardarFilasCloud(ctx: ContextoCuenta, todos: CambioCloud[]) {
+  const cambios = await sinDeEliminados(ctx, todos)
   // Una misma fila dos veces en un envío haría fallar al servidor ("no puede afectar la misma fila dos veces"):
   // se queda la última, que es la más reciente.
   const grupos = new Map<string, { tabla: TablaCloudApp; id: string; filas: Map<string, Record<string, unknown>> }>()
@@ -257,13 +280,51 @@ async function guardarVersionadas(ctx: ContextoCuenta, tabla: NombreTabla, desti
   }
   for (const x of pendientes.filter((p) => p.base > 0)) {
     const { data, error, status } = await ctx.cliente.from(destino.tabla).update(x.fila)
-      .eq(destino.id, x.id).eq('version', x.base).select(`${destino.id},version`)
+      .eq(destino.id, x.id).eq('version', x.base).select(columnasRetorno(tabla, destino))
     if (error) throw falloCloud(error, status)
     const aceptada = ((data ?? []) as unknown as Record<string, unknown>[])[0]
-    if (aceptada) await fijarVersion(ctx, tabla, x.id, Number(aceptada.version))
-    else conflictos.push(x)
+    if (!aceptada) conflictos.push(x)
+    // El servidor deja un producto eliminado como marca aunque se le mande una edición (el UPDATE «tiene éxito»): esa
+    // edición no vale, y este celular debe quedar con la marca, no con su copia. Se resuelve como un choque.
+    else if (esLapidaNoPedida(tabla, aceptada, x.fila)) conflictos.push(x)
+    else await fijarVersion(ctx, tabla, x.id, Number(aceptada.version))
   }
   if (conflictos.length) await resolverConflictos(ctx, tabla, destino, conflictos)
+}
+
+/** Lo que se pide de vuelta tras un UPDATE: la versión y, en productos, si quedó como marca de eliminado. */
+const columnasRetorno = (tabla: NombreTabla, destino: Destino) => `${destino.id},version${tabla === 'Productos' ? ',borrado' : ''}`
+
+const esLapidaNoPedida = (tabla: NombreTabla, aceptada: Record<string, unknown>, enviada: Record<string, unknown>) =>
+  tabla === 'Productos' && aceptada.borrado === true && enviada.borrado !== true
+
+/** Guarda en este celular las marcas de eliminado que trae el servidor y limpia todo lo que dependía de esos productos. */
+async function aplicarLapidas(ctx: ContextoCuenta, filas: Record<string, unknown>[]) {
+  if (!filas.length) return
+  if (!vigente(ctx)) throw new CuentaCambiada()
+  const base = ctx.base
+  await base.transaction('rw', [base.productos, base.presentaciones, base.preciosActuales, base.historial, base.cambios, base.outbox, base.rechazados], async () => {
+    await base.productos.bulkPut(filas as unknown as Producto[])
+    await purgarDatosDeProductos(base, new Set(filas.map((f) => String(f.producto_id))))
+  })
+}
+
+/**
+ * Filas que este celular cree que existen en el servidor (tienen versión) pero ya no están: se vuelven a crear. Pasa si la
+ * base de la nube se reinstaló o perdió datos. Si no se pueden crear ahora (alguien las acaba de crear), se reintenta.
+ */
+async function reponer(ctx: ContextoCuenta, tabla: NombreTabla, destino: Destino, filas: Pendiente[]) {
+  if (!filas.length) return
+  const { data, error, status } = await ctx.cliente.from(destino.tabla)
+    .upsert(filas.map((x) => x.fila), { onConflict: `user_id,${destino.id}`, ignoreDuplicates: true })
+    .select(`${destino.id},version`)
+  if (error) throw falloCloud(error, status)
+  const aceptadas = new Map(((data ?? []) as unknown as Record<string, unknown>[]).map((r) => [String(r[destino.id]), Number(r.version)]))
+  for (const x of filas) {
+    const version = aceptadas.get(x.id)
+    if (version == null) throw new ErrorCloud('Otro dispositivo cambió este dato; se reintentará.', '', 409)
+    await fijarVersion(ctx, tabla, x.id, version)
+  }
 }
 
 /**
@@ -279,14 +340,34 @@ async function resolverConflictos(ctx: ContextoCuenta, tabla: NombreTabla, desti
   const delServidor = new Map(((data ?? []) as unknown as Record<string, unknown>[]).map((r) => [String(r[destino.id]), r]))
   const reintentar: Pendiente[] = []
   const quedanDelServidor: Record<string, unknown>[] = []
+  const lapidas: Record<string, unknown>[] = []
+  const faltan: Pendiente[] = []
   for (const x of conflictos) {
     const s = delServidor.get(x.id)
-    if (!s) throw new ErrorCloud('Otro dispositivo cambió este dato; se reintentará.', '', 409)
+    if (!s) { faltan.push(x); continue }
+    // Eliminar un producto no se deshace: contra una marca de eliminado, la edición de este celular siempre pierde
+    // (sin mirar fechas) y se limpia todo lo que dependía de él.
+    if (tabla === 'Productos' && s.borrado === true) { lapidas.push(filaLocalDeCloud(s)); continue }
     const suyo = instante(x.fila.editado_en)
     const ajeno = instante(s.editado_en ?? s.updated_at)
     if (suyo > ajeno) reintentar.push({ ...x, base: versionDe(s) })
     else quedanDelServidor.push(filaLocalDeCloud(s))
   }
+  if (faltan.length) {
+    let porReponer = faltan
+    if (tabla === 'Presentaciones') {
+      // Una presentación que ya no está en el servidor casi siempre se fue con su producto (la nube las borra al eliminarlo):
+      // si es así se toma la marca y se descarta; si no, se vuelve a crear.
+      const productos = [...new Set(faltan.map((x) => String(x.fila.producto_id)))]
+      const { data: ps, error: ep, status: sp } = await ctx.cliente.from('productos').select('*').in('producto_id', productos)
+      if (ep) throw falloCloud(ep, sp)
+      const eliminados = new Map(((ps ?? []) as unknown as Record<string, unknown>[]).filter((r) => r.borrado === true).map((r) => [String(r.producto_id), r]))
+      for (const r of eliminados.values()) lapidas.push(filaLocalDeCloud(r))
+      porReponer = faltan.filter((x) => !eliminados.has(String(x.fila.producto_id)))
+    }
+    await reponer(ctx, tabla, destino, porReponer)
+  }
+  await aplicarLapidas(ctx, lapidas)
   if (quedanDelServidor.length) {
     if (!vigente(ctx)) throw new CuentaCambiada()
     const tabla = ctx.base.table(local)
@@ -304,11 +385,13 @@ async function resolverConflictos(ctx: ContextoCuenta, tabla: NombreTabla, desti
   }
   for (const x of reintentar) {
     const { data: ok, error: e2, status: st2 } = await ctx.cliente.from(destino.tabla).update(x.fila)
-      .eq(destino.id, x.id).eq('version', x.base).select(`${destino.id},version`)
+      .eq(destino.id, x.id).eq('version', x.base).select(columnasRetorno(tabla, destino))
     if (e2) throw falloCloud(e2, st2)
     const aceptada = ((ok ?? []) as unknown as Record<string, unknown>[])[0]
     // Si en ese instante cambió otra vez, se deja para el siguiente intento con la versión nueva.
     if (!aceptada) throw new ErrorCloud('Otro dispositivo cambió este dato; se reintentará.', '', 409)
+    // Lo eliminaron justo ahora: la edición no vale; se toma la marca y se limpia.
+    if (esLapidaNoPedida(tabla, aceptada, x.fila)) { await resolverConflictos(ctx, tabla, destino, [x]); continue }
     await fijarVersion(ctx, tabla, x.id, Number(aceptada.version))
   }
 }
@@ -336,6 +419,15 @@ async function guardarEventoCloud(ctx: ContextoCuenta, entrada: EntradaOutbox) {
   await guardarFilasCloud(ctx, cambios)
 }
 
+/**
+ * Envía una entrada tal como está ahora en la cola: si mientras tanto la limpieza de un producto eliminado la sacó o la
+ * recortó, se manda lo que quedó (o nada), no la copia que se leyó al armar el lote.
+ */
+async function enviarEntrada(ctx: ContextoCuenta, entrada: EntradaOutbox) {
+  const actual = await ctx.base.outbox.get(entrada.seq!)
+  if (actual) await guardarEventoCloud(ctx, actual)
+}
+
 /** Los errores que se reintentan se muestran en el aviso de sincronización (la señal inestable sale como pastilla). */
 async function reportarFallo(ctx: ContextoCuenta, clase: ClaseError, mensaje: string) {
   await estado({ error: clase === 'sesion' ? MENSAJE_SESION : mensaje }, ctx.base)
@@ -347,6 +439,9 @@ async function reportarFallo(ctx: ContextoCuenta, clase: ClaseError, mensaje: st
  * (red, sesión vencida, servidor caído) se pospone con espera creciente y se avisa.
  */
 async function vaciarOutbox(ctx: ContextoCuenta): Promise<boolean> {
+  // Un rechazo por llave foránea suele ser «el otro celular eliminó el producto»: antes de rendirse se baja lo del servidor,
+  // que limpia la cola de lo que ya no existe. Una sola vez por vuelta (si falta algo de verdad, no se insiste).
+  let bajoPorLlave = false
   for (;;) {
     if (!vigente(ctx)) return false
     const todas = await ctx.base.outbox.orderBy('seq').toArray()
@@ -361,7 +456,7 @@ async function vaciarOutbox(ctx: ContextoCuenta): Promise<boolean> {
       lote.push(e)
     }
     try {
-      for (const entrada of lote) await guardarEventoCloud(ctx, entrada)
+      for (const entrada of lote) await enviarEntrada(ctx, entrada)
       await ctx.base.outbox.bulkDelete(lote.map((e) => e.seq!))
     } catch (e) {
       if (!vigente(ctx)) return false
@@ -372,6 +467,11 @@ async function vaciarOutbox(ctx: ContextoCuenta): Promise<boolean> {
         await reportarFallo(ctx, clase, mensaje)
         return false
       }
+      if (!bajoPorLlave && e instanceof ErrorCloud && e.codigo === '23503') {
+        bajoPorLlave = true
+        if (!(await traerCloud(ctx))) return false
+        continue
+      }
       // Un solo dato malo no puede frenar ni descartar lo demás: se reenvía de a una entrada.
       if (lote.length === 1) {
         await rechazar(lote, mensaje, ctx.base)
@@ -379,7 +479,7 @@ async function vaciarOutbox(ctx: ContextoCuenta): Promise<boolean> {
       }
       for (const [i, entrada] of lote.entries()) {
         try {
-          await guardarEventoCloud(ctx, entrada)
+          await enviarEntrada(ctx, entrada)
           await ctx.base.outbox.delete(entrada.seq!)
         } catch (e2) {
           if (!vigente(ctx)) return false
@@ -425,8 +525,11 @@ export async function resubirBase(): Promise<number> {
   const locales = orden.map((t) => db.table(TABLA_LOCAL[t]!))
   return db.transaction('rw', [...locales, db.outbox], async () => {
     let n = 0
+    const eliminados = new Set((await db.productos.filter((p) => p.borrado === true).primaryKeys()) as string[])
     for (const [i, tabla] of orden.entries()) {
-      const filas = (await locales[i].toArray()) as Record<string, unknown>[]
+      // Lo que cuelga de un producto eliminado no se vuelve a subir: la nube lo borra a propósito.
+      const filas = ((await locales[i].toArray()) as Record<string, unknown>[])
+        .filter((f) => tabla !== 'Presentaciones' || !eliminados.has(String(f.producto_id)))
       if (!filas.length) continue
       const sinVersion = filas.map((f) => ({ ...f, version: 0 }))
       await locales[i].bulkPut(sinVersion)
@@ -443,6 +546,12 @@ export async function resubirBase(): Promise<number> {
  * rechazó otra vez vuelve a la lista con su motivo. Los rechazos viejos que no guardaron su contenido no se pueden reenviar.
  */
 export async function reenviarRechazados(): Promise<number> {
+  // Primero se baja lo que cambió en el servidor: si un producto fue eliminado, lo que dependía de él se descarta ahora
+  // (también de los rechazados) en vez de reenviarse para que falle igual.
+  try {
+    const ctx = supabase ? await abrirContexto() : null
+    if (ctx) await traerCloud(ctx)
+  } catch { /* sin señal: se reenvía con lo que hay */ }
   const rechazos = (await db.rechazados.orderBy('id').toArray()).filter((r) => r.payload && (r.tabla === 'upsert' || r.tabla === 'cerrarCompra'))
   if (rechazos.some((r) => /foreign key/i.test(r.mensaje))) await resubirBase()
   const reenviados = await db.transaction('rw', db.outbox, db.rechazados, async () => {
@@ -684,7 +793,7 @@ async function traerCloud(ctx: ContextoCuenta, completo = false): Promise<boolea
   const base = ctx.base
   const instancias = todas.map(({ local }) => base.table(local))
   // Además de lo que se descarga, la limpieza de un producto eliminado toca estas tablas (todas de este celular).
-  const tablasDeTransaccion = new Set([...instancias, base.meta, base.outbox, base.presentaciones, base.preciosActuales, base.historial, base.cambios])
+  const tablasDeTransaccion = new Set([...instancias, base.meta, base.outbox, base.rechazados, base.presentaciones, base.preciosActuales, base.historial, base.cambios])
   await base.transaction('rw', [...tablasDeTransaccion], async () => {
     const eliminados = new Set<string>()
     // Filas con cambios sin enviar: de esas decide el envío (por versión). Las demás son iguales a las del servidor.
@@ -709,6 +818,9 @@ async function traerCloud(ctx: ContextoCuenta, completo = false): Promise<boolea
             if (sucias.has(`${local}:${fila[llave]}`)) return
             // Solo una versión más nueva reemplaza; una igual o más vieja (respuesta atrasada) nunca, sin mirar fechas.
             if (versionDe(fila) > versionDe(previo)) aceptar.push(fila)
+            // Salvo una marca de eliminado: si este celular se quedó con una copia viva de la misma versión (la edición «tuvo
+            // éxito» pero el servidor la reescribió), la marca la corrige; eliminar es definitivo.
+            else if (local === 'productos' && fila.borrado === true && previo && previo.borrado !== true && versionDe(fila) === versionDe(previo)) aceptar.push(fila)
             return
           }
           // Sin `updated_at` en la fila o en lo local (histórico, resumen de compra) no hay nada que comparar: no cambian.
@@ -725,6 +837,8 @@ async function traerCloud(ctx: ContextoCuenta, completo = false): Promise<boolea
         await base.meta.put({ clave: `cursorCloud:${tablaCloud}`, valor: cursorConSolape })
       }
     }
+    // También los que ya eran marca aquí pero conservan algo colgando (una presentación que llegó o quedó después).
+    for (const id of await base.productos.filter((p) => p.borrado === true).primaryKeys()) eliminados.add(String(id))
     await purgarDatosDeProductos(base, eliminados)
   })
   return true

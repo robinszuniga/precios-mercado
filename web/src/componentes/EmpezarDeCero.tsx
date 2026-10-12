@@ -17,6 +17,8 @@ export function EmpezarDeCero({ abierta, onCerrar, onHecho }: { abierta: boolean
   }), [])
   const productos = cuentas?.productos ?? 0
   const pasillos = cuentas?.pasillos ?? 0
+  // Mientras cuenta no se afirma nada: «ya estás de cero» y el botón de borrar solo aparecen con la cuenta hecha.
+  const contando = cuentas === undefined
   const nada = productos === 0 && pasillos === 0
 
   async function confirmar() {
@@ -34,7 +36,9 @@ export function EmpezarDeCero({ abierta, onCerrar, onHecho }: { abierta: boolean
   return (
     <Hoja abierta={abierta} titulo="Empezar de cero" onCerrar={onCerrar}>
       <div className="space-y-3">
-        {nada ? (
+        {contando ? (
+          <p role="status">Contando lo que hay…</p>
+        ) : nada ? (
           <p>No hay productos ni pasillos que borrar: ya estás de cero.</p>
         ) : (
           <>
@@ -52,7 +56,7 @@ export function EmpezarDeCero({ abierta, onCerrar, onHecho }: { abierta: boolean
             </Boton>
           </>
         )}
-        <Boton variante="secundario" className="w-full" onClick={onCerrar}>{nada ? 'Cerrar' : 'No, conservar'}</Boton>
+        <Boton variante="secundario" className="w-full" onClick={onCerrar}>{contando || nada ? 'Cerrar' : 'No, conservar'}</Boton>
       </div>
     </Hoja>
   )

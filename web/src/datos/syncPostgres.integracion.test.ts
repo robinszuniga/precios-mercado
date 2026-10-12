@@ -106,7 +106,7 @@ vi.mock('./supabase.ts', () => ({
 import { cerrarCompra } from './cierre.ts'
 import { db, guardarMeta, usarBaseLocal } from './db.ts'
 import { agregarALaCompra, compraAbierta, eliminarProductos, guardar, nuevaPresentacion, nuevoProducto, registrarPrecioManual } from './escritura.ts'
-import { reenviarRechazados, sincronizar } from './sync.ts'
+import { reenviarRechazados, resubirBase, sincronizar } from './sync.ts'
 
 const A = '11111111-1111-1111-1111-111111111111'
 const B = '22222222-2222-2222-2222-222222222222'
@@ -427,6 +427,179 @@ describe('app + Postgres real', () => {
       await sincronizar()
       await h.pg.exec(`update public.productos set borrado = false, nombre = 'Resucitado', activo = true where producto_id = '${p.producto_id}'`)
       expect((await admin('select nombre, borrado, activo from public.productos'))[0]).toEqual({ nombre: '', borrado: true, activo: false })
+    })
+  })
+  describe('auditoría: filas mixtas y eliminaciones entre celulares', () => {
+    const cuenta = async (sql: string, params: unknown[] = []) => Number((await admin<{ n: number }>(sql, params))[0].n)
+    const instantanea = () => Promise.all(db.tables.map(async (t) => ({ t, filas: await t.toArray() })))
+    const restaurar = async (copia: Awaited<ReturnType<typeof instantanea>>) => {
+      await Promise.all(db.tables.map((t) => t.clear()))
+      for (const { t, filas } of copia) await t.bulkPut(filas)
+    }
+    /** Arroz con una presentación y un precio, ya en la nube. */
+    async function arroz() {
+      const [p] = await guardar('Productos', nuevoProducto({ nombre: 'Arroz', marca: 'Diana' }))
+      const [pres] = await guardar('Presentaciones', nuevaPresentacion({ producto_id: p.producto_id, tienda: 'D1', contenido: 1000 }))
+      await registrarPrecioManual(pres, 4500)
+      await sincronizar()
+      return { p, pres }
+    }
+    /** El «celular 1» (el estado actual) elimina el producto y sincroniza; después se vuelve al estado del «celular 2». */
+    async function eliminaOtroCelular(id: string, celular2: Awaited<ReturnType<typeof instantanea>>) {
+      await eliminarProductos([id])
+      await sincronizar()
+      await restaurar(celular2)
+    }
+
+    it('productos bajados de la nube y productos creados aquí suben juntos a una base vacía (resubirBase)', async () => {
+      const { p } = await arroz()
+      await Promise.all(db.tables.map((t) => t.clear()))
+      await sincronizar() // baja Arroz, que trae `borrado: false`
+      expect(await db.productos.get(p.producto_id)).toMatchObject({ borrado: false })
+      await guardar('Productos', nuevoProducto({ nombre: 'Leche' })) // creado aquí: sin la clave `borrado`
+      await sincronizar()
+      await h.pg.exec('truncate public.productos cascade') // la base se reinstaló vacía
+      expect(await resubirBase()).toBeGreaterThan(0)
+      await sincronizar()
+      expect(await db.rechazados.count()).toBe(0)
+      expect((await estadoSync())?.error).toBeNull()
+      expect((await admin('select nombre from public.productos order by nombre')).map((x) => x.nombre)).toEqual(['Arroz', 'Leche'])
+      expect(await cuenta('select count(*)::int n from public.presentaciones')).toBe(1)
+    })
+
+    it('celular 2 edita (después) un producto que el celular 1 eliminó: pierde, y queda eliminado también ahí (sin zombi)', async () => {
+      const { p } = await arroz()
+      const celular2 = await instantanea()
+      await eliminaOtroCelular(p.producto_id, celular2)
+      expect(await db.presentaciones.count()).toBe(1) // el celular 2 aún no se entera
+      await guardar('Productos', { ...(await db.productos.get(p.producto_id))!, nombre: 'Arroz Diana 2' })
+      await sincronizar()
+      await sincronizar()
+      expect(await db.productos.get(p.producto_id)).toMatchObject({ borrado: true, nombre: '', activo: false })
+      expect(await db.presentaciones.count()).toBe(0)
+      expect(await db.preciosActuales.count()).toBe(0)
+      expect(await db.historial.count()).toBe(0)
+      expect(await db.outbox.count()).toBe(0)
+      expect(await db.rechazados.count()).toBe(0)
+      expect((await estadoSync())?.error).toBeNull()
+      expect((await admin('select nombre, borrado from public.productos'))[0]).toEqual({ nombre: '', borrado: true })
+    })
+
+    it('celular 2 editó (antes) y pierde contra la eliminación: se limpia lo dependiente y la cola no se atasca', async () => {
+      const { p } = await arroz()
+      const celular1 = await instantanea()
+      // El celular 2 edita el producto antes de que el 1 lo elimine, pero sincroniza después.
+      await guardar('Productos', { ...(await db.productos.get(p.producto_id))!, nombre: 'Arroz 2' })
+      const celular2 = await instantanea()
+      await restaurar(celular1)
+      await eliminarProductos([p.producto_id])
+      await sincronizar()
+      await restaurar(celular2)
+      await sincronizar()
+      expect(await db.productos.get(p.producto_id)).toMatchObject({ borrado: true, nombre: '' })
+      expect(await db.presentaciones.count()).toBe(0)
+      expect(await db.preciosActuales.count()).toBe(0)
+      expect(await db.historial.count()).toBe(0)
+      // Un producto nuevo llega: nada quedó atascado.
+      await guardar('Productos', nuevoProducto({ nombre: 'Leche (después)' }))
+      await sincronizar()
+      expect(await db.outbox.count()).toBe(0)
+      expect(await cuenta(`select count(*)::int n from public.productos where nombre = 'Leche (después)'`)).toBe(1)
+      expect((await estadoSync())?.error).toBeNull()
+    })
+
+    it('zombi que ya existe (misma versión que la lápida del servidor): la descarga lo corrige', async () => {
+      const { p } = await arroz()
+      await h.pg.exec(`update public.productos set borrado = true where producto_id = '${p.producto_id}'`)
+      const v = Number((await admin('select version from public.productos'))[0].version)
+      await db.table('productos').update(p.producto_id, { version: v, nombre: 'Arroz zombi' }) // misma versión, sin `borrado`
+      await sincronizar({ completo: true })
+      expect(await db.productos.get(p.producto_id)).toMatchObject({ borrado: true, nombre: '' })
+      expect(await db.presentaciones.count()).toBe(0)
+    })
+
+    it('presentación editada sin señal mientras el otro celular elimina el producto: no resucita en la nube (aun sin el seguro del servidor)', async () => {
+      // Se quita el disparador de la migración nueva: lo que protege aquí es el propio celular. La base se comparte entre
+      // pruebas, así que se vuelve a instalar al terminar.
+      await h.pg.exec('drop trigger if exists presentaciones_de_eliminados on public.presentaciones')
+      try {
+        const { p, pres } = await arroz()
+        const celular1 = await instantanea()
+        await guardar('Presentaciones', { ...(await db.presentaciones.get(pres.presentacion_id))!, contenido: 500 })
+        const celular2 = await instantanea()
+        await restaurar(celular1)
+        await eliminarProductos([p.producto_id])
+        await sincronizar()
+        await restaurar(celular2)
+        await sincronizar()
+        await sincronizar()
+        expect(await cuenta('select count(*)::int n from public.presentaciones')).toBe(0)
+        expect(await db.presentaciones.count()).toBe(0)
+        expect(await db.outbox.count()).toBe(0)
+        expect(await db.rechazados.count()).toBe(0)
+      } finally {
+        await h.pg.exec(readFileSync(new URL('../../../supabase/migrations/20261012000100_presentaciones_de_eliminados.sql', import.meta.url), 'utf8'))
+      }
+    })
+
+    it('con el seguro del servidor: presentación y precio nuevos, anotados sin señal en un producto eliminado, no dejan nada colgando ni avisos rojos', async () => {
+      const { p } = await arroz()
+      const celular1 = await instantanea()
+      const [pres2] = await guardar('Presentaciones', nuevaPresentacion({ producto_id: p.producto_id, tienda: 'EXITO', contenido: 500 }))
+      await registrarPrecioManual(pres2, 2500)
+      const celular2 = await instantanea()
+      await restaurar(celular1)
+      await eliminarProductos([p.producto_id])
+      await sincronizar()
+      await restaurar(celular2)
+      await sincronizar()
+      await sincronizar()
+      for (const t of ['presentaciones', 'observaciones', 'precios_actuales', 'precios_historial']) {
+        expect(await cuenta(`select count(*)::int n from public.${t}`), t).toBe(0)
+      }
+      expect(await db.presentaciones.count()).toBe(0)
+      expect(await db.outbox.count()).toBe(0)
+      expect(await db.rechazados.count()).toBe(0)
+      expect((await estadoSync())?.error).toBeNull()
+    })
+
+    it('el servidor no acepta presentaciones nuevas de un producto eliminado (RAISE 23503)', async () => {
+      const { p } = await arroz()
+      await eliminarProductos([p.producto_id])
+      await sincronizar()
+      await expect(h.pg.exec(`insert into public.presentaciones (user_id, presentacion_id, producto_id, tienda) values ('${A}', 'x1', '${p.producto_id}', 'D1')`)).rejects.toThrow(/eliminado/i)
+    })
+
+    it('cerrar una compra con un producto que otro celular eliminó: se guarda todo lo demás y nada queda rechazado', async () => {
+      const [pa] = await guardar('Productos', nuevoProducto({ nombre: 'Arroz', unidad_base: 'g' }))
+      const [prA] = await guardar('Presentaciones', nuevaPresentacion({ producto_id: pa.producto_id, tienda: 'D1', contenido: 1000 }))
+      await registrarPrecioManual(prA, 4500)
+      const [pl] = await guardar('Productos', nuevoProducto({ nombre: 'Leche', unidad_base: 'ml' }))
+      const [prL] = await guardar('Presentaciones', nuevaPresentacion({ producto_id: pl.producto_id, tienda: 'D1', contenido: 1000 }))
+      await registrarPrecioManual(prL, 3000)
+      const dA = await agregarALaCompra(pa, ['D1'])
+      const dL = await agregarALaCompra(pl, ['D1'])
+      await guardar('Compras_detalle', [
+        { ...dA, estado: 'en_carrito', presentacion_id: prA.presentacion_id, tienda: 'D1', cantidad: 1, precio_unitario: 4600, subtotal: 4600, precio_confirmado: true },
+        { ...dL, estado: 'en_carrito', presentacion_id: prL.presentacion_id, tienda: 'D1', cantidad: 1, precio_unitario: 3100, subtotal: 3100, precio_confirmado: true },
+      ])
+      const compra = (await compraAbierta())!
+      await guardar('Compras', { ...compra, estado: 'en_curso' })
+      await sincronizar()
+      const celular2 = await instantanea()
+      await eliminarProductos([pa.producto_id])
+      await sincronizar()
+      await restaurar(celular2) // el celular 2, en la tienda, todavía tiene el arroz
+      await cerrarCompra((await compraAbierta())!)
+      await sincronizar()
+      await sincronizar()
+      expect(await db.rechazados.count()).toBe(0)
+      expect(await db.outbox.count()).toBe(0)
+      expect((await estadoSync())?.error).toBeNull()
+      expect((await admin('select estado from public.compras'))[0].estado).toBe('cerrada')
+      expect(await cuenta('select count(*)::int n from public.compras_resumen')).toBeGreaterThanOrEqual(1)
+      expect(await cuenta('select count(*)::int n from public.observaciones where presentacion_id = $1', [prL.presentacion_id])).toBeGreaterThanOrEqual(2)
+      expect(await cuenta('select count(*)::int n from public.observaciones where presentacion_id = $1', [prA.presentacion_id])).toBe(0)
     })
   })
 })

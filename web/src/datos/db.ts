@@ -125,19 +125,70 @@ export async function guardarMeta(clave: string, valor: unknown, base: BaseLocal
 }
 
 /**
+ * Lo que cuelga de un producto eliminado dentro de un envío pendiente: sus presentaciones y, de ellas, los precios.
+ * `presentaciones` son los ids de las presentaciones que se van; las nuevas que solo existen en la cola se suman solas.
+ */
+function cuelgaDeEliminado(tabla: string, fila: Record<string, unknown>, productos: ReadonlySet<string>, presentaciones: Set<string>): boolean {
+  if (tabla === 'Presentaciones') {
+    if (!productos.has(String(fila.producto_id))) return false
+    presentaciones.add(String(fila.presentacion_id))
+    return true
+  }
+  return (tabla === 'Observaciones' || tabla === 'Precios_actuales' || tabla === 'Precios') && presentaciones.has(String(fila.presentacion_id))
+}
+
+/**
+ * Saca de un envío (de la cola o de los rechazados) lo que depende de productos eliminados. Devuelve el payload sin eso,
+ * o `null` si no queda nada que enviar. Si no había nada que sacar devuelve el mismo objeto (para saber que no cambió).
+ */
+export function sinLoEliminado(tipo: string, payload: Record<string, unknown>, productos: ReadonlySet<string>, presentaciones: Set<string>): Record<string, unknown> | null {
+  if (tipo === 'upsert') {
+    const cambios = (payload.cambios ?? []) as { tabla: string; fila: Record<string, unknown> }[]
+    // Las presentaciones primero: así se conocen sus ids antes de mirar sus precios, vengan en el orden que vengan.
+    for (const c of cambios) if (c.tabla === 'Presentaciones') cuelgaDeEliminado(c.tabla, c.fila, productos, presentaciones)
+    const quedan = cambios.filter((c) => !cuelgaDeEliminado(c.tabla, c.fila, productos, presentaciones))
+    if (quedan.length === cambios.length) return payload
+    return quedan.length ? { ...payload, cambios: quedan } : null
+  }
+  // Cierre de compra: la compra, sus líneas y el resumen se quedan; solo salen las observaciones y precios de lo eliminado.
+  let cambio = false
+  const filtrado: Record<string, unknown> = { ...payload }
+  for (const campo of ['observaciones', 'preciosActuales', 'preciosHistorial']) {
+    const filas = (payload[campo] ?? []) as Record<string, unknown>[]
+    const quedan = filas.filter((f) => !presentaciones.has(String(f.presentacion_id)))
+    if (quedan.length !== filas.length) { filtrado[campo] = quedan; cambio = true }
+  }
+  return cambio ? filtrado : payload
+}
+
+/**
  * Borra de este celular lo que depende de productos eliminados: sus marcas y tamaños, su precio actual, su historial de
- * precios y lo que había en "Novedades". Va dentro de la transacción de quien la llama (la tabla de cada cosa debe estar
- * en ella). En la nube lo hace un disparador de la base de datos al recibir la marca de eliminado.
+ * precios, lo que había en "Novedades" y lo que seguía esperando en la cola de envío o en los rechazados (si no, volvería a
+ * subir lo que la nube ya borró, o dejaría un aviso rojo que ya no se puede arreglar). Va dentro de la transacción de quien
+ * la llama (esas tablas, y `outbox` y `rechazados`, deben estar en ella). En la nube lo hace un disparador de la base.
  */
 export async function purgarDatosDeProductos(base: BaseLocal, ids: ReadonlySet<string>): Promise<void> {
   if (!ids.size) return
   const presentaciones = (await base.presentaciones.where('producto_id').anyOf([...ids]).primaryKeys()) as string[]
-  if (!presentaciones.length) return
   const fuera = new Set(presentaciones)
-  await base.presentaciones.bulkDelete(presentaciones)
-  await base.preciosActuales.where('presentacion_id').anyOf(presentaciones).delete()
-  await base.historial.where('presentacion_id').anyOf(presentaciones).delete()
-  const novedades = (await base.cambios.toArray()).filter((c) => fuera.has(c.presentacion_id)).map((c) => c.id!)
-  if (novedades.length) await base.cambios.bulkDelete(novedades)
+  if (presentaciones.length) {
+    await base.presentaciones.bulkDelete(presentaciones)
+    await base.preciosActuales.where('presentacion_id').anyOf(presentaciones).delete()
+    await base.historial.where('presentacion_id').anyOf(presentaciones).delete()
+    const novedades = (await base.cambios.toArray()).filter((c) => fuera.has(c.presentacion_id)).map((c) => c.id!)
+    if (novedades.length) await base.cambios.bulkDelete(novedades)
+  }
+  for (const e of await base.outbox.toArray()) {
+    const quedan = sinLoEliminado(e.tipo, e.payload, ids, fuera)
+    if (quedan === e.payload) continue
+    if (quedan) await base.outbox.update(e.seq!, { payload: quedan })
+    else await base.outbox.delete(e.seq!)
+  }
+  for (const r of await base.rechazados.toArray()) {
+    if (!r.payload) continue
+    const quedan = sinLoEliminado(r.tabla, r.payload, ids, fuera)
+    if (quedan === r.payload) continue
+    if (quedan) await base.rechazados.update(r.id!, { payload: quedan })
+    else await base.rechazados.delete(r.id!)
+  }
 }
-

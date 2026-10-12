@@ -11,7 +11,7 @@ vi.mock('./apiVtex.ts', () => ({
 import { VincularTodos } from '../componentes/VincularTodos.tsx'
 import { db, guardarMeta } from './db.ts'
 import { compraAbierta, guardar, nuevaPresentacion, nuevoProducto } from './escritura.ts'
-import { autoVincular, productosSinVincular } from './vincularLote.ts'
+import { autoVincular, crearDesdeCandidato, productosSinTienda, productosSinVincular } from './vincularLote.ts'
 
 type Item = { id: string; q?: string; ean?: string; unidad: string }
 
@@ -345,5 +345,51 @@ describe('revisión: reintentos', () => {
     await autoVincular()
     const estado = (await db.meta.get('autoVinculo'))!.valor as { ultimo: number; fallo?: number }
     expect(estado.fallo).toBeGreaterThan(0)
+  })
+})
+
+describe('el precio anotado en el estante no se duplica con el de internet (D1)', () => {
+  /** Arroz vinculado en Olímpica y, en D1, una presentación creada al escanear en la tienda (sin vínculo online). */
+  async function conEstanteEnD1() {
+    const arroz = (await db.productos.toArray()).find((p) => p.nombre === 'Arroz')!
+    const [olim] = await guardar('Presentaciones', nuevaPresentacion({ producto_id: arroz.producto_id, tienda: 'OLIMPICA', sku_id: 'OLIMPICA-Arroz Diana 1000 g', ean: '7702001234561', auto: true, contenido: 1000 }))
+    const [estante] = await guardar('Presentaciones', {
+      ...nuevaPresentacion({ producto_id: arroz.producto_id, tienda: 'D1', ean: '7702001234561', contenido: 1000, nombre_en_tienda: 'Arroz Diana 1 kg' }),
+      presentacion_id: `ean-${arroz.producto_id}-D1-7702001234561`,
+    })
+    return { arroz, olim, estante }
+  }
+
+  it('el producto ya está en D1 (por el mismo código de barras): no se vuelve a buscar ahí', async () => {
+    const { arroz } = await conEstanteEnD1()
+    expect((await productosSinTienda('D1')).map((p) => p.producto_id)).not.toContain(arroz.producto_id)
+    expect((await productosSinTienda('EXITO')).map((p) => p.producto_id)).toContain(arroz.producto_id)
+  })
+
+  it('si igual aparece el candidato de D1 con ese código, se vincula la presentación del estante en vez de crear otra', async () => {
+    const { arroz, estante } = await conEstanteEnD1()
+    const cand = { ...opcion('D1', 'Arroz Diana 1000 g', 4200, 1000, 'g', true, '7702001234561'), region: 'DEFAULT' as const }
+    const p = await crearDesdeCandidato(arroz, cand as never, 1000)
+    expect(p?.presentacion_id).toBe(estante.presentacion_id)
+    const deD1 = (await db.presentaciones.toArray()).filter((x) => x.tienda === 'D1')
+    expect(deD1).toHaveLength(1)
+    expect(deD1[0]).toMatchObject({ sku_id: 'D1-Arroz Diana 1000 g', auto: true, activo: true, contenido: 1000 })
+    // El precio de internet queda en la misma presentación, junto al del estante (que manda mientras esté vigente).
+    expect(await db.preciosActuales.where('presentacion_id').equals(estante.presentacion_id).toArray()).toEqual([expect.objectContaining({ origen: 'online', precio: 4200, region: 'DEFAULT' })])
+  })
+
+  it('una presentación del estante que la persona quitó no se revive sola', async () => {
+    const { arroz, estante } = await conEstanteEnD1()
+    await guardar('Presentaciones', { ...estante, activo: false })
+    const cand = { ...opcion('D1', 'Arroz Diana 1000 g', 4200, 1000, 'g', true, '7702001234561'), region: 'DEFAULT' as const }
+    expect(await crearDesdeCandidato(arroz, cand as never, 1000)).toBeNull()
+    expect((await db.presentaciones.get(estante.presentacion_id))?.activo).toBe(false)
+  })
+
+  it('con otro código de barras sí es otro producto de la tienda: se crea aparte', async () => {
+    const { arroz } = await conEstanteEnD1()
+    const cand = { ...opcion('D1', 'Arroz Roa 1000 g', 4000, 1000, 'g', true, '7709999999999'), region: 'DEFAULT' as const }
+    await crearDesdeCandidato(arroz, cand as never, 1000)
+    expect((await db.presentaciones.toArray()).filter((x) => x.tienda === 'D1')).toHaveLength(2)
   })
 })

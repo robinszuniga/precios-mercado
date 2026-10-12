@@ -54,7 +54,7 @@ export async function eliminarProductos(ids: readonly string[]): Promise<number>
     : { ...d, producto_id: '', nombre_libre: d.nombre_libre || fuera.get(d.producto_id)!.nombre }))
   if (cambiadas.length) await guardar('Compras_detalle', cambiadas)
   await guardar('Productos', quitar.map((p) => ({ ...p, nombre: '', notas: '', marca: '', activo: false, recurrente: false, borrado: true })))
-  await db.transaction('rw', db.presentaciones, db.preciosActuales, db.historial, db.cambios, () => purgarDatosDeProductos(db, new Set(fuera.keys())))
+  await db.transaction('rw', [db.presentaciones, db.preciosActuales, db.historial, db.cambios, db.outbox, db.rechazados], () => purgarDatosDeProductos(db, new Set(fuera.keys())))
   return quitar.length
 }
 
