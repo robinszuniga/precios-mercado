@@ -1,4 +1,4 @@
-import { claveSede, consultaOverpass, fusionarSedes, MAX_SEDES, sedesDeConfig, sedesDeOverpass, valorSede, type Punto, type Sede } from '@shared/mapa.ts'
+import { claveSede, consultaOverpass, fusionarSedes, MAX_SEDES, normalizarPunto, puntoValido, PREFIJO_SEDE, sedesDeConfig, sedesDeOverpass, valorSede, type Punto, type Sede } from '@shared/mapa.ts'
 import { INFO_TIENDAS, type Tienda } from '@shared/tiendas.ts'
 import { nuevoId } from './api.ts'
 import { db } from './db.ts'
@@ -15,14 +15,20 @@ async function leerSedes(): Promise<Sede[]> {
 /** Agrega una sede a mano (donde estás, o el punto que tocaste en el mapa). null si ya se llegó al máximo. */
 export async function agregarSede(tienda: Tienda, punto: Punto, nombre?: string): Promise<Sede | null> {
   if ((await leerSedes()).length >= MAX_SEDES) return null
-  const sede: Sede = { id: nuevoId(), tienda, nombre: nombre?.trim() || INFO_TIENDAS[tienda].nombre, lat: punto.lat, lng: punto.lng }
+  // Un toque en otra «copia del mundo» del mapa da una longitud fuera de rango: se lleva a su valor real.
+  const { lat, lng } = normalizarPunto(punto)
+  if (!puntoValido({ lat, lng })) throw new Error('El punto no es una ubicación válida.')
+  const sede: Sede = { id: nuevoId(), tienda, nombre: nombre?.trim() || INFO_TIENDAS[tienda].nombre, lat, lng }
   await guardarConfig(claveSede(sede.id), valorSede(sede))
   return sede
 }
 
 /** Suma las sedes encontradas en OpenStreetMap; devuelve cuántas eran nuevas. */
 export async function agregarSedesEncontradas(nuevas: readonly Sede[]): Promise<number> {
-  const { agregadas } = fusionarSedes(await leerSedes(), nuevas)
+  // Una sede que la persona quitó queda como fila vacía y los ids de OpenStreetMap son siempre los mismos: sin esto, cada
+  // búsqueda la traería de vuelta (y a los otros celulares también).
+  const quitadas = new Set((await db.config.toArray()).filter((f) => f.clave.startsWith(PREFIJO_SEDE) && !f.valor).map((f) => f.clave.slice(PREFIJO_SEDE.length)))
+  const { agregadas } = fusionarSedes(await leerSedes(), nuevas.filter((s) => !quitadas.has(s.id)))
   if (agregadas.length) await guardar('Config', agregadas.map((s) => ({ clave: claveSede(s.id), valor: valorSede(s) })))
   return agregadas.length
 }

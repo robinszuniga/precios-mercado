@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Component, lazy, Suspense, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { Component, lazy, Suspense, useRef, useState, type ComponentProps, type FormEvent, type ReactNode } from 'react'
 import { enlaceGoogleMaps, enlaceWaze, formatoKm, MAX_SEDES, ordenarRuta, sedeMasCercana, type Punto, type Sede } from '@shared/mapa.ts'
 import { planCompra } from '@shared/recomendacion.ts'
 import { INFO_TIENDAS, TIENDAS, type Tienda } from '@shared/tiendas.ts'
@@ -17,6 +17,20 @@ import { ErrorUbicacion, MENSAJE_UBICACION, ubicarme, type Ubicacion } from '../
 const cargarMapa = () => import('../componentes/MapaLeaflet.tsx')
 /** Leaflet y sus estilos se bajan solo al abrir esta pantalla. Si la descarga falla, "Reintentar" crea otra carga. */
 let MapaLeaflet = lazy(cargarMapa)
+
+type PropsMapa = ComponentProps<typeof MapaLeaflet>
+
+/**
+ * Lee `MapaLeaflet` al dibujar, no al armar el elemento: un `lazy` cuya descarga falló guarda su error para siempre, y
+ * «Reintentar» tiene que ver el nuevo. Si el elemento se armara con el viejo, el botón volvería a mostrar el mismo error.
+ */
+function MapaDiferido(props: PropsMapa) {
+  return (
+    <Suspense fallback={<div className="grid h-72 place-items-center rounded-2xl bg-stone-100 text-sm text-stone-600">Cargando el mapa…</div>}>
+      <MapaLeaflet {...props} />
+    </Suspense>
+  )
+}
 
 /** Si el mapa no carga (sin señal la primera vez), el resto de la pantalla sigue sirviendo y se puede reintentar. */
 class LimiteMapa extends Component<{ children: ReactNode }, { fallo: boolean }> {
@@ -168,18 +182,16 @@ export function Mapa() {
 
       <div ref={zonaMapa} className="scroll-mt-4 space-y-2">
         <LimiteMapa>
-          <Suspense fallback={<div className="grid h-72 place-items-center rounded-2xl bg-stone-100 text-sm text-stone-600">Cargando el mapa…</div>}>
-            <MapaLeaflet
-              centro={centro}
-              pines={pines}
-              yo={yo}
-              nuevo={nueva}
-              seleccionada={seleccionada}
-              onSeleccionar={setSeleccionada}
-              onTocarMapa={modoToque ? (p) => { setNueva(p); setModoToque(false) } : undefined}
-              onSinTeselas={() => setSinTeselas(true)}
-            />
-          </Suspense>
+          <MapaDiferido
+            centro={centro}
+            pines={pines}
+            yo={yo}
+            nuevo={nueva}
+            seleccionada={seleccionada}
+            onSeleccionar={setSeleccionada}
+            onTocarMapa={modoToque ? (p) => { setNueva(p); setModoToque(false) } : undefined}
+            onSinTeselas={() => setSinTeselas(true)}
+          />
         </LimiteMapa>
         {sinTeselas && <p className="text-xs text-stone-600">El dibujo del mapa no se pudo bajar (¿sin señal?). Las sedes, las distancias y los enlaces de abajo funcionan igual.</p>}
       </div>

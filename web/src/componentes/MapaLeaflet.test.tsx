@@ -66,6 +66,19 @@ describe('MapaLeaflet (el mapa de verdad, sin red: sin teselas)', () => {
     expect(container.querySelectorAll('.leaflet-marker-icon')).toHaveLength(0)
   })
 
+  it('cada pin recibe el toque en un área de al menos 44 × 44 px (el círculo que se ve es más chico)', () => {
+    const pines = [pin(sede('a', 'D1', 11.5, -72.9)), pin(sede('b', 'EXITO', 11.6, -72.9), { mejor: true })]
+    const { container } = render(<MapaLeaflet centro={{ lat: 11.5, lng: -72.9 }} pines={pines} yo={null} seleccionada={null} onSeleccionar={() => {}} />)
+    const marcadores = [...container.querySelectorAll<HTMLElement>('.leaflet-marker-icon')]
+    expect(marcadores).toHaveLength(2)
+    for (const m of marcadores) {
+      expect(parseInt(m.style.width, 10)).toBeGreaterThanOrEqual(44)
+      expect(parseInt(m.style.height, 10)).toBeGreaterThanOrEqual(44)
+    }
+    // El círculo dibujado queda centrado dentro de esa área.
+    expect(marcadores[0].querySelector<HTMLElement>('[aria-hidden]')?.style.width).toBe('34px')
+  })
+
   it('los controles de zoom están en español', () => {
     const { container } = render(<MapaLeaflet centro={{ lat: 11.5, lng: -72.9 }} pines={[]} yo={null} seleccionada={null} onSeleccionar={() => {}} />)
     expect(container.querySelector('a[title="Acercar"]')).not.toBeNull()

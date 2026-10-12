@@ -1,10 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import {
   claveSede, consultaOverpass, distanciaKm, distanciaViaKm, enlaceGoogleMaps, enlaceWaze, formatoKm, fusionarSedes, ordenarRuta, sedeDeFila,
-  sedeMasCercana, sedesDeConfig, sedesDeOverpass, tiendaDeNombre, valorSede, type Sede,
+  normalizarPunto, puntoValido, sedeMasCercana, sedesDeConfig, sedesDeOverpass, tiendaDeNombre, valorSede, type Sede,
 } from '../src/mapa.ts'
 
 const sede = (id: string, tienda: Sede['tienda'], lat: number, lng: number, nombre = id): Sede => ({ id, tienda, nombre, lat, lng })
+
+describe('normalizarPunto', () => {
+  it('una longitud de otra «copia del mundo» vuelve a su valor real; las normales no cambian', () => {
+    expect(normalizarPunto({ lat: 11.5, lng: 287.09 }).lng).toBeCloseTo(-72.91, 6)
+    expect(normalizarPunto({ lat: 11.5, lng: -432.91 }).lng).toBeCloseTo(-72.91, 6)
+    expect(normalizarPunto({ lat: 11.5, lng: -72.91 })).toEqual({ lat: 11.5, lng: -72.91 })
+    expect(normalizarPunto({ lat: 0, lng: 180 }).lng).toBe(180)
+    expect(normalizarPunto({ lat: 0, lng: 540 }).lng).toBe(-180)
+    for (const lng of [-1000, -181, 181, 540, 287.09]) expect(puntoValido(normalizarPunto({ lat: 11.5, lng }))).toBe(true)
+  })
+})
 
 describe('distancias', () => {
   it('un grado de latitud son unos 111 km, y es simétrica', () => {

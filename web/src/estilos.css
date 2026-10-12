@@ -83,8 +83,9 @@
   padding-bottom: max(1rem, env(safe-area-inset-bottom));
 }
 
-/* Mapa: controles de zoom de al menos 44 px (los de fábrica miden 30). */
-.leaflet-touch .leaflet-bar a {
+/* Mapa: controles de zoom de al menos 44 px (los de fábrica miden 30). El CSS de Leaflet se baja después, junto con el mapa,
+   y con la misma especificidad ganaría; por eso el selector lleva también la clase del contenedor. */
+.leaflet-container.leaflet-touch .leaflet-bar a {
   width: 44px;
   height: 44px;
   line-height: 44px;

@@ -27,6 +27,15 @@ export function puntoValido(p: unknown): p is Punto {
     && Number.isFinite(q.lat) && Number.isFinite(q.lng) && Math.abs(q.lat) <= 90 && Math.abs(q.lng) <= 180
 }
 
+/**
+ * El mapa repite el mundo: tocar en otra copia da una longitud como 287° en vez de -73°. Se lleva a su valor real (-180 a 180).
+ */
+export function normalizarPunto(p: Punto): Punto {
+  // Lo que ya está en rango no se toca (la aritmética de abajo le cambiaría los últimos decimales).
+  if (Math.abs(p.lng) <= 180) return p
+  return { lat: p.lat, lng: ((((p.lng + 180) % 360) + 360) % 360) - 180 }
+}
+
 const rad = (g: number) => (g * Math.PI) / 180
 
 /** Distancia en línea recta (km). */

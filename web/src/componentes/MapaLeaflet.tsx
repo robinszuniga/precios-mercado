@@ -39,17 +39,23 @@ const COLOR: Record<Tienda, { fondo: string; texto: string; letra: string }> = {
 
 const escapar = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 
+/** Lo mínimo que debe medir lo que se toca con el dedo. */
+const AREA_TOQUE = 44
+
 function icono(tienda: Tienda, mejor: boolean, enPlan: boolean, elegida: boolean): L.DivIcon {
   const c = COLOR[tienda]
+  // El círculo que se ve mide 34 (40 el destacado), pero el área que recibe el toque es de 44 como mínimo: la caja del
+  // pin es transparente y el círculo va centrado dentro.
   const tam = mejor || elegida ? 40 : 34
+  const area = Math.max(AREA_TOQUE, tam + 4)
   const borde = mejor ? '#15803d' : elegida ? '#0f766e' : '#ffffff'
   const grosor = mejor || elegida ? 4 : 2
   const opacidad = enPlan || mejor || elegida ? 1 : 0.7
   return L.divIcon({
     className: '',
-    iconSize: [tam, tam],
-    iconAnchor: [tam / 2, tam / 2],
-    html: `<span aria-hidden="true" style="display:grid;place-items:center;width:${tam}px;height:${tam}px;border-radius:9999px;background:${c.fondo};color:${c.texto};border:${grosor}px solid ${borde};box-shadow:0 1px 4px rgba(0,0,0,.45);font:700 ${c.letra.length > 1 ? 13 : 16}px/1 system-ui,sans-serif;opacity:${opacidad}">${escapar(c.letra)}</span>`,
+    iconSize: [area, area],
+    iconAnchor: [area / 2, area / 2],
+    html: `<span style="display:grid;place-items:center;width:${area}px;height:${area}px"><span aria-hidden="true" style="display:grid;place-items:center;width:${tam}px;height:${tam}px;box-sizing:border-box;border-radius:9999px;background:${c.fondo};color:${c.texto};border:${grosor}px solid ${borde};box-shadow:0 1px 4px rgba(0,0,0,.45);font:700 ${c.letra.length > 1 ? 13 : 16}px/1 system-ui,sans-serif;opacity:${opacidad}">${escapar(c.letra)}</span></span>`,
   })
 }
 
@@ -86,7 +92,8 @@ export default function MapaLeaflet({ centro, pines, yo, nuevo = null, seleccion
     }).on('tileerror', () => { if (!avisado) { avisado = true; alFallarTeselas.current?.() } }).addTo(m)
     capaSedes.current = L.layerGroup().addTo(m)
     capaExtras.current = L.layerGroup().addTo(m)
-    m.on('click', (e: L.LeafletMouseEvent) => alTocar.current?.({ lat: e.latlng.lat, lng: e.latlng.lng }))
+    // `wrap()`: en otra «copia del mundo» la longitud sale fuera de -180..180; se lleva a su valor real.
+    m.on('click', (e: L.LeafletMouseEvent) => { const p = e.latlng.wrap(); alTocar.current?.({ lat: p.lat, lng: p.lng }) })
     mapa.current = m
     const vivos = marcadores.current
     return () => { m.remove(); mapa.current = null; capaSedes.current = null; capaExtras.current = null; vivos.clear(); encuadrado.current = '' }
@@ -123,6 +130,8 @@ export default function MapaLeaflet({ centro, pines, yo, nuevo = null, seleccion
         marcador.setLatLng([sede.lat, sede.lng])
         marcador.setIcon(icon)
       }
+      // Con dos sedes casi encimadas, la elegida y la más barata quedan por encima y se pueden tocar.
+      marcador.setZIndexOffset(sede.id === seleccionada ? 1000 : p.mejor ? 500 : 0)
       const el = marcador.getElement()
       if (el) {
         el.setAttribute('role', 'button')
