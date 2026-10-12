@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Presentacion } from '@shared/esquema.ts'
+import { esTiendaVtex } from '@shared/tiendas.ts'
 import { useCatalogo } from '../datos/consultas.ts'
 import { CuentaCambiada, db, exigirCuenta, generacionActual } from '../datos/db.ts'
 import { observacion, registrarObservaciones, guardar } from '../datos/escritura.ts'
@@ -37,8 +38,8 @@ export function ActualizarPrecios() {
     try {
       const todas = await db.presentaciones.toArray()
       exigirCuenta(cuenta)
-      const pendientes = todas.filter((p) => p.activo && p.auto && (p.sku_id || p.ean)
-        && (p.tienda === 'EXITO' || p.tienda === 'OLIMPICA' || (p.tienda === 'D1' && catalogo.cfg.autoD1)))
+      // D1 también: su precio de internet es el nacional y sale marcado así (no atiende Riohacha).
+      const pendientes = todas.filter((p) => p.activo && p.auto && (p.sku_id || p.ean) && esTiendaVtex(p.tienda))
       let actualizadas = 0
       let errores = 0
       for (let i = 0; i < pendientes.length; i += LOTE) {

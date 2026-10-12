@@ -55,7 +55,8 @@ describe('modo tienda', () => {
     expect(pres).toMatchObject({ tienda: 'D1', contenido: 1000, ean: EAN })
     const todas = await db.presentaciones.toArray()
     expect(todas.map((p) => p.tienda).sort()).toEqual(['D1', 'OLIMPICA'])
-    expect(await db.preciosActuales.count()).toBe(1) // el de Olímpica; el de D1 lo escribes tú
+    // El de internet de Olímpica y el de internet de D1 (precio nacional); el de la tienda lo escribes tú.
+    expect((await db.preciosActuales.toArray()).map((p) => p.origen)).toEqual(['online', 'online'])
   })
 
   it('ordena tus productos por parecido con lo escaneado', () => {
@@ -76,7 +77,7 @@ describe('modo tienda', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Guardar precio' }))
     await waitFor(async () => {
       const d1 = (await db.presentaciones.toArray()).find((p) => p.tienda === 'D1')!
-      expect((await db.preciosActuales.where('presentacion_id').equals(d1.presentacion_id).first())?.precio).toBe(4900)
+      expect((await db.preciosActuales.where('presentacion_id').equals(d1.presentacion_id).filter((x) => x.origen === 'tienda').first())?.precio).toBe(4900)
     })
     // Vuelve a la cámara para el siguiente producto.
     expect(await screen.findByLabelText('O escribe el código')).toBeInTheDocument()

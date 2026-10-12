@@ -12,8 +12,11 @@ export type Cand = Candidato & { region: Region }
 export type OpcionLote = Opcion<Cand>
 type PorTienda = Partial<Record<TiendaVtex, OpcionLote[]>>
 
-/** Las tiendas que publican precio online útil para Riohacha (D1 no atiende Riohacha; Ara no vende online). */
-export const TIENDAS_LOTE: TiendaVtex[] = ['OLIMPICA', 'EXITO']
+/**
+ * Las tiendas con catálogo online que se buscan solas (Ara no vende online). D1 no atiende Riohacha: su precio en internet
+ * es el nacional y la app lo marca como «precio nacional»; el que la persona anota en la tienda manda.
+ */
+export const TIENDAS_LOTE: TiendaVtex[] = ['OLIMPICA', 'EXITO', 'D1']
 const LOTE = 8
 const HORAS_ENTRE_AUTOMATICOS = 20
 const DIAS_SIN_REPETIR = 7
@@ -207,6 +210,66 @@ export function autoVincular(opciones: { forzar?: boolean } = {}): Promise<Resul
 }
 
 async function correrAuto(opciones: { forzar?: boolean }, cuenta: number): Promise<ResultadoAuto | null> {
+  const r = await correrAutoBase(opciones, cuenta)
+  // Si no tocaba correr, tampoco se completa nada. Un fallo al completar no tumba el resultado de lo ya hecho.
+  if (r) {
+    try { await completarTiendas(cuenta, !!opciones.forzar) } catch (e) { if (e instanceof CuentaCambiada) throw e }
+  }
+  return r
+}
+
+/** Máximo de productos que se completan por vuelta (cada llamada del servicio tiene su cuota). */
+const MAX_COMPLETAR = 40
+
+/**
+ * Productos que ya tienen vínculo online pero no tienen el de la tienda `t` (por ejemplo D1, que se agregó después de que
+ * la persona vinculara los suyos). Si en esa tienda hubo un vínculo y la persona lo quitó, no se insiste.
+ */
+export async function productosSinTienda(t: TiendaVtex): Promise<Producto[]> {
+  const [productos, presentaciones] = await Promise.all([db.productos.toArray(), db.presentaciones.toArray()])
+  const vinculados = new Set(presentaciones.filter((p) => p.activo && p.sku_id && TIENDAS_LOTE.includes(p.tienda as TiendaVtex)).map((p) => p.producto_id))
+  const yaEnTienda = new Set(presentaciones.filter((p) => p.tienda === t && p.sku_id).map((p) => p.producto_id))
+  return productos.filter((p) => p.activo && vinculados.has(p.producto_id) && !yaEnTienda.has(p.producto_id))
+}
+
+/**
+ * Completa cada tienda de la búsqueda online en los productos ya vinculados: por código de barras (mismo producto, seguro) si
+ * se conoce el de alguna de sus presentaciones, y si no, por nombre aceptando solo lo seguro (con su marca preferida, si
+ * tiene). Cada producto se revisa en cada tienda a lo sumo una vez cada 7 días. Devuelve cuántas presentaciones creó.
+ */
+async function completarTiendas(cuenta: number, forzar: boolean): Promise<number> {
+  const estado = await leerMeta<Record<string, number>>('completarTiendas', {})
+  exigirCuenta(cuenta)
+  const ahora = Date.now()
+  let creadas = 0
+  for (const t of TIENDAS_LOTE) {
+    const pendientes = (await productosSinTienda(t))
+      .filter((p) => forzar || ahora - (estado[`${t}:${p.producto_id}`] ?? 0) >= DIAS_SIN_REPETIR * 86400_000)
+      .slice(0, MAX_COMPLETAR)
+    if (!pendientes.length) continue
+    const presentaciones = await db.presentaciones.toArray()
+    exigirCuenta(cuenta)
+    const eanDe = (id: string) => presentaciones.find((x) => x.producto_id === id && x.activo && x.ean)?.ean
+    const items: Item[] = pendientes.map((p) => (eanDe(p.producto_id) ? { id: p.producto_id, ean: eanDe(p.producto_id), unidad: p.unidad_base } : itemDe(p)))
+    const { resultados, fallo } = await buscarLote(items, [t], undefined, cuenta)
+    exigirCuenta(cuenta)
+    // Sin señal o sin respuesta: no se marca nada como revisado, se reintenta en la próxima vuelta.
+    if (fallo) return creadas
+    for (const p of pendientes) {
+      const porEan = !!eanDe(p.producto_id)
+      const seguras = seguros(resultados.get(p.producto_id), porEan ? undefined : p.marca).filter((o) => o.tienda === t)
+      estado[`${t}:${p.producto_id}`] = ahora
+      for (const o of seguras) {
+        if (await crearDesdeCandidato(p, o, o.contenido?.valor ?? null, { cuenta })) creadas++
+      }
+    }
+    exigirCuenta(cuenta)
+    await guardarMeta('completarTiendas', estado)
+  }
+  return creadas
+}
+
+async function correrAutoBase(opciones: { forzar?: boolean }, cuenta: number): Promise<ResultadoAuto | null> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return null
   exigirCuenta(cuenta)
   const estado = await leerMeta<EstadoAuto>('autoVinculo', { ultimo: 0, revisados: {} })
@@ -290,7 +353,7 @@ async function vincularMarcaAhora(producto: Producto, cuenta: number): Promise<R
 }
 
 /**
- * Al elegir la marca preferida de un producto: la busca en Olímpica y Éxito y, donde la encuentra sin duda, la
+ * Al elegir la marca preferida de un producto: la busca en Olímpica, Éxito y D1 y, donde la encuentra sin duda, la
  * vincula y quita el vínculo a otra marca en esa tienda. Donde no está, deja lo que había (mejor un precio de otra
  * marca que ninguno). Si no se pudo buscar, queda pendiente: la búsqueda automática lo reintenta.
  */

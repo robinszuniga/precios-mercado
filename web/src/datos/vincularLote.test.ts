@@ -10,7 +10,7 @@ vi.mock('./apiVtex.ts', () => ({
 
 import { VincularTodos } from '../componentes/VincularTodos.tsx'
 import { db, guardarMeta } from './db.ts'
-import { compraAbierta, guardar, nuevoProducto } from './escritura.ts'
+import { compraAbierta, guardar, nuevaPresentacion, nuevoProducto } from './escritura.ts'
 import { autoVincular, productosSinVincular } from './vincularLote.ts'
 
 type Item = { id: string; q?: string; ean?: string; unidad: string }
@@ -50,6 +50,45 @@ beforeEach(async () => {
   ])
 })
 
+describe('D1 también se busca (con precio nacional)', () => {
+  it('se pide a las tres tiendas; lo que sale de D1 se vincula por código de barras y su precio queda marcado como nacional', async () => {
+    const llamadas: { items: Item[]; tiendas: string[] }[] = []
+    h.manejar = (accion, params) => {
+      if (accion !== 'buscarVarios') return { tipo: 'ok', data: {} }
+      llamadas.push(params as { items: Item[]; tiendas: string[] })
+      const resultados = (params.items as Item[]).map((it) => {
+        if (it.ean === '770') return { id: it.id, porTienda: { OLIMPICA: [], EXITO: [], D1: [opcion('D1', 'Arroz Diana 1000 g', 5100, 1000, 'g', true, '770')] } }
+        if (it.q === 'Arroz') return { id: it.id, porTienda: { OLIMPICA: [opcion('OLIMPICA', 'Arroz Diana 1000 g', 5200, 1000, 'g', true, '770')], EXITO: [], D1: [] } }
+        return { id: it.id, porTienda: { OLIMPICA: [], EXITO: [], D1: [] } }
+      })
+      return { tipo: 'ok', data: { resultados, errores: [], marcas: true } }
+    }
+    const r = await autoVincular()
+    expect(r?.vinculados).toBe(1)
+    expect(llamadas[0].tiendas).toEqual(['OLIMPICA', 'EXITO', 'D1'])
+    const pres = await db.presentaciones.toArray()
+    expect(pres.map((p) => p.tienda).sort()).toEqual(['D1', 'OLIMPICA'])
+    const d1 = pres.find((p) => p.tienda === 'D1')!
+    expect(d1).toMatchObject({ auto: true, activo: true, sku_id: 'D1-Arroz Diana 1000 g', contenido: 1000 })
+    const precio = await db.preciosActuales.where('presentacion_id').equals(d1.presentacion_id).first()
+    expect(precio).toMatchObject({ origen: 'online', precio: 5100, region: 'DEFAULT' })
+    // Y la app lo muestra como "precio nacional", no como un precio de Riohacha.
+    const { precioEfectivo } = await import('@shared/precioEfectivo.ts')
+    expect(precioEfectivo([precio!], { auto: 3, tiendaAmarillo: 30, tiendaMax: 60 }, precio!.fecha_verificado).efectivo?.distintivo).toBe('online_nac')
+  })
+
+  it('el precio del estante manda sobre el nacional de internet', async () => {
+    const { precioEfectivo } = await import('@shared/precioEfectivo.ts')
+    const ahora = new Date().toISOString()
+    const base = { presentacion_id: 'x', tienda: 'D1' as const, precio_lista: null, disponible: true, fecha_observado: ahora, fecha_verificado: ahora }
+    const efectivo = precioEfectivo([
+      { ...base, clave: 'x|online', origen: 'online', fuente: 'auto', precio: 5100, region: 'DEFAULT' },
+      { ...base, clave: 'x|tienda', origen: 'tienda', fuente: 'manual', precio: 4900, region: '' },
+    ], { auto: 3, tiendaAmarillo: 30, tiendaMax: 60 }, ahora).efectivo
+    expect(efectivo).toMatchObject({ precio: 4900, distintivo: 'tienda' })
+  })
+})
+
 describe('vincular automático', () => {
   it('vincula solo lo seguro, completa la otra tienda por código de barras y guarda el precio', async () => {
     const llamadas = servidor()
@@ -65,13 +104,76 @@ describe('vincular automático', () => {
 
   it('no se repite en el mismo día; con "forzar" sí, y lo revisado no se busca solo por unos días', async () => {
     const llamadas = servidor()
+    // Las búsquedas de las tres tiendas (la principal y la de completar por código) y las que solo completan D1.
+    const principales = () => llamadas.filter((l) => l.tiendas.length > 1)
+    const soloD1 = () => llamadas.filter((l) => l.tiendas.length === 1 && l.tiendas[0] === 'D1')
     await autoVincular()
     expect(await autoVincular()).toBeNull()
-    expect(llamadas).toHaveLength(2)
+    expect(principales()).toHaveLength(2)
+    expect(soloD1()).toHaveLength(1) // Arroz quedó vinculado en Olímpica y Éxito: se completa D1
     await autoVincular({ forzar: true })
-    expect(llamadas).toHaveLength(3)
+    expect(principales()).toHaveLength(3)
+    expect(soloD1()).toHaveLength(2)
     await guardarMeta('autoVinculo', { ...(await db.meta.get('autoVinculo'))!.valor as object, ultimo: 0 })
     expect(await autoVincular()).toEqual({ vinculados: 0, dudosos: 0, sinResultado: 0 })
+    expect(soloD1()).toHaveLength(2) // sin forzar, lo revisado hace poco no se vuelve a buscar en D1
+  })
+})
+
+describe('completar D1 en lo que ya estaba vinculado', () => {
+  it('un producto ya vinculado en Olímpica y Éxito se busca en D1 por su código de barras; una vez, sin repetir ni pisar lo quitado', async () => {
+    const [arroz] = await db.productos.filter((p) => p.nombre === 'Arroz').toArray()
+    await guardar('Presentaciones', [
+      nuevaPresentacion({ producto_id: arroz.producto_id, tienda: 'OLIMPICA', sku_id: 'o1', ean: '770', contenido: 1000, auto: true, nombre_en_tienda: 'Arroz Diana 1000 g' }),
+    ])
+    const pedidos: { items: Item[]; tiendas: string[] }[] = []
+    h.manejar = (accion, params) => {
+      if (accion !== 'buscarVarios') return { tipo: 'ok', data: {} }
+      pedidos.push(params as { items: Item[]; tiendas: string[] })
+      const resultados = (params.items as Item[]).map((it) => ({
+        id: it.id,
+        porTienda: { D1: it.ean === '770' ? [opcion('D1', 'Arroz Diana 1000 g', 5100, 1000, 'g', true, '770')] : [], OLIMPICA: [], EXITO: [] },
+      }))
+      return { tipo: 'ok', data: { resultados, errores: [], marcas: true } }
+    }
+    await autoVincular({ forzar: true })
+    const d1 = pedidos.find((p) => p.tiendas.length === 1 && p.tiendas[0] === 'D1')!
+    expect(d1.items.find((i) => i.id === arroz.producto_id)).toMatchObject({ ean: '770' }) // por código de barras
+    const pres = (await db.presentaciones.toArray()).filter((p) => p.producto_id === arroz.producto_id)
+    expect(pres.map((p) => p.tienda).sort()).toEqual(['D1', 'OLIMPICA'])
+    const nueva = pres.find((p) => p.tienda === 'D1')!
+    expect(nueva).toMatchObject({ auto: true, activo: true, ean: '770', contenido: 1000 })
+    expect((await db.preciosActuales.where('presentacion_id').equals(nueva.presentacion_id).first())?.region).toBe('DEFAULT')
+
+    // Una segunda vuelta no repite la búsqueda ni duplica la presentación.
+    const antes = pedidos.length
+    await autoVincular({ forzar: true })
+    expect((await db.presentaciones.toArray()).filter((p) => p.producto_id === arroz.producto_id && p.tienda === 'D1')).toHaveLength(1)
+    expect(pedidos.slice(antes).filter((p) => p.tiendas.length === 1 && p.tiendas[0] === 'D1' && p.items.some((i) => i.id === arroz.producto_id))).toHaveLength(0)
+
+    // Si la persona quita ese vínculo, no se vuelve a poner solo.
+    await guardar('Presentaciones', { ...nueva, activo: false })
+    await autoVincular({ forzar: true })
+    expect((await db.presentaciones.toArray()).filter((p) => p.tienda === 'D1' && p.activo)).toHaveLength(0)
+  })
+
+  it('sin código de barras se busca por nombre y solo se acepta lo seguro; sin señal no se marca nada como revisado', async () => {
+    const [arroz] = await db.productos.filter((p) => p.nombre === 'Arroz').toArray()
+    await guardar('Presentaciones', nuevaPresentacion({ producto_id: arroz.producto_id, tienda: 'EXITO', sku_id: 'e1', ean: '', contenido: 1000, auto: true }))
+    h.manejar = (accion) => (accion === 'buscarVarios' ? { tipo: 'desconocido', motivo: 'sin servicio' } : { tipo: 'ok', data: {} })
+    await autoVincular({ forzar: true })
+    expect((await db.meta.get('completarTiendas'))?.valor ?? {}).toEqual({}) // no se marcó nada
+    const pedidos: { items: Item[]; tiendas: string[] }[] = []
+    h.manejar = (accion, params) => {
+      if (accion !== 'buscarVarios') return { tipo: 'ok', data: {} }
+      pedidos.push(params as { items: Item[]; tiendas: string[] })
+      const resultados = (params.items as Item[]).map((it) => ({ id: it.id, porTienda: { D1: it.q === 'Arroz' ? [opcion('D1', 'Arroz Roa 1000 g', 4800, 1000, 'g', false)] : [], OLIMPICA: [], EXITO: [] } }))
+      return { tipo: 'ok', data: { resultados, errores: [], marcas: true } }
+    }
+    await autoVincular({ forzar: true })
+    const d1 = pedidos.find((p) => p.tiendas.length === 1 && p.tiendas[0] === 'D1')!
+    expect(d1.items.find((i) => i.id === arroz.producto_id)).toMatchObject({ q: 'Arroz' })
+    expect((await db.presentaciones.toArray()).filter((p) => p.tienda === 'D1')).toHaveLength(0) // dudoso: no se vincula solo
   })
 })
 
@@ -193,7 +295,7 @@ describe('marca preferida', () => {
 
     const { vincularMarca } = await import('./vincularLote.ts')
     const [conMarca] = await guardar('Productos', { ...arroz, marca: 'Diana' })
-    expect(await vincularMarca(conMarca)).toEqual({ tipo: 'ok', con: ['OLIMPICA'], sin: ['EXITO'] })
+    expect(await vincularMarca(conMarca)).toEqual({ tipo: 'ok', con: ['OLIMPICA'], sin: ['EXITO', 'D1'] })
     const activas = (await db.presentaciones.toArray()).filter((p) => p.activo).map((p) => p.nombre_en_tienda)
     expect(activas).toEqual(['Arroz Diana 1000 g'])
   })

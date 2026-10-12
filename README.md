@@ -9,7 +9,7 @@ presupuesto en vivo mientras compras y saber dónde conviene cada producto.
 > y publicar la app; las actualizaciones de precios programadas también quedan pendientes.
 
 - Compara por **precio por kg, litro o unidad**: un paquete de 500 g de D1 se compara justo con uno de 1 kg de Éxito.
-- **El precio que ves en la tienda manda.** El precio online (Éxito, Olímpica y D1 si atiende Riohacha) es de apoyo y lleva
+- **El precio que ves en la tienda manda.** El precio online (Éxito, Olímpica y D1; el de D1 siempre sale como nacional porque no atiende Riohacha) es de apoyo y lleva
   un distintivo: `online` si es de Riohacha, `online·nac` si la tienda solo publica el precio nacional. La etiqueta
   también muestra cuándo se verificó por última vez.
 - Funciona **sin señal** dentro del súper: todo se guarda en el celular y se sincroniza con la nube al volver la señal.

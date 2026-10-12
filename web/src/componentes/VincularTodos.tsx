@@ -32,7 +32,7 @@ function FilaOpcion({ o, unidad, nombre, marcada, onElegir }: { o: OpcionLote; u
 }
 
 /**
- * Busca en Olímpica y Éxito todos los productos sin precio de internet. Los que coinciden sin duda se vinculan
+ * Busca en Olímpica, Éxito y D1 todos los productos sin precio de internet. Los que coinciden sin duda se vinculan
  * solos; los dudosos se muestran con la mejor opción ya elegida para confirmar con un toque.
  */
 export function VincularTodos({ onListo }: { onListo: () => void }) {
@@ -87,7 +87,7 @@ export function VincularTodos({ onListo }: { onListo: () => void }) {
       <div className="space-y-3 pb-4" aria-busy="true">
         <p className="text-stone-700">
           {fase.tipo === 'buscando'
-            ? `Buscando tus productos en Olímpica y Éxito${fase.total ? ` (${fase.hechos} de ${fase.total})` : ''}…`
+            ? `Buscando tus productos en Olímpica, Éxito y D1${fase.total ? ` (${fase.hechos} de ${fase.total})` : ''}…`
             : `Guardando los que coinciden${fase.total ? ` (${fase.hechos} de ${fase.total})` : ''}…`}
         </p>
         <div className="h-2 overflow-hidden rounded-full bg-stone-200" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
