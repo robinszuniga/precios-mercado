@@ -1,11 +1,11 @@
 name: Smoke test VTEX
 
-# Prueba real de Éxito, Olímpica y D1 desde una IP de datacenter (la misma clase de IP que usaría el plan B).
+# Prueba real de Éxito, Olímpica, D1 y Metro desde una IP de datacenter (la misma clase de IP que usaría el plan B).
 on:
   workflow_dispatch:
     inputs:
       tienda:
-        description: 'EXITO, OLIMPICA o D1 (vacío = todas)'
+        description: 'EXITO, OLIMPICA, D1 o METRO (vacío = todas)'
         required: false
         default: ''
 

@@ -5,7 +5,7 @@ import { esTiendaVtex } from '@shared/tiendas.ts'
 export const FRESCO_MS = 10 * 60_000
 
 /**
- * Las presentaciones cuyo precio de internet toca pedir, las más atrasadas primero. El servidor deja unas 56 por minuto:
+ * Las presentaciones cuyo precio de internet toca pedir, las más atrasadas primero. El servidor deja unas 48 por minuto:
  * en una lista larga, empezar siempre por las mismas dejaría el resto sin actualizar nunca; así cada vez se avanza.
  * Se saltan las de productos archivados o eliminados (no se ven en la lista) y las que ya se consultaron hace poco.
  */

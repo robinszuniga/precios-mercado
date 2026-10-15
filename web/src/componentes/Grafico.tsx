@@ -7,11 +7,12 @@ export interface Serie {
   puntos: { t: number; v: number }[]
 }
 
-/** Mismos colores que en toda la app. D1 punteado para que no se confunda con Olímpica (las dos son rojas). */
+/** Mismos colores que en toda la app. D1 punteado para que no se confunda con Olímpica (las dos son rojas); Metro, azul y de raya y punto. */
 export const ESTILO_SERIE: Record<Tienda, { color: string; guiones?: number[] }> = {
   EXITO: { color: '#a16207' },
   OLIMPICA: { color: '#be123c' },
   D1: { color: '#7f1d1d', guiones: [6, 4] },
+  METRO: { color: '#1d4ed8', guiones: [10, 3, 2, 3] },
   ARA: { color: '#c2410c', guiones: [2, 3] },
 }
 

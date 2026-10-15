@@ -1,7 +1,7 @@
 import type { FilaConfig } from './esquema.ts'
 import { sedesDeConfig, type Sede } from './mapa.ts'
 import type { Vigencias } from './precioEfectivo.ts'
-import type { TiendaVtex } from './tiendas.ts'
+import { TIENDAS_VTEX, type TiendaVtex } from './tiendas.ts'
 
 export interface Ubicacion {
   cp: string
@@ -57,7 +57,7 @@ export function leerConfig(filas: readonly Pick<FilaConfig, 'clave' | 'valor'>[]
   const m = new Map<string, string>(Object.entries(CONFIG_POR_DEFECTO))
   for (const f of filas) m.set(f.clave, f.valor)
   const regiones: Config['regiones'] = {}
-  for (const t of ['EXITO', 'OLIMPICA', 'D1'] as const) {
+  for (const t of TIENDAS_VTEX) {
     const r = json<RegionGuardada | null>(m.get(`region.${t}`), null)
     if (r) regiones[t] = r
   }

@@ -1,6 +1,6 @@
 # Precios de Mercado
 
-App personal (PWA) para comparar el mercado entre **Éxito, Olímpica, D1 y Ara en Riohacha**, llevar el
+App personal (PWA) para comparar el mercado entre **Éxito, Olímpica, D1, Metro y Ara en Riohacha**, llevar el
 presupuesto en vivo mientras compras y saber dónde conviene cada producto.
 
 > **Multiusuario en preparación:** el sitio publicado aún es la versión personal antigua y usa Apps Script. El código local
@@ -9,7 +9,7 @@ presupuesto en vivo mientras compras y saber dónde conviene cada producto.
 > y publicar la app; las actualizaciones de precios programadas también quedan pendientes.
 
 - Compara por **precio por kg, litro o unidad**: un paquete de 500 g de D1 se compara justo con uno de 1 kg de Éxito.
-- **El precio que ves en la tienda manda.** El precio online (Éxito, Olímpica y D1; el de D1 siempre sale como nacional porque no atiende Riohacha) es de apoyo y lleva
+- **El precio que ves en la tienda manda.** El precio online (Éxito, Olímpica, D1 y Metro; el de D1 siempre sale como nacional porque no atiende Riohacha, y el de Metro también: Metro vende en línea por jumbocolombia.com y allá los precios pueden diferir de los del supermercado) es de apoyo y lleva
   un distintivo: `online` si es de Riohacha, `online·nac` si la tienda solo publica el precio nacional. La etiqueta
   también muestra cuándo se verificó por última vez.
 - Funciona **sin señal** dentro del súper: todo se guarda en el celular y se sincroniza con la nube al volver la señal.
@@ -24,7 +24,8 @@ presupuesto en vivo mientras compras y saber dónde conviene cada producto.
 | `web/` | La app: React + Vite + Tailwind, instalable, con IndexedDB (Dexie) y cola de envíos. Se publica en GitHub Pages. |
 | `apps-script/` | Backend heredado de la versión personal: guarda los datos en un Sheet y consulta las tiendas. La versión multiusuario usa Supabase y la función `supabase/functions/vtex/`. |
 | `shared/` | La lógica (precio por unidad, qué precio vale, plan, presupuesto, resumen, conector VTEX). Es la misma en la app, el backend y las pruebas. |
-| `tools/smoke-vtex.ts` | Prueba real de las APIs de Éxito, Olímpica y D1, incluida la región de Riohacha. |
+| `tools/smoke-vtex.ts` | Prueba real de las APIs de Éxito, Olímpica, D1 y Metro, incluida la región de Riohacha. |
+| `tools/probar-tienda.ts` | Averigua si la tienda en línea de cualquier supermercado VTEX muestra precios de Riohacha o solo nacionales: `node tools/probar-tienda.ts https://www.jumbocolombia.com`. No escribe nada. |
 
 ## Instalación de la versión personal antigua
 
@@ -133,6 +134,14 @@ eliminado, por si otro celular no se había enterado); sin ellas el celular igua
 conserva las presentaciones hasta que se apliquen. Una eliminación siempre gana: si otro celular editó el producto, pierde su
 edición y queda eliminado también ahí. `supabase/diagnostico.sql` (solo lee) dice si falta alguna migración.
 
+**Metro.** Metro no tiene tienda en línea propia: su sitio manda a comprar en `jumbocolombia.com`, así que sus precios de internet
+salen de ahí, siempre como «precio nacional» (pueden diferir de los del supermercado; el del estante manda). Para activarlo, **en
+este orden**: (1) aplicar `supabase/migrations/20261014000100_tienda_metro.sql` (amplía la lista de tiendas que acepta la base; sin
+ella, lo de Metro se rechaza y el cierre de una compra con precios de Metro queda sin guardar en la nube hasta aplicarla);
+(2) desplegar la función `vtex` (Actions → «Desplegar Edge Function VTEX»; la versión vieja rechaza la lista de tiendas con Metro);
+(3) actualizar la app en **todos** los celulares antes de abrirla en alguno: una versión vieja no conoce a Metro y se queda en
+blanco al recibir sus datos. `supabase/diagnostico.sql` avisa («tienda sin METRO») si falta el paso 1.
+
 En **Ajustes → Este celular** puedes descargar un respaldo o importar uno. La importación combina los datos con los
 de ese celular: si una fila tiene la misma clave, gana la del archivo; las demás se conservan. La conexión y el token
 de Google no se incluyen ni se cambian. La importación solo restaura datos en el celular; no los envía automáticamente
@@ -158,7 +167,7 @@ Google Lens (*Copiar texto*) o, en iPhone, manteniendo el dedo sobre el texto de
 
 ## Precios de internet, solos
 
-La app busca sola en Olímpica, Éxito y D1 los productos que todavía no tienen precio de internet: al abrir la app
+La app busca sola en Olímpica, Éxito, D1 y Metro los productos que todavía no tienen precio de internet: al abrir la app
 (una vez al día) y justo después de pegar tu lista. El servicio de precios deja unas 120 unidades por minuto; si una lista larga
 se corta a la mitad, la app dice cuántos productos quedaron sin buscar y sigue por ellos a los pocos minutos.
 
@@ -177,7 +186,7 @@ se corta a la mitad, la app dice cuántos productos quedaron sin buscar y sigue 
 
 1. **Productos**: pega tu lista, crea tus productos (★ = entra solo en cada compra) o empieza con la lista típica. En cada producto:
    - **Anotar precio**: lo que ves en la tienda (marca, tamaño y precio). Avisa si el precio parece mal escrito.
-   - **Buscar online**: busca en Éxito, Olímpica o D1, eliges el producto exacto y con su código de barras la app lo busca en las demás.
+   - **Buscar online**: busca en Éxito, Olímpica, D1 o Metro, eliges el producto exacto y con su código de barras la app lo busca en las demás.
 2. **Plan**: marca las tiendas que visitas hoy y mira dónde comprar cada cosa y por qué. Toca un producto para cambiar
    la cantidad de esta vez, fijar la tienda o quitarlo.
 3. **Compra**: pon el presupuesto, elige **¿En qué tienda estás?** (la tuya queda abierta y las demás plegadas) y marca
@@ -202,7 +211,7 @@ Además:
   la misma app. Sin cámara, se escribe el número de debajo de las barras.
 
 Las tiendas se muestran con su logo (el ícono que publica cada una en su página; no se copia al repo). Si no carga,
-se ve su letra: É, O, D1, A.
+se ve su letra: É, O, D1, M, A. Metro siempre se ve con su letra: su tienda en línea es la página de Jumbo y no se usa su ícono.
 
 La auditoría de experiencia de uso y las capturas antes y después de las mejoras están en `docs/ux/`.
 
@@ -214,7 +223,7 @@ npm run dev          # app en http://localhost:5173/precios-mercado/
 npm test             # pruebas (shared, apps-script, web)
 npm run typecheck
 npm run build        # web/dist y apps-script/dist/Code.js
-npm run smoke        # prueba real contra las tiendas (necesita salida a exito.com, olimpica.com, d1.com.co)
+npm run smoke        # prueba real contra las tiendas (necesita salida a exito.com, olimpica.com, d1.com.co y jumbocolombia.com)
 ```
 
 El workflow **Smoke test VTEX** (Actions → Run workflow) hace la misma prueba desde los servidores de GitHub y guarda

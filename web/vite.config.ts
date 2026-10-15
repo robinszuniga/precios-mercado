@@ -23,7 +23,7 @@ export default defineConfig({
       manifest: {
         name: 'Precios de Mercado',
         short_name: 'Mercado',
-        description: 'Compara precios de Éxito, Olímpica, D1 y Ara en Riohacha y lleva el presupuesto mientras compras.',
+        description: 'Compara precios de Éxito, Olímpica, D1, Metro y Ara en Riohacha y lleva el presupuesto mientras compras.',
         lang: 'es-CO',
         start_url: './',
         scope: './',

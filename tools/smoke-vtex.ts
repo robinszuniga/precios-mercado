@@ -1,4 +1,4 @@
-// Prueba real de las APIs VTEX de Éxito, Olímpica y D1 desde donde se corra (máquina local, CI o el
+// Prueba real de las APIs VTEX de Éxito, Olímpica, D1 y Metro desde donde se corra (máquina local, CI o el
 // entorno de Claude). Decide por tienda: automático con región de Riohacha, automático nacional o manual.
 //
 //   node tools/smoke-vtex.ts             → tabla de resultados

@@ -145,6 +145,18 @@ async function contexto(tienda: TiendaVtex, usuario: SupabaseClient, uid: string
   return c
 }
 
+/**
+ * El contexto de una tienda o, si no se pudo armar (tienda caída, página que cambió), el motivo. Una tienda que falla no
+ * debe tumbar la consulta de las demás: el error se reporta aparte y la app no marca ese producto como revisado.
+ */
+async function contextoSeguro(tienda: TiendaVtex, usuario: SupabaseClient, uid: string): Promise<{ ctx: Contexto } | { error: string }> {
+  try {
+    return { ctx: await contexto(tienda, usuario, uid) }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'tienda no disponible' }
+  }
+}
+
 async function consultar(tienda: TiendaVtex, url: string, cookie: string | null, sellers: string[]): Promise<{ candidatos: Candidato[]; error?: string }> {
   const key = `${tienda}|${cookie ?? ''}|${url}`
   const cached = cacheCatalogo.get(key)
@@ -186,7 +198,9 @@ async function buscarEnTienda(usuario: SupabaseClient, uid: string, p: Json) {
   const tiendas = tiendasDe(p.tienda, true)
   if (!tiendas.length || (!q && !ean && !sku) || (p.tienda === '*' && !ean)) throw new Error('Búsqueda inválida.')
   const resultados = await Promise.all(tiendas.map(async (tienda) => {
-    const ctx = await contexto(tienda, usuario, uid)
+    const cx = await contextoSeguro(tienda, usuario, uid)
+    if ('error' in cx) return { tienda, r: { candidatos: [], error: cx.error } as { candidatos: Candidato[]; error?: string }, region: 'DEFAULT' as const }
+    const ctx = cx.ctx
     const url = ean ? urlPorEan(tienda, ean) : sku ? urlPorSku(tienda, sku) : urlBusqueda(tienda, { ft: q })
     const r = await consultar(tienda, url, ctx.segmento ? `vtex_segment=${ctx.segmento}` : null, ctx.sellers)
     return { tienda, r, region: ctx.region }
@@ -221,23 +235,29 @@ async function buscarVarios(usuario: SupabaseClient, uid: string, p: Json) {
   }
   const permitidas = [...new Set(tiendas)] as TiendaVtex[]
   const contextos = new Map<TiendaVtex, Contexto>()
-  await Promise.all(permitidas.map(async (t) => contextos.set(t, await contexto(t, usuario, uid))))
+  const sinContexto: string[] = []
+  await Promise.all(permitidas.map(async (t) => {
+    const cx = await contextoSeguro(t, usuario, uid)
+    if ('ctx' in cx) contextos.set(t, cx.ctx)
+    else sinContexto.push(`${t}: ${cx.error}`)
+  }))
+  const activas = permitidas.filter((t) => contextos.has(t))
   const yaDice = (it: Item) => {
     const palabras = new Set(claveProducto(it.q).split(' '))
     return claveProducto(it.marca).split(' ').every((w) => palabras.has(w))
   }
   const textoBusca = (it: Item) => it.marca && !yaDice(it) ? `${it.q} ${it.marca}` : it.q
-  const trabajos = items.flatMap((it) => permitidas.map((t) => ({ it, t })))
+  const trabajos = items.flatMap((it) => activas.map((t) => ({ it, t })))
   const encontrados = await Promise.all(trabajos.map(async ({ it, t }) => {
     const ctx = contextos.get(t)!
     const url = it.ean ? urlPorEan(t, it.ean) : urlBusqueda(t, { ft: textoBusca(it), hasta: 19 })
     const r = await consultar(t, url, ctx.segmento ? `vtex_segment=${ctx.segmento}` : null, ctx.sellers)
     return { it, t, r, ctx }
   }))
-  const errores = [...new Set(encontrados.filter((x) => x.r.error).map((x) => `${x.t}: ${x.r.error}`))]
+  const errores = [...new Set([...sinContexto, ...encontrados.filter((x) => x.r.error).map((x) => `${x.t}: ${x.r.error}`)])]
   const resultados = items.map((it) => {
     const porTienda: Partial<Record<TiendaVtex, Opcion<CandidatoRegional>[]>> = {}
-    for (const t of permitidas) {
+    for (const t of activas) {
       const x = encontrados.find((v) => v.it.id === it.id && v.t === t)
       const cands = (x?.r.candidatos ?? []).map((c) => ({ ...c, region: x!.ctx.region })) as CandidatoRegional[]
       porTienda[t] = it.ean
@@ -261,8 +281,17 @@ async function actualizarVinculadas(usuario: SupabaseClient, uid: string, p: Jso
     if (!tienda || !presentacion_id || (!sku && !ean)) throw new Error('Presentación de tienda inválida.')
     return { tienda, presentacion_id, sku, ean }
   })
+  // Una sola vez por tienda en esta tanda (varias presentaciones comparten tienda).
+  const contextos = new Map<TiendaVtex, ReturnType<typeof contextoSeguro>>()
+  const contextoDe = (t: TiendaVtex) => {
+    let c = contextos.get(t)
+    if (!c) { c = contextoSeguro(t, usuario, uid); contextos.set(t, c) }
+    return c
+  }
   const resultados = await Promise.all(pres.map(async (p) => {
-    const ctx = await contexto(p.tienda, usuario, uid)
+    const cx = await contextoDe(p.tienda)
+    if ('error' in cx) return { presentacion_id: p.presentacion_id, tienda: p.tienda, error: cx.error }
+    const ctx = cx.ctx
     const url = p.sku ? urlPorSku(p.tienda, p.sku) : urlPorEan(p.tienda, p.ean)
     let r = await consultar(p.tienda, url, ctx.segmento ? `vtex_segment=${ctx.segmento}` : null, ctx.sellers)
     let c = r.candidatos.find((x) => p.sku && x.skuId === p.sku) ?? r.candidatos.find((x) => p.ean && x.ean === p.ean)
@@ -307,13 +336,14 @@ Deno.serve(async (req) => {
     return respuesta(origin, 400, false, null, 'json', 'Solicitud inválida.')
   }
   const accion = texto(p.a, 32)
+  // Cada tienda consultada cuesta lo mismo: la cuenta sigue el total de tiendas en línea (con Metro son 4), no un número fijo.
+  const nTiendas = Array.isArray(p.tiendas) ? Math.min(TIENDAS_VTEX.length, p.tiendas.length) : 2
   const unidades = accion === 'buscarVarios'
-    ? Math.max(1, Math.min(MAX_LOTE, Array.isArray(p.items) ? p.items.length : 1)) * (Array.isArray(p.tiendas) ? Math.min(3, p.tiendas.length) : 2)
-      + 3 * (Array.isArray(p.tiendas) ? Math.min(3, p.tiendas.length) : 2)
+    ? Math.max(1, Math.min(MAX_LOTE, Array.isArray(p.items) ? p.items.length : 1)) * nTiendas + 3 * nTiendas
     : accion === 'buscarEnTienda'
-      ? (p.tienda === '*' ? 12 : 4)
+      ? (p.tienda === '*' ? 4 * TIENDAS_VTEX.length : 4)
       : accion === 'actualizarVinculadas'
-        ? Math.max(1, Math.min(MAX_LOTE, Array.isArray(p.presentaciones) ? p.presentaciones.length : 1)) + 9
+        ? Math.max(1, Math.min(MAX_LOTE, Array.isArray(p.presentaciones) ? p.presentaciones.length : 1)) + 3 * TIENDAS_VTEX.length
         : 3
   const { data: cuota, error: errorCuota } = await usuario.rpc('consumir_cuota_vtex', { p_unidades: unidades })
   if (errorCuota) return respuesta(origin, 503, false, null, 'cuota', 'No se pudo comprobar el límite de consultas. Inténtalo más tarde.')

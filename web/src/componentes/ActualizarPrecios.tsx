@@ -110,7 +110,7 @@ export function ActualizarPrecios() {
   return (
     <div className="space-y-1">
       <Boton variante="secundario" className="w-full" onClick={() => void iniciar()} disabled={ocupado || !catalogo}>
-        {ocupado ? mensaje || 'Actualizando precios online…' : '↻ Traer precios de Éxito, Olímpica y D1'}
+        {ocupado ? mensaje || 'Actualizando precios online…' : '↻ Traer precios de Éxito, Olímpica, D1 y Metro'}
       </Boton>
       {!ocupado && mensaje && <p className="text-center text-sm text-stone-700" role="status">{mensaje}</p>}
     </div>

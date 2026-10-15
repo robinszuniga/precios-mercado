@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { estadoPresupuesto } from '@shared/presupuesto.ts'
 import { leerRuta } from '../app/ruta.ts'
 import { BarraPresupuesto } from './BarraPresupuesto.tsx'
-import { avisar, Avisos, Hoja, leerNumero, Pasos } from './ui.tsx'
+import { INFO_TIENDAS, TIENDAS } from '@shared/tiendas.ts'
+import { avisar, Avisos, Hoja, leerNumero, LogoTienda, NombreTienda, Pasos } from './ui.tsx'
 import { precioAtipico } from './RegistrarPrecio.tsx'
 
 const d = (precio: number) => ({ estado: 'en_carrito' as const, cantidad: 1, precio_unitario: precio, borrado: false })
@@ -24,6 +25,25 @@ describe('BarraPresupuesto', () => {
     render(<BarraPresupuesto estado={estadoPresupuesto([d(12_345)], null, 0.85)} />)
     expect(screen.getByText('$ 12.345')).toBeInTheDocument()
     expect(screen.queryByRole('progressbar')).toBeNull()
+  })
+})
+
+describe('logo de cada tienda', () => {
+  it('Metro se muestra con su monograma, sin pedir una imagen (la de su página de internet es la de Jumbo)', () => {
+    const { container } = render(<NombreTienda tienda="METRO" />)
+    expect(screen.getByText('Metro')).toBeInTheDocument()
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.textContent).toContain('M')
+  })
+
+  it('las demás con imagen siguen pidiéndola', () => {
+    const { container } = render(<LogoTienda tienda="EXITO" />)
+    expect(container.querySelector('img')).not.toBeNull()
+  })
+
+  it.each(TIENDAS)('%s tiene nombre visible (no depende solo del color)', (t) => {
+    render(<NombreTienda tienda={t} />)
+    expect(screen.getByText(INFO_TIENDAS[t].nombre)).toBeInTheDocument()
   })
 })
 

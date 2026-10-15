@@ -113,15 +113,18 @@ export function fusionarSedes(actuales: readonly Sede[], nuevas: readonly Sede[]
 const sinTildes = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
 
 /**
- * De qué tienda es un nombre o marca de OpenStreetMap ("Tiendas D1", "Supertiendas Olímpica"…); null si no es de las cuatro.
- * El nombre tiene que EMPEZAR por la cadena (con a lo sumo "tiendas"/"almacenes" antes): "Droguería Olímpica" o "Papelería Éxito"
- * no son el supermercado.
+ * De qué tienda es un nombre o marca de OpenStreetMap ("Tiendas D1", "Supertiendas Olímpica", "Supermercados Metro"…); null si no es
+ * de las cinco. El nombre tiene que EMPEZAR por la cadena (con a lo sumo "tiendas"/"almacenes" antes): "Droguería Olímpica" o
+ * "Papelería Éxito" no son el supermercado, ni "Metrocentro" o "Metro de Medellín" lo son de Metro.
  */
 export function tiendaDeNombre(texto: unknown): Tienda | null {
   if (typeof texto !== 'string') return null
   const t = sinTildes(texto)
   const cadena = /^(?:super\s?tiendas?\s+|tiendas?\s+|almacenes\s+|hipermercados?\s+)?(exito|olimpica)(?:\s|$)/.exec(t)
   if (cadena) return cadena[1] === 'exito' ? 'EXITO' : 'OLIMPICA'
+  // "Metro" es una palabra común (el metro de una ciudad): solo vale como supermercado exacto ("Metro", "Supermercados Metro"),
+  // no "Metro de Medellín", "Metro Cash" ni "Metrocentro".
+  if (/^(?:super\s?mercados?\s+|super\s?tiendas?\s+|tiendas?\s+|hipermercados?\s+)?metro$/.test(t)) return 'METRO'
   if (/^(tiendas?\s+)?d1(\s|$)/.test(t)) return 'D1'
   // "Ara" es una palabra común: solo vale exacta ("Ara", "Tiendas Ara"), no "Araújo" ni "Ara Mueblería".
   if (/^(tiendas?\s+)?ara$/.test(t)) return 'ARA'
@@ -130,7 +133,7 @@ export function tiendaDeNombre(texto: unknown): Tienda | null {
 
 /** Tipos de local de OpenStreetMap que pueden ser un supermercado o una tienda de barrio de estas cadenas. */
 const TIPOS_DE_TIENDA = '^(supermarket|convenience|department_store|variety_store|discount|wholesale|general)$'
-const NOMBRES_OVERPASS = '^((super ?)?tiendas? |almacenes |hipermercados? )?(éxito|exito|olímpica|olimpica)( |$)|^(tiendas? )?d1( |$)|^(tiendas? )?ara$'
+const NOMBRES_OVERPASS = '^((super ?)?tiendas? |almacenes |hipermercados? )?(éxito|exito|olímpica|olimpica)( |$)|^(tiendas? )?d1( |$)|^(tiendas? )?ara$|^((super ?)?(mercados?|tiendas?) |hipermercados? )?metro$'
 const redondear = (n: number, d: number) => Math.round(n * 10 ** d) / 10 ** d
 
 /**
@@ -155,7 +158,7 @@ interface ElementoOsm {
   tags?: Record<string, string>
 }
 
-/** Las sedes de la respuesta de Overpass. Lo que no sea de las cuatro tiendas, o no tenga posición, se ignora. */
+/** Las sedes de la respuesta de Overpass. Lo que no sea de las cinco tiendas, o no tenga posición, se ignora. */
 export function sedesDeOverpass(respuesta: unknown): Sede[] {
   const elementos = (respuesta as { elements?: unknown } | null)?.elements
   if (!Array.isArray(elementos)) return []

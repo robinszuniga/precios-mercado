@@ -37,6 +37,13 @@ with problemas as (
    where c.conrelid = to_regclass('public.productos') and c.conname = 'productos_unidad_base_check'
      and pg_get_constraintdef(c.oid) not like '%''unidad''%'
   union all
+  select 'tienda sin METRO', k.relname || ': ' || c.conname
+    from pg_constraint c join pg_class k on k.oid = c.conrelid
+   where c.contype = 'c' and k.relnamespace = 'public'::regnamespace
+     and k.relname in ('presentaciones','compras_resumen','observaciones','precios_actuales','precios_historial')
+     and pg_get_constraintdef(c.oid) ~ '^CHECK \(\(tienda = ANY'
+     and pg_get_constraintdef(c.oid) not like '%''METRO''%'
+  union all
   select 'presentación de un producto eliminado', p.presentacion_id
     from public.presentaciones p
     join public.productos x on x.user_id = p.user_id and x.producto_id = p.producto_id and x.borrado

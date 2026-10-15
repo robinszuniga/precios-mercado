@@ -54,7 +54,7 @@ const consultaIncompleta = (r: unknown) => {
   return typeof x?.remark === 'string' && !(x.elements?.length)
 }
 
-/** Busca en OpenStreetMap (Overpass) las tiendas de las cuatro cadenas cerca de un punto. Nunca lanza: devuelve el motivo. */
+/** Busca en OpenStreetMap (Overpass) las tiendas de las cinco cadenas cerca de un punto. Nunca lanza: devuelve el motivo. */
 export async function buscarSedesEnLinea(centro: Punto, fetchFn: typeof fetch = fetch): Promise<{ ok: true; sedes: Sede[] } | { ok: false; motivo: string }> {
   const servidores = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter']
   let ultimo = 'sin respuesta'

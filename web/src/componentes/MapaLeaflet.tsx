@@ -34,6 +34,7 @@ const COLOR: Record<Tienda, { fondo: string; texto: string; letra: string }> = {
   EXITO: { fondo: '#facc15', texto: '#1c1917', letra: 'É' },
   OLIMPICA: { fondo: '#be123c', texto: '#ffffff', letra: 'O' },
   D1: { fondo: '#7f1d1d', texto: '#ffffff', letra: 'D1' },
+  METRO: { fondo: '#1d4ed8', texto: '#ffffff', letra: 'M' },
   ARA: { fondo: '#c2410c', texto: '#ffffff', letra: 'A' },
 }
 

@@ -17,7 +17,7 @@ type PorTienda = Partial<Record<TiendaVtex, OpcionLote[]>>
  * Las tiendas con catálogo online que se buscan solas (Ara no vende online). D1 no atiende Riohacha: su precio en internet
  * es el nacional y la app lo marca como «precio nacional»; el que la persona anota en la tienda manda.
  */
-export const TIENDAS_LOTE: TiendaVtex[] = ['OLIMPICA', 'EXITO', 'D1']
+export const TIENDAS_LOTE: TiendaVtex[] = ['OLIMPICA', 'EXITO', 'D1', 'METRO']
 const LOTE = 8
 const HORAS_ENTRE_AUTOMATICOS = 20
 const DIAS_SIN_REPETIR = 7
@@ -83,7 +83,7 @@ export async function crearDesdeCandidato(producto: Producto, c: Cand, contenido
 }
 
 /**
- * Productos activos sin ninguna presentación online en Olímpica, Éxito ni D1. Los que tuvieron un vínculo automático
+ * Productos activos sin ninguna presentación online en Olímpica, Éxito, D1 ni Metro. Los que tuvieron un vínculo automático
  * que el usuario quitó ya se revisaron: no se vuelven a buscar solos (se pueden vincular a mano).
  */
 export async function productosSinVincular(): Promise<Producto[]> {
@@ -424,7 +424,7 @@ async function vincularMarcaAhora(producto: Producto, cuenta: number): Promise<R
 }
 
 /**
- * Al elegir la marca preferida de un producto: la busca en Olímpica, Éxito y D1 y, donde la encuentra sin duda, la
+ * Al elegir la marca preferida de un producto: la busca en Olímpica, Éxito, D1 y Metro y, donde la encuentra sin duda, la
  * vincula y quita el vínculo a otra marca en esa tienda. Donde no está, deja lo que había (mejor un precio de otra
  * marca que ninguno). Si no se pudo buscar, queda pendiente: la búsqueda automática lo reintenta.
  */

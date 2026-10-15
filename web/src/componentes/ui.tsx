@@ -263,10 +263,12 @@ export function ErrorTexto({ children }: { children: ReactNode }) {
  * Ícono de cada tienda, tal como lo publica su propia página (no se copia al repo). El service worker lo guarda
  * para verlo sin señal; si no carga, se muestra la letra.
  */
-export const LOGO_TIENDA: Record<Tienda, string> = {
+export const LOGO_TIENDA: Record<Tienda, string | null> = {
   EXITO: 'https://www.exito.com/arquivos/favicon.ico',
   OLIMPICA: 'https://www.olimpica.com/arquivos/olimpica-favicon1.png',
   D1: 'https://d1tiendas.vteximg.com.br/arquivos/d1tiendas-favicon.ico',
+  // Metro vende en línea por la página de Jumbo: su ícono no es el de Metro. Se queda con el monograma.
+  METRO: null,
   ARA: 'https://sitemedia.aratiendas.com/wp-content/uploads/2021/03/cropped-icon-192x192.png',
 }
 
@@ -274,6 +276,7 @@ const MONOGRAMA: Record<Tienda, { letra: string; clase: string }> = {
   EXITO: { letra: 'É', clase: 'bg-exito text-tinta' },
   OLIMPICA: { letra: 'O', clase: 'bg-olimpica text-white' },
   D1: { letra: 'D1', clase: 'bg-d1 text-white' },
+  METRO: { letra: 'M', clase: 'bg-metro text-white' },
   ARA: { letra: 'A', clase: 'bg-ara text-white' },
 }
 
@@ -282,7 +285,8 @@ const logosQueFallaron = new Set<Tienda>()
 export function LogoTienda({ tienda, tam = 20 }: { tienda: Tienda; tam?: number }) {
   const [fallo, setFallo] = useState(() => logosQueFallaron.has(tienda))
   const m = MONOGRAMA[tienda]
-  if (fallo) {
+  const logo = LOGO_TIENDA[tienda]
+  if (fallo || !logo) {
     return (
       <span
         aria-hidden
@@ -295,7 +299,7 @@ export function LogoTienda({ tienda, tam = 20 }: { tienda: Tienda; tam?: number 
   }
   return (
     <img
-      src={LOGO_TIENDA[tienda]}
+      src={logo}
       alt=""
       aria-hidden
       width={tam}

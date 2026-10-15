@@ -95,7 +95,7 @@ function PrimerUso({ onCrear }: { onCrear: () => void }) {
     <Tarjeta className="space-y-3">
       <h2 className="text-lg font-semibold">Empieza aquí</h2>
       <p className="text-stone-700">
-        Compara cuánto cuesta tu mercado en <strong>Éxito, Olímpica, D1 y Ara</strong> y te dice dónde comprar cada cosa más barato.
+        Compara cuánto cuesta tu mercado en <strong>Éxito, Olímpica, D1, Metro y Ara</strong> y te dice dónde comprar cada cosa más barato.
       </p>
       <ol className="list-decimal space-y-2 pl-5 text-stone-700">
         <li><strong>Pasa tu lista</strong> (cópiala de WhatsApp o Notas y pégala) o crea tus productos. Los marcados con ★ entran solos en cada compra.</li>

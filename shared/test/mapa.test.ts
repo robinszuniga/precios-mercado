@@ -80,6 +80,7 @@ describe('tiendaDeNombre', () => {
     ['Olímpica', 'OLIMPICA'], ['Supertiendas Olímpica', 'OLIMPICA'], ['olimpica', 'OLIMPICA'],
     ['D1', 'D1'], ['Tiendas D1', 'D1'], ['Tienda D1 Calle 15', 'D1'],
     ['Ara', 'ARA'], ['Tiendas Ara', 'ARA'], ['ARA', 'ARA'],
+    ['Metro', 'METRO'], ['METRO', 'METRO'], ['Supermercados Metro', 'METRO'], ['Supermercado Metro', 'METRO'], ['Hipermercado Metro', 'METRO'], ['Tiendas Metro', 'METRO'],
   ])('%s → %s', (texto, tienda) => expect(tiendaDeNombre(texto)).toBe(tienda))
 
   it.each([['Supertiendas Olímpica', 'OLIMPICA'], ['Hipermercado Éxito', 'EXITO'], ['Tiendas Olímpica', 'OLIMPICA']])('%s → %s', (texto, tienda) => expect(tiendaDeNombre(texto)).toBe(tienda))
@@ -88,7 +89,9 @@ describe('tiendaDeNombre', () => {
     'Araújo', 'Ara Mueblería', 'Carulla', 'Jumbo', 'D12 Papelería', 'Mi Éxitos Perfumería ', '', undefined, 5,
     // Otros negocios que solo llevan la palabra: no son el supermercado.
     'Droguería Olímpica', 'Peluquería Éxito', 'Papelería Éxito', 'Distribuidora Exito del Caribe', 'Ferretería Olímpica', 'Farmacia Olimpica',
-  ])('%s no es de las cuatro', (texto) => {
+    // «Metro» es una palabra común: el metro de una ciudad, un centro comercial o un negocio que la lleva no es el supermercado.
+    'Metro de Medellín', 'Estación Metro', 'Metrocentro', 'Metro Cash & Carry', 'Droguería Metro', 'Metros', 'Metro Express Lavandería',
+  ])('%s no es de las cinco', (texto) => {
     // "Éxitos" sí contiene la palabra "éxito" como prefijo pero no como palabra completa.
     expect(tiendaDeNombre(texto)).toBeNull()
   })
@@ -100,13 +103,15 @@ describe('Overpass', () => {
     expect(q).toContain('around:30000,11.54,-72.91')
     expect(q).not.toContain('11.54449')
     expect(q).toContain('out center tags')
+    // Metro viaja en la consulta (si no, sus sedes nunca aparecerían en el mapa) y el nombre tiene que ser exacto.
+    expect(q).toMatch(/metro\$/)
     // Solo locales que pueden ser un supermercado o tienda de barrio, no cualquier "shop".
     expect(q).toContain('["shop"~"^(supermarket|convenience|')
     expect(q).not.toContain('nwr["shop"]')
     expect(consultaOverpass({ lat: 11, lng: -72 }, 5)).toContain('around:1000,')
   })
 
-  it('lee nodos y vías (con centro), usa la marca si el nombre no sirve, y descarta lo que no es de las cuatro', () => {
+  it('lee nodos y vías (con centro), usa la marca si el nombre no sirve, y descarta lo que no es de las cinco', () => {
     const respuesta = {
       elements: [
         { type: 'node', id: 1, lat: 11.5444, lon: -72.9072, tags: { name: 'Tiendas D1', shop: 'supermarket', 'addr:street': 'Calle 15' } },
@@ -115,6 +120,8 @@ describe('Overpass', () => {
         { type: 'node', id: 4, tags: { name: 'Éxito' } }, // sin posición
         { type: 'node', id: 1, lat: 11.5444, lon: -72.9072, tags: { name: 'Tiendas D1' } }, // repetido
         { type: 'node', id: 5, lat: 11.52, lon: -72.89, tags: { brand: 'Ara' } },
+        { type: 'node', id: 6, lat: 11.53, lon: -72.9, tags: { name: 'Metro', shop: 'supermarket', 'addr:street': 'Calle 15' } },
+        { type: 'node', id: 7, lat: 11.53, lon: -72.9, tags: { name: 'Metro de Medellín', shop: 'supermarket' } }, // no es el supermercado
       ],
     }
     const sedes = sedesDeOverpass(respuesta)
@@ -122,6 +129,7 @@ describe('Overpass', () => {
       ['osm:node1', 'D1', 'Tiendas D1 · Calle 15'],
       ['osm:way2', 'OLIMPICA', 'Almacén del centro'],
       ['osm:node5', 'ARA', 'Ara'],
+      ['osm:node6', 'METRO', 'Metro · Calle 15'],
     ])
     expect(sedes[1]).toMatchObject({ lat: 11.55, lng: -72.91 })
     expect(sedesDeOverpass(null)).toEqual([])

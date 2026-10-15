@@ -159,7 +159,7 @@ export function Mapa() {
       }
       const n = await agregarSedesEncontradas(r.sedes)
       if (n > 0) avisar(n === 1 ? 'Encontré 1 sede nueva.' : `Encontré ${n} sedes nuevas.`)
-      else setMensaje(r.sedes.length ? 'Las sedes que encontré ya estaban guardadas.' : 'No encontré tiendas de las cuatro cadenas en OpenStreetMap cerca de aquí. Agrégalas a mano.')
+      else setMensaje(r.sedes.length ? 'Las sedes que encontré ya estaban guardadas.' : 'No encontré tiendas de las cinco cadenas en OpenStreetMap cerca de aquí. Agrégalas a mano.')
     } catch {
       setMensaje('No pude guardar las sedes. Inténtalo de nuevo.')
     } finally {

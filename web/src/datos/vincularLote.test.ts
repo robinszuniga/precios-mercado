@@ -51,7 +51,7 @@ beforeEach(async () => {
 })
 
 describe('D1 también se busca (con precio nacional)', () => {
-  it('se pide a las tres tiendas; lo que sale de D1 se vincula por código de barras y su precio queda marcado como nacional', async () => {
+  it('se pide a las cuatro tiendas; lo que sale de D1 se vincula por código de barras y su precio queda marcado como nacional', async () => {
     const llamadas: { items: Item[]; tiendas: string[] }[] = []
     h.manejar = (accion, params) => {
       if (accion !== 'buscarVarios') return { tipo: 'ok', data: {} }
@@ -65,7 +65,7 @@ describe('D1 también se busca (con precio nacional)', () => {
     }
     const r = await autoVincular()
     expect(r?.vinculados).toBe(1)
-    expect(llamadas[0].tiendas).toEqual(['OLIMPICA', 'EXITO', 'D1'])
+    expect(llamadas[0].tiendas).toEqual(['OLIMPICA', 'EXITO', 'D1', 'METRO'])
     const pres = await db.presentaciones.toArray()
     expect(pres.map((p) => p.tienda).sort()).toEqual(['D1', 'OLIMPICA'])
     const d1 = pres.find((p) => p.tienda === 'D1')!
@@ -75,6 +75,48 @@ describe('D1 también se busca (con precio nacional)', () => {
     // Y la app lo muestra como "precio nacional", no como un precio de Riohacha.
     const { precioEfectivo } = await import('@shared/precioEfectivo.ts')
     expect(precioEfectivo([precio!], { auto: 3, tiendaAmarillo: 30, tiendaMax: 60 }, precio!.fecha_verificado).efectivo?.distintivo).toBe('online_nac')
+  })
+
+  it('Metro se busca como las demás: lo que sale se vincula por código de barras y su precio queda marcado como nacional', async () => {
+    const llamadas: { items: Item[]; tiendas: string[] }[] = []
+    h.manejar = (accion, params) => {
+      if (accion !== 'buscarVarios') return { tipo: 'ok', data: {} }
+      llamadas.push(params as { items: Item[]; tiendas: string[] })
+      const resultados = (params.items as Item[]).map((it) => {
+        if (it.ean === '770') return { id: it.id, porTienda: { METRO: [opcion('METRO', 'Arroz Diana 1000 g', 4900, 1000, 'g', true, '770')] } }
+        if (it.q === 'Arroz') return { id: it.id, porTienda: { OLIMPICA: [opcion('OLIMPICA', 'Arroz Diana 1000 g', 5200, 1000, 'g', true, '770')] } }
+        return { id: it.id, porTienda: {} }
+      })
+      return { tipo: 'ok', data: { resultados, errores: [], marcas: true } }
+    }
+    const r = await autoVincular()
+    expect(r?.vinculados).toBe(1)
+    // Por código de barras se pide en Metro (y no otra vez en Olímpica, donde ya salió).
+    expect(llamadas.some((l) => l.tiendas.includes('METRO') && l.items.some((i) => i.ean === '770'))).toBe(true)
+    const pres = await db.presentaciones.toArray()
+    expect(pres.map((p) => p.tienda).sort()).toEqual(['METRO', 'OLIMPICA'])
+    const metro = pres.find((p) => p.tienda === 'METRO')!
+    expect(metro).toMatchObject({ auto: true, activo: true, sku_id: 'METRO-Arroz Diana 1000 g', contenido: 1000 })
+    const precio = await db.preciosActuales.where('presentacion_id').equals(metro.presentacion_id).first()
+    expect(precio).toMatchObject({ origen: 'online', precio: 4900, region: 'DEFAULT' })
+    const { precioEfectivo } = await import('@shared/precioEfectivo.ts')
+    expect(precioEfectivo([precio!], { auto: 3, tiendaAmarillo: 30, tiendaMax: 60 }, precio!.fecha_verificado).efectivo?.distintivo).toBe('online_nac')
+  })
+
+  it('si solo Metro falla (su página no responde), las otras tiendas se vinculan y se sellan, y Metro se vuelve a preguntar', async () => {
+    h.manejar = (accion, params) => {
+      if (accion !== 'buscarVarios') return { tipo: 'ok', data: {} }
+      const resultados = (params.items as Item[]).map((it) => ({
+        id: it.id,
+        porTienda: it.q === 'Arroz' ? { OLIMPICA: [opcion('OLIMPICA', 'Arroz Diana 1000 g', 5200, 1000, 'g', true, '770')] } : {},
+      }))
+      return { tipo: 'ok', data: { resultados, errores: ['METRO: No se pudo consultar la región de Metro.'], marcas: true } }
+    }
+    await autoVincular({ forzar: true })
+    expect((await db.presentaciones.toArray()).map((p) => p.tienda)).toEqual(['OLIMPICA'])
+    const sellos = Object.keys(((await db.meta.get('completarTiendas'))?.valor as Record<string, number> | undefined) ?? {})
+    expect(sellos.some((k) => k.startsWith('D1:')) || sellos.some((k) => k.startsWith('EXITO:'))).toBe(true) // lo que sí respondió queda revisado
+    expect(sellos.some((k) => k.startsWith('METRO:'))).toBe(false) // lo que falló, no
   })
 
   it('el precio del estante manda sobre el nacional de internet', async () => {
@@ -296,7 +338,7 @@ describe('marca preferida', () => {
 
     const { vincularMarca } = await import('./vincularLote.ts')
     const [conMarca] = await guardar('Productos', { ...arroz, marca: 'Diana' })
-    expect(await vincularMarca(conMarca)).toEqual({ tipo: 'ok', con: ['OLIMPICA'], sin: ['EXITO', 'D1'] })
+    expect(await vincularMarca(conMarca)).toEqual({ tipo: 'ok', con: ['OLIMPICA'], sin: ['EXITO', 'D1', 'METRO'] })
     const activas = (await db.presentaciones.toArray()).filter((p) => p.activo).map((p) => p.nombre_en_tienda)
     expect(activas).toEqual(['Arroz Diana 1000 g'])
   })
@@ -494,7 +536,7 @@ describe('la cuota del servicio de precios', () => {
       if (accion !== 'buscarVarios') return { tipo: 'ok', data: {} }
       pedidos.push((params as { tiendas: string[] }).tiendas)
       const base = sinNada(params) as { tipo: string; data: Record<string, unknown> }
-      return caida ? { ...base, data: { ...base.data, errores: ['D1: tienda no disponible', 'EXITO: tienda no disponible'] } } : base
+      return caida ? { ...base, data: { ...base.data, errores: ['D1: tienda no disponible', 'EXITO: tienda no disponible', 'METRO: tienda no disponible'] } } : base
     }
     await autoVincular({ forzar: true })
     expect(((await db.meta.get('completarTiendas'))?.valor as Record<string, number> | undefined) ?? {}).toEqual({}) // nada sellado
@@ -533,10 +575,10 @@ describe('la cuota del servicio de precios', () => {
       return { tipo: 'ok', data: { resultados: (params.items as Item[]).map((it) => ({ id: it.id, porTienda: { OLIMPICA: it.q === 'Arroz' ? [opcion('OLIMPICA', 'Arroz Diana 1000 g', 5200, 1000, 'g', true, '770')] : [], EXITO: [], D1: [] } })), errores: [], marcas: true } }
     }
     await autoVincular()
-    // Arroz salió en Olímpica: por código de barras se pregunta solo en Éxito y D1 (no otra vez en Olímpica).
+    // Arroz salió en Olímpica: por código de barras se pregunta solo en Éxito, D1 y Metro (no otra vez en Olímpica).
     const porCodigo = pedidos.filter((x) => x.tiendas.length > 1 && x.items.some((i) => i.ean === '770'))
     expect(porCodigo).toHaveLength(1)
-    expect([...porCodigo[0].tiendas].sort()).toEqual(['D1', 'EXITO'])
+    expect([...porCodigo[0].tiendas].sort()).toEqual(['D1', 'EXITO', 'METRO'])
   })
 
   it('un fallo de marcas (sin productos por buscar) espera la hora de siempre, no los 2 minutos de un límite de cuota anterior', async () => {

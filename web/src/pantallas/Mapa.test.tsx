@@ -54,8 +54,8 @@ async function conLista() {
   await pres(leche, 'D1', 1100, 4800)
   await pres(leche, 'EXITO', 1100, 4500)
   await pres(aceite, 'EXITO', 1000, 9000)
-  await asegurarCompra(['D1', 'EXITO', 'OLIMPICA', 'ARA'])
-  for (const p of [arroz, leche, aceite]) await agregarALaCompra(p, ['D1', 'EXITO', 'OLIMPICA', 'ARA'])
+  await asegurarCompra(['D1', 'EXITO', 'OLIMPICA', 'METRO', 'ARA'])
+  for (const p of [arroz, leche, aceite]) await agregarALaCompra(p, ['D1', 'EXITO', 'OLIMPICA', 'METRO', 'ARA'])
 }
 
 const sedesGuardadas = async () => sedesDeConfig(await db.config.toArray())
@@ -83,7 +83,7 @@ describe('Mapa · lo que cuesta tu lista en cada tienda', () => {
     render(<Mapa />)
     await screen.findByText('Tu lista en cada tienda', {}, { timeout: ESPERA })
     const tarjetas = screen.getAllByRole('listitem').filter((li) => /Toda tu lista|Tiene \d+ de|Sin precios de tu lista/.test(li.textContent ?? ''))
-    expect(tarjetas).toHaveLength(4)
+    expect(tarjetas).toHaveLength(5)
     // Solo Éxito tiene los 3 productos: es la única "con todo".
     expect(tarjetas[0]).toHaveTextContent('Éxito')
     expect(tarjetas[0]).toHaveTextContent('Más barata con todo')
@@ -93,6 +93,7 @@ describe('Mapa · lo que cuesta tu lista en cada tienda', () => {
     expect(tarjetas[1]).toHaveTextContent(/5\.800/)
     expect(tarjetas[2]).toHaveTextContent(/Sin precios de tu lista todavía/)
     expect(tarjetas[3]).toHaveTextContent(/Sin precios de tu lista todavía/)
+    expect(tarjetas[4]).toHaveTextContent(/Sin precios de tu lista todavía/)
   })
 
   it('un total que usa el precio nacional de internet de D1 sale marcado como tal (pines y tarjeta)', async () => {
@@ -292,7 +293,7 @@ describe('Mapa · sedes', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ elements: [] }))))
     render(<Mapa />)
     fireEvent.click(await screen.findByRole('button', { name: 'Buscar sedes cerca' }, { timeout: ESPERA }))
-    expect(await screen.findByText(/No encontré tiendas de las cuatro cadenas/)).toBeInTheDocument()
+    expect(await screen.findByText(/No encontré tiendas de las cinco cadenas/)).toBeInTheDocument()
   })
 
   it('"Quitar" saca la sede de la cuenta', async () => {

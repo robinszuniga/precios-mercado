@@ -31,7 +31,7 @@ describe('primer uso', () => {
   it('la pantalla vacía dice para qué sirve la app', async () => {
     render(<Lista />)
     expect(await screen.findByText(/Compara cuánto cuesta tu mercado/)).toBeInTheDocument()
-    expect(screen.getByText(/Éxito, Olímpica, D1 y Ara/)).toBeInTheDocument()
+    expect(screen.getByText(/Éxito, Olímpica, D1, Metro y Ara/)).toBeInTheDocument()
   })
 
   it('con productos pero sin ningún precio, la lista dice cuál es el siguiente paso', async () => {
