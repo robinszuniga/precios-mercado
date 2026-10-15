@@ -1,10 +1,10 @@
 // Averigua si la tienda en línea de un supermercado (VTEX) muestra precios de Riohacha o solo precios nacionales.
 // Sirve para cualquier tienda que use VTEX sin agregarla a la app. No escribe nada: solo hace consultas públicas.
 //
-//   node tools/probar-tienda.ts https://www.jumbocolombia.com            (la tienda en línea de Metro y Jumbo)
+//   node tools/probar-tienda.ts https://www.jumbocolombia.com            (la tienda en línea de Jumbo, que usa Metro)
 //   node tools/probar-tienda.ts https://www.d1.com.co --q "arroz"
 //
-// Pregunta lo mismo que la app para Éxito, Olímpica, D1 y Metro: ¿la región de Riohacha trae algún vendedor (seller) propio, que no
+// Pregunta lo mismo que la app para Éxito, Olímpica y D1: ¿la región de Riohacha trae algún vendedor (seller) propio, que no
 // aparezca también en Bogotá? Si sí, el precio en línea es el de Riohacha; si solo hay vendedores genéricos, es el nacional.
 import { esLocal, estaLocalizada, parseRegiones, type RegionVtex } from '../shared/src/vtex/region.ts'
 import { armarSegmento, cabeceraCookie, segmentoDeSetCookie, type Segmento } from '../shared/src/vtex/segmento.ts'

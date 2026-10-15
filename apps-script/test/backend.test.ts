@@ -162,7 +162,7 @@ function presentacion(id: string, tienda: string, sku: string, ean = '') {
 
 function prepararRegion(f: ReturnType<typeof crearServicios>) {
   const region = JSON.stringify({ regionId: null, channel: '1', sellers: [], localizada: false, fecha: AHORA })
-  f.repo.guardar('Config', ['EXITO', 'OLIMPICA', 'D1', 'METRO'].map((t) => ({ clave: `region.${t}`, valor: region, updated_at: AHORA })))
+  f.repo.guardar('Config', ['EXITO', 'OLIMPICA', 'D1'].map((t) => ({ clave: `region.${t}`, valor: region, updated_at: AHORA })))
 }
 
 describe('actualización de precios', () => {
@@ -270,12 +270,11 @@ describe('buscarEnTienda', () => {
       { clave: 'region.EXITO', valor: JSON.stringify({ regionId: 'v2.R', channel: '1', sellers: ['s1'], localizada: true, fecha: AHORA }), updated_at: AHORA },
       { clave: 'region.OLIMPICA', valor: JSON.stringify({ regionId: null, channel: '1', sellers: [], localizada: false, fecha: AHORA }), updated_at: AHORA },
       { clave: 'region.D1', valor: JSON.stringify({ regionId: null, channel: '1', sellers: [], localizada: false, fecha: AHORA }), updated_at: AHORA },
-      { clave: 'region.METRO', valor: JSON.stringify({ regionId: null, channel: '1', sellers: [], localizada: false, fecha: AHORA }), updated_at: AHORA },
     ])
     expect(post(f.s, { a: 'buscarEnTienda', tienda: '*', q: 'arroz' }).error?.codigo).toBe('validacion')
     const r = post(f.s, { a: 'buscarEnTienda', tienda: '*', ean: '770' })
     const data = r.data as { candidatos: { tienda: string; region: string }[] }
-    expect(data.candidatos.map((c) => [c.tienda, c.region])).toEqual([['EXITO', 'RIOHACHA'], ['OLIMPICA', 'DEFAULT'], ['D1', 'DEFAULT'], ['METRO', 'DEFAULT']])
+    expect(data.candidatos.map((c) => [c.tienda, c.region])).toEqual([['EXITO', 'RIOHACHA'], ['OLIMPICA', 'DEFAULT'], ['D1', 'DEFAULT']])
     expect(f.pedidas[0].cabeceras?.Cookie).toMatch(/^vtex_segment=/)
     expect(f.pedidas[1].cabeceras?.Cookie).toBeUndefined()
   })
@@ -379,7 +378,7 @@ describe('robustez del servidor (revisión)', () => {
     expect(fila).toMatchObject({ nombre: 'Arroz integral', marca: 'Diana' })
   })
 
-  it('buscarVarios no repite tiendas ni pasa del total de tiendas: nadie multiplica las consultas a las tiendas', () => {
+  it('buscarVarios no repite tiendas ni pasa de 3: nadie multiplica las consultas a las tiendas', () => {
     const f = crearServicios({ responder: () => ({ status: 200, cuerpo: '[]', setCookie: [] }) })
     prepararRegion(f)
     const antes = f.pedidas.length

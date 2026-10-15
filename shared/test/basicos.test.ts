@@ -110,15 +110,15 @@ describe('sync y config', () => {
     expect(c.autoD1).toBe(true)
     expect(c.ubicacion.cp).toBe('440001')
   })
-  it('la región guardada de Metro se lee como la de las otras tiendas en línea', () => {
+  it('Metro y Ara no son tiendas de internet: no tienen región guardada aunque la configuración traiga una', () => {
     const c = leerConfig([{ clave: 'region.METRO', valor: '{"regionId":null,"channel":"1","sellers":[],"localizada":false,"fecha":"x"}' }])
-    expect(c.regiones.METRO).toMatchObject({ localizada: false })
-    expect('ARA' in c.regiones).toBe(false) // Ara no vende en línea: no tiene región
+    expect('METRO' in c.regiones).toBe(false)
+    expect('ARA' in c.regiones).toBe(false)
   })
 })
 
 describe('catálogo de tiendas', () => {
-  it('las tiendas en línea tienen sus direcciones; Ara, no; y toda tienda en línea está en la lista general', async () => {
+  it('las tiendas en línea tienen sus direcciones; Metro y Ara son de precio manual; y toda tienda en línea está en la lista general', async () => {
     const { INFO_TIENDAS, TIENDAS, TIENDAS_VTEX, esTienda, esTiendaVtex } = await import('../src/tiendas.ts')
     for (const t of TIENDAS_VTEX) {
       expect(TIENDAS).toContain(t)
@@ -126,11 +126,15 @@ describe('catálogo de tiendas', () => {
       expect(INFO_TIENDAS[t].checkout).toMatch(/^https:\/\//)
       expect(INFO_TIENDAS[t].home).toMatch(/^https:\/\/.*\/$/)
     }
-    expect(INFO_TIENDAS.ARA.catalogo).toBeNull()
     expect(TIENDAS).toHaveLength(new Set(TIENDAS).size)
     expect([...TIENDAS].sort()).toEqual(['ARA', 'D1', 'EXITO', 'METRO', 'OLIMPICA'])
-    expect(esTienda('METRO') && esTiendaVtex('METRO')).toBe(true)
-    expect(esTiendaVtex('ARA')).toBe(false)
+    expect([...TIENDAS_VTEX].sort()).toEqual(['D1', 'EXITO', 'OLIMPICA'])
+    // Metro: su página de internet es la de Jumbo y no atiende Riohacha (investigado el 15-oct-2026). No debe volver a buscarse por internet.
+    for (const t of ['METRO', 'ARA'] as const) {
+      expect(esTienda(t)).toBe(true)
+      expect(esTiendaVtex(t)).toBe(false)
+      expect(INFO_TIENDAS[t]).toMatchObject({ catalogo: null, checkout: null, home: null })
+    }
     expect(INFO_TIENDAS.METRO.nombre).toBe('Metro')
   })
 })

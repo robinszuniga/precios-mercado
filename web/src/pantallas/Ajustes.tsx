@@ -150,7 +150,7 @@ function ServicioVtex() {
   return (
     <Tarjeta className="space-y-2 text-sm">
       <h3 className="font-semibold">Precios de internet</h3>
-      <p className="text-stone-700">Buscamos los productos en los catálogos online de Éxito, Olímpica, D1 y Metro. D1 no atiende Riohacha, así que su precio de internet es el nacional y sale marcado como «precio nacional»: el que ves en el estante manda, anótalo tú. Metro vende en línea por la página de Jumbo (jumbocolombia.com) y allá sus precios pueden ser distintos a los del supermercado: también salen como «precio nacional». No necesitas crear una hoja de Google ni copiar una clave. Los precios dependen de la tienda y pueden cambiar; si una tienda no publica el precio, puedes anotarlo aquí.</p>
+      <p className="text-stone-700">Buscamos los productos en los catálogos online de Éxito, Olímpica y D1. D1 no atiende Riohacha, así que su precio de internet es el nacional y sale marcado como «precio nacional»: el que ves en el estante manda, anótalo tú. No necesitas crear una hoja de Google ni copiar una clave. Los precios dependen de la tienda y pueden cambiar; si una tienda no publica el precio, puedes anotarlo aquí.</p>
     </Tarjeta>
   )
 }
@@ -174,13 +174,14 @@ function Regiones() {
           <div key={t} className="flex items-center justify-between gap-2">
             <span className="flex flex-wrap items-center gap-x-1.5">
               <NombreTienda tienda={t} tam={18} />
-              <span className="text-stone-700">{!g ? '· sin probar' : g.localizada ? '· precio de Riohacha' : t === 'D1' ? '· no atiende Riohacha: precio nacional de internet; el del estante lo anotas tú' : t === 'METRO' ? '· vende en línea por jumbocolombia.com: precio nacional de internet; el del estante lo anotas tú' : '· precio nacional'}</span>
+              <span className="text-stone-700">{!g ? '· sin probar' : g.localizada ? '· precio de Riohacha' : t === 'D1' ? '· no atiende Riohacha: precio nacional de internet; el del estante lo anotas tú' : '· precio nacional'}</span>
             </span>
             <Boton variante="fantasma" onClick={() => void probar(t)}>Probar</Boton>
           </div>
         )
       })}
       <div className="flex items-center gap-1.5 py-2"><NombreTienda tienda="ARA" tam={18} /><span className="text-stone-700">· no vende online: lo anotas tú</span></div>
+      <div className="flex items-center gap-1.5 pb-2"><NombreTienda tienda="METRO" tam={18} /><span className="text-stone-700">· su página de internet es la de Jumbo y no llega a Riohacha: lo anotas tú</span></div>
       {msg && <p role="status">{msg}</p>}
     </Tarjeta>
   )

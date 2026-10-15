@@ -16,11 +16,6 @@ describe('urls', () => {
     expect(urlPorSku('OLIMPICA', '123')).toBe('https://www.olimpica.com/api/catalog_system/pub/products/search?fq=skuId:123&_from=0&_to=49')
     expect(urlPorEan('D1', '7702001')).toContain('https://www.d1.com.co/api/catalog_system/pub/products/search?fq=alternateIds_Ean:7702001')
   })
-  it('Metro se consulta en la página de Jumbo (jumbocolombia.com), sin /io', () => {
-    expect(urlPorSku('METRO', '123')).toBe('https://www.jumbocolombia.com/api/catalog_system/pub/products/search?fq=skuId:123&_from=0&_to=49')
-    expect(urlPorEan('METRO', '7702001')).toContain('https://www.jumbocolombia.com/api/catalog_system/pub/products/search?fq=alternateIds_Ean:7702001')
-    expect(urlRegiones('METRO', { lon: -72.907, lat: 11.544 })).toBe('https://www.jumbocolombia.com/api/checkout/pub/regions?country=COL&geoCoordinates=-72.907%3B11.544')
-  })
   it('la ventana nunca pasa de 50 ni de 2500', () => {
     expect(urlBusqueda('D1', { ft: 'x', desde: 100, hasta: 500 })).toContain('_from=100&_to=149')
     expect(urlBusqueda('D1', { ft: 'x', desde: 2480 })).toContain('_from=2480&_to=2499')

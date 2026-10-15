@@ -1,7 +1,7 @@
 export const TIENDAS = ['EXITO', 'OLIMPICA', 'D1', 'METRO', 'ARA'] as const
 export type Tienda = (typeof TIENDAS)[number]
 
-export const TIENDAS_VTEX = ['EXITO', 'OLIMPICA', 'D1', 'METRO'] as const
+export const TIENDAS_VTEX = ['EXITO', 'OLIMPICA', 'D1'] as const
 export type TiendaVtex = (typeof TIENDAS_VTEX)[number]
 
 export interface InfoTienda {
@@ -33,15 +33,10 @@ export const INFO_TIENDAS: Record<Tienda, InfoTienda> = {
     checkout: 'https://www.d1.com.co',
     home: 'https://www.d1.com.co/',
   },
-  // Metro no tiene tienda en línea propia: su sitio manda a comprar en jumbocolombia.com (la misma plataforma de Jumbo) y avisa
-  // que los precios de internet pueden diferir de los del supermercado. Se trata como Éxito: precio de internet nacional, y el
-  // que se ve en el estante manda.
-  METRO: {
-    nombre: 'Metro',
-    catalogo: 'https://www.jumbocolombia.com',
-    checkout: 'https://www.jumbocolombia.com',
-    home: 'https://www.jumbocolombia.com/',
-  },
+  // Metro no tiene tienda en línea propia: su sitio manda a comprar en jumbocolombia.com (la plataforma de Jumbo), que no atiende
+  // Riohacha (la región de la ciudad viene sin vendedores) y avisa que sus precios no siempre coinciden con los del supermercado.
+  // Investigado el 15-oct-2026: lo que devuelve sin ciudad son precios de otra región. Por eso es de precio manual, como Ara.
+  METRO: { nombre: 'Metro', catalogo: null, checkout: null, home: null },
   ARA: { nombre: 'Ara', catalogo: null, checkout: null, home: null },
 }
 
